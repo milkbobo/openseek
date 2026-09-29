@@ -4185,12 +4185,6 @@ fn update_msg(
       (@cmd.batch([page_cmd, fetch_installed_skills(dispatch, channel)]), model)
     }
     Send | SendFollowup(_) | SendInBackground => {
-      // Re-pinning is for the reader of this conversation's transcript.
-      let scroll = if msg is SendInBackground {
-        @cmd.none
-      } else {
-        @transcript_component.scroll_to_latest()
-      }
       let followup = match msg {
         SendFollowup(choice) => Some(choice)
         _ => None
@@ -4291,6 +4285,12 @@ fn update_msg(
             )
           }
           let (model, submission_id) = model.allocate_submission_id()
+          // Background shell completion must not move the reader.
+          let model = if msg is SendInBackground {
+            model
+          } else {
+            model.follow_transcript_latest(submission_id)
+          }
           let conv = conv.enqueue_steer(
             submission_id,
             Some(run_id),
@@ -4325,7 +4325,7 @@ fn update_msg(
             )
           }
           (
-            @cmd.batch([command, scroll]),
+            command,
             {
               ..model.replace_conversation({
                 ..conv,
@@ -4350,6 +4350,12 @@ fn update_msg(
         (@cmd.none, model)
       } else {
         let (model, submission_id) = model.allocate_submission_id()
+        // Background shell completion must not move the reader.
+        let model = if msg is SendInBackground {
+          model
+        } else {
+          model.follow_transcript_latest(submission_id)
+        }
         // The worktree launch mode acts until a create has bound the
         // conversation; the eligibility must survive a rejected setup
         // attempt (see `wants_fresh_worktree`). Read before the pending
@@ -4416,7 +4422,7 @@ fn update_msg(
         }
         // Re-pin now, before the durable User item arrives, so the early
         // streamed work is visible even if the reader had scrolled up.
-        (@cmd.batch([start_cmd, scroll]), model.replace_conversation(next))
+        (start_cmd, model.replace_conversation(next))
       }
     }
     Stop => {
