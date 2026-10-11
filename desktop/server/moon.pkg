@@ -1,9 +1,7 @@
 import {
   "moonbitlang/async",
-  "moonbitlang/async/stdio",
   "moonbitlang/core/argparse",
   "moonbitlang/core/env",
-  "moonbitlang/core/string",
   "openseek_desktop/backend/api",
   "openseek_desktop/backend/auth",
   "openseek_desktop/backend/codex",

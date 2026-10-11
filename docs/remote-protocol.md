@@ -76,8 +76,8 @@ larger than 32 MiB is closed with WebSocket code 1009. This accommodates four
 envelope. The reader grows incrementally and stops at the first excess byte;
 small requests do not allocate the full image allowance.
 
-The same envelopes travel over a byte stream when the headless server is
-started with `--stdio`: one envelope per line in each direction, on the
+The same envelopes travel over a byte stream to the headless server
+(`seekmoon-server --stdio`): one envelope per line in each direction, on the
 process's standard input and output. A line is the frame, so a request line
 larger than 32 MiB is answered with error `-32600` and a `null` id, and the
 server then stops. The stream closing is the disconnect; there is no

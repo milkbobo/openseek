@@ -306,23 +306,6 @@ jobs:
           fi
           moon -C desktop/server build . --target native --release
 
-      - name: Serve the console and gate it by session
-        run: |
-          server=desktop/server/_build/native/release/build/openseek_desktop/server/server.exe
-          "$server" --resource-dir desktop --port 18741 > server.out 2> server.err &
-          pid=$!
-          for _ in $(seq 1 50); do
-            grep -q '^http' server.out && break
-            sleep 0.2
-          done
-          cat server.out server.err
-          url="$(grep '^http' server.out)"
-          # No session, no account route; the entry URL grants the session.
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18741/v1/auth/me)" = 401
-          curl -fsS -c cookies.txt -o /dev/null "$url"
-          curl -fsS -b cookies.txt http://127.0.0.1:18741/v1/auth/me | grep -q '"login"'
-          kill "$pid"
-
       - name: Serve one client on standard streams
         run: |
           server=desktop/server/_build/native/release/build/openseek_desktop/server/server.exe

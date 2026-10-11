@@ -55,12 +55,10 @@ the server needs, and Moon picks the nearest one, so nothing of Proton is
 resolved there. The executable lands in
 `desktop/server/_build/native/release/build/openseek_desktop/server/`. It
 needs a C compiler to build and nothing but the system libraries to run.
-`--resource-dir` names the directory its bundled files live under. The console
-listens on loopback only, so reaching it from another machine takes a
-forwarded port (`ssh -L`).
+`--resource-dir` names the directory its bundled files live under.
 
-With `--stdio` the server opens no port and serves no page. Its one client is
-whoever started it and holds its standard streams, which is what `ssh` and
+The server opens no port and serves no page. Its one client is whoever
+started it and holds its standard streams, which is what `ssh` and
 `docker exec -i` hand over:
 
 ```sh
@@ -72,7 +70,7 @@ Each line in either direction is one JSON-RPC message of
 its input ends, and everything it started stops with it. Processes it starts
 never see the channel: before anything else runs, the server moves it to
 private descriptors and leaves the null device and standard error in its
-place. `--stdio` is not available on Windows.
+place. The server does not run on Windows.
 
 The platform commands remain compatible:
 
