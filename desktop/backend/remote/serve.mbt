@@ -1,18 +1,23 @@
-// One remote client's connection: JSON-RPC 2.0 over a WebSocket the host
-// dialed out through the relay (docs/remote-protocol.md). Requests fan out
-// to the shared dispatcher concurrently; notifications flow back from the
-// hub. The bridge and this file are the only two transports, and everything
-// below the envelope is the typed Endpoint selected from `@api.endpoints`.
+// One remote client's connection: JSON-RPC 2.0 (docs/remote-protocol.md)
+// over whatever channel reached this host — a WebSocket it dialed out through
+// the relay, one it accepted on the console listener, or a byte stream
+// (`transport.mbt`). Requests fan out to the shared dispatcher concurrently;
+// notifications flow back from the hub. The window bridge is the only other
+// way in, and everything below the envelope is the typed Endpoint selected
+// from `@api.endpoints`.
 
 ///|
 /// Everything the single writer task sends, encoded only at the writer so
-/// no other task ever touches the socket.
+/// no other task ever touches the channel.
 priv enum Outgoing {
   // A complete JSON-RPC response envelope, built where the request ran.
   Response(Json)
   Notify(@protocol.Notification)
-  // Protocol-level keepalive, serialized with every text frame.
+  // Transport-level keepalive, serialized with every envelope.
   Ping
+  // The reader met a request over the size limit. The writer says so and
+  // ends the connection, after whatever was queued ahead of it.
+  RefuseOversized
 }
 
 ///|
@@ -27,23 +32,23 @@ priv struct ClientSubscription {
 }
 
 ///|
-/// One client's WebSocket actor: a relay data socket this host dials
-/// (`run`) or a development console socket it accepted (`serve`). Its
-/// subscription, outbound queue, writer, notification forwarder, pinger, and
-/// request tasks cannot outlive the socket.
-priv struct WsClientActor {
+/// One client's actor: a relay data socket this host dials (`run`), or a
+/// channel it was handed (`serve`). Its subscription, outbound queue, writer,
+/// notification forwarder, pinger, and request tasks cannot outlive the
+/// channel.
+priv struct ClientActor {
   state : @api.ApiState
   host_connection : @host.HostConnection
 }
 
 ///|
-fn WsClientActor::WsClientActor(state : @api.ApiState) -> WsClientActor {
+fn ClientActor::ClientActor(state : @api.ApiState) -> ClientActor {
   { state, host_connection: HostConnection(), }
 }
 
 ///|
-async fn WsClientActor::open_subscription(
-  self : WsClientActor,
+async fn ClientActor::open_subscription(
+  self : ClientActor,
 ) -> ClientSubscription {
   let out : @async.Queue[Outgoing] = Queue(kind=Blocking(OutboundQueueCapacity))
   let notifications = self.state.subscribe()
@@ -85,7 +90,7 @@ const PingIntervalMs = 30_000
 
 ///|
 /// How many outbound frames may queue before writers suspend. This is also
-/// the slow-client limit: a socket that stalls long enough to fill it gets
+/// the slow-client limit: a channel that stalls long enough to fill it gets
 /// the connection torn down (the pump must not block on a full queue — a
 /// pump parked in `put` would never get back to its subscription to notice
 /// that it lagged).
@@ -93,7 +98,7 @@ const OutboundQueueCapacity = 64
 
 ///|
 /// Maximum request bodies and operation tasks retained by one remote client.
-/// The reader acquires before spawning, so the socket itself supplies
+/// The reader acquires before spawning, so the channel itself supplies
 /// backpressure instead of creating an unbounded crowd of tasks waiting on
 /// slower engine, filesystem, or registry work.
 const InflightRequestCapacity = 32
@@ -105,7 +110,7 @@ const InboundFrameMaxBytes : Int = 32 * 1024 * 1024
 
 ///|
 /// Enforce one outbound bound for notifications and responses. A producer
-/// must never park behind a stalled socket: raising from any request task or
+/// must never park behind a stalled channel: raising from any request task or
 /// the notification pump tears down the task group and reconnects cleanly.
 fn enqueue_outgoing(
   out : @async.Queue[Outgoing],
@@ -142,7 +147,7 @@ const CodeHostError = -32001
 /// Dial and serve one announced remote client. A client hanging up mid-run
 /// is routine and only retires this actor; cancelling the parent relay actor
 /// still propagates so every owned resource is closed immediately.
-async fn WsClientActor::run(self : WsClientActor, url : String) -> Unit {
+async fn ClientActor::run(self : ClientActor, url : String) -> Unit {
   let conn = @websocket.Conn::connect(url)
   defer conn.close()
   self.serve(conn) catch {
@@ -151,11 +156,12 @@ async fn WsClientActor::run(self : WsClientActor, url : String) -> Unit {
 }
 
 ///|
-/// Serve the actor's connected socket until it closes (or its hub
-/// subscription lags for want of draining).
-async fn WsClientActor::serve(
-  self : WsClientActor,
-  conn : @websocket.Conn,
+/// Serve the actor's connected channel until the peer closes it. Anything
+/// else that ends the connection raises: a failed read or write, the hub
+/// subscription lagging, or the outbound queue standing full.
+async fn[T : ClientTransport] ClientActor::serve(
+  self : ClientActor,
+  transport : T,
 ) -> Unit {
   let subscription = self.open_subscription()
   let out = subscription.out
@@ -169,12 +175,25 @@ async fn WsClientActor::serve(
   let endpoints = @api.endpoints(self.state, self.host_connection)
   @async.with_task_group(group => {
     group.spawn_bg(() => {
+      // The channel's only write boundary. Even keepalives pass through
+      // here, so a transport never sees interleaved sends.
       for ;; {
-        out.get().write(conn)
+        match out.get() {
+          Response(envelope) => transport.send_envelope(envelope.stringify())
+          Notify(notification) =>
+            transport.send_envelope(
+              notification_envelope(notification).stringify(),
+            )
+          Ping => transport.keepalive()
+          RefuseOversized => {
+            transport.refuse_oversized()
+            group.return_immediately(())
+          }
+        }
       }
     })
     group.spawn_bg(() => {
-      // Filesystem watch events belong to this WebSocket connection. They
+      // Filesystem watch events belong to this connection. They
       // bypass the shared hub so other desktop and remote clients never
       // receive this connection's `fs.changed` notifications.
       self.host_connection.run(
@@ -185,7 +204,7 @@ async fn WsClientActor::serve(
     group.spawn_bg(() => {
       // Tears the connection down either way it ends — the client
       // reconnects into a resync: this subscription lagging behind the hub's
-      // log (`next` raises), or the outbound queue standing full (the socket
+      // log (`next` raises), or the outbound queue standing full (the channel
       // has stalled for `OutboundQueueCapacity` frames, and the protocol
       // promises a disconnect over a silent gap in the stream).
       for ;; {
@@ -208,25 +227,21 @@ async fn WsClientActor::serve(
       }
     })
     group.spawn_bg(() => {
-      // Protocol-level keepalive: a dead middlebox connection surfaces as a
-      // failed ping write instead of lingering forever.
       for ;; {
         @async.sleep(PingIntervalMs)
         enqueue_outgoing(out, Ping)
       }
     })
     for ;; {
-      let message = conn.recv()
-      guard message.kind is Text else {
-        // The protocol is JSON text; a binary frame is a peer bug.
-        continue
+      guard transport.next_frame() is Some(frame) else {
+        group.return_immediately(())
+        return
       }
-      match Inbound::read(message) {
+      match frame {
         Oversized => {
-          conn.send_close(
-            code=MessageTooBig,
-            reason="JSON-RPC request exceeds 32 MiB",
-          )
+          // The stream is now mid-request, so nothing more can be read from
+          // it; the writer ends the connection once the refusal is out.
+          enqueue_outgoing(out, RefuseOversized)
           return
         }
         Request(id, method_, params) =>
@@ -245,8 +260,8 @@ async fn WsClientActor::serve(
           } else {
             // Each other request runs in its own task so a slow op (an engine
             // start, a big file read) does not block other admitted requests;
-            // acquiring before spawn bounds retained tasks and lets TCP
-            // backpressure slow a client that exceeds this connection's
+            // acquiring before spawn bounds retained tasks and lets the
+            // channel's backpressure slow a client that exceeds this connection's
             // concurrency budget. Replies are correlated by id, not order.
             request_permits.acquire()
             group.spawn_bg(() => {
@@ -293,23 +308,24 @@ async fn WsClientActor::serve(
 }
 
 ///|
-/// The socket's only write boundary. Even keepalive frames pass through this
-/// method, so the WebSocket implementation never sees interleaved sends.
-async fn Outgoing::write(self : Outgoing, conn : @websocket.Conn) -> Unit {
-  let envelope : Json = match self {
-    Ping => {
-      conn.ping()
-      return
-    }
-    Response(envelope) => envelope
-    Notify(notification) =>
-      {
-        "jsonrpc": "2.0",
-        "method": Json(notification.wire_name()),
-        "params": notification.params(),
-      }
+fn notification_envelope(notification : @protocol.Notification) -> Json {
+  {
+    "jsonrpc": "2.0",
+    "method": Json(notification.wire_name()),
+    "params": notification.params(),
   }
-  conn.send_text(envelope.stringify())
+}
+
+///|
+/// Serve one client over a byte stream, one JSON-RPC envelope per line in
+/// each direction, until `input` ends. A host whose only client arrives this
+/// way has nothing left to serve once this returns or raises.
+pub async fn serve_lines(
+  state : @api.ApiState,
+  input : &@io.Reader,
+  output : &@io.Writer,
+) -> Unit {
+  ClientActor(state).serve(LineTransport(input, output))
 }
 
 ///|
@@ -361,7 +377,7 @@ fn remote_lifecycle(event : @wire.Event) -> @wire.Event? {
 }
 
 ///|
-/// Apply the remote delivery profile at the WebSocket edge.
+/// Apply the remote delivery profile at the connection's edge.
 /// Full semantic transcript objects have a canonical `session.event` twin;
 /// deltas, metrics, errors, acknowledgements, and lifecycle state pass
 /// through. Lifecycle frames carrying large durable text are copied and
@@ -429,7 +445,7 @@ fn error_envelope(id : Json, code : Int, message : String) -> Json {
 ///|
 async test "readiness precedes the first forwarded hub notification" {
   let state = @api.ApiState(engine="unused")
-  let subscription = WsClientActor(state).open_subscription()
+  let subscription = ClientActor(state).open_subscription()
   state.publish(
     SessionEvent({
       session: "session-1",

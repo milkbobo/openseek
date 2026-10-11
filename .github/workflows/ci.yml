@@ -323,6 +323,26 @@ jobs:
           curl -fsS -b cookies.txt http://127.0.0.1:18741/v1/auth/me | grep -q '"login"'
           kill "$pid"
 
+      - name: Serve one client on standard streams
+        run: |
+          server=desktop/server/_build/native/release/build/openseek_desktop/server/server.exe
+          mkfifo requests
+          "$server" --stdio --resource-dir desktop < requests > replies 2> stdio.err &
+          pid=$!
+          exec 3> requests
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"no.such.method"}' >&3
+          for _ in $(seq 1 50); do
+            grep -q '"id":1' replies && break
+            sleep 0.2
+          done
+          cat replies stdio.err
+          # Readiness is the first line and the answer follows; the server
+          # leaves when its input ends.
+          head -n 1 replies | grep -q '"agent.connected"'
+          grep -q '"code":-32601' replies
+          exec 3>&-
+          wait "$pid"
+
   # cmd/viz_app is a separate MoonBit module and owns its browser test runner.
   # Keep it out of Desktop's recipe so either application can be tested alone.
   viz-e2e:

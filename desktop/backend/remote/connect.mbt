@@ -91,7 +91,7 @@ async fn RelayActor::connect_once(
         // clients.
         Open(stream~) =>
           group.spawn_bg(allow_failure=true, () => {
-            WsClientActor(self.state).run(data_url(config.relay_url, stream))
+            ClientActor(self.state).run(data_url(config.relay_url, stream))
           })
         // A mid-session fail is the relay revoking this registration —
         // terminal like a refused one.

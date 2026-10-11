@@ -23,7 +23,7 @@ it:
 
 - `EngineActor` owns serve processes and durable-session followers.
 - `LspPoolActor` owns the language-server actors shared by the host.
-- `RelayActor` owns the control connection and creates one `WsClientActor`
+- `RelayActor` owns the control connection and creates one `ClientActor`
   for each relayed client.
 - Every Proton or WebSocket client owns a separate `HostConnection`, whose
   `FsWatchActor` serves only that client's `fs.watch` state and whose
@@ -75,6 +75,13 @@ larger than 32 MiB is closed with WebSocket code 1009. This accommodates four
 5 MiB Codex image attachments after base64 encoding plus the prompt and JSON
 envelope. The reader grows incrementally and stops at the first excess byte;
 small requests do not allocate the full image allowance.
+
+The same envelopes travel over a byte stream when the headless server is
+started with `--stdio`: one envelope per line in each direction, on the
+process's standard input and output. A line is the frame, so a request line
+larger than 32 MiB is answered with error `-32600` and a `null` id, and the
+server then stops. The stream closing is the disconnect; there is no
+keepalive frame.
 
 Remote delivery trims high-volume transcript objects whose canonical form is
 delivered by `session.event`. Every Desktop API run names a durable session, so

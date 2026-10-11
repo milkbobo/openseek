@@ -59,6 +59,21 @@ needs a C compiler to build and nothing but the system libraries to run.
 listens on loopback only, so reaching it from another machine takes a
 forwarded port (`ssh -L`).
 
+With `--stdio` the server opens no port and serves no page. Its one client is
+whoever started it and holds its standard streams, which is what `ssh` and
+`docker exec -i` hand over:
+
+```sh
+ssh box seekmoon-server --stdio --resource-dir /opt/seekmoon
+```
+
+Each line in either direction is one JSON-RPC message of
+[`docs/remote-protocol.md`](../docs/remote-protocol.md). The server exits when
+its input ends, and everything it started stops with it. Processes it starts
+never see the channel: before anything else runs, the server moves it to
+private descriptors and leaves the null device and standard error in its
+place. `--stdio` is not available on Windows.
+
 The platform commands remain compatible:
 
 ```sh
