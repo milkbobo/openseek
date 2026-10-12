@@ -6,7 +6,12 @@
 /// configuration raises, exiting nonzero — the command is usable as a
 /// validation gate. Stdout carries only the summary, so the command never opens
 /// the event sink and an event the tool build reports is dropped.
+///
+/// `--format json` prints one report for a machine consumer (the desktop's
+/// MCP panel) instead: every configured server with what connecting to it
+/// yielded — see `server_report`.
 pub async fn run_mcp_command(matches : @argparse.Matches) -> Unit {
+  let format = mcp_format(matches)
   guard @options.mcp_config_path(matches) is Some(path) else {
     fail(
       "no MCP configuration: pass --mcp-config <file> (or OPENSEEK_MCP_CONFIG)",
@@ -29,6 +34,10 @@ pub async fn run_mcp_command(matches : @argparse.Matches) -> Unit {
       fail(
         "invalid MCP configuration in \{shown_path}: \{@cli.terminal_safe_line("\{error}", limit=200)}",
       )
+  }
+  if format is Json {
+    println(mcp_report(servers, workspace_root~).stringify())
+    return
   }
   if servers.is_empty() {
     println("\{shown_path}: no servers configured")
@@ -75,6 +84,129 @@ pub async fn run_mcp_command(matches : @argparse.Matches) -> Unit {
     // The servers spawned above live on this group; returning tears them down.
     group.return_immediately(())
   }
+}
+
+///|
+priv enum McpFormat {
+  Text
+  Json
+}
+
+///|
+fn mcp_format(matches : @argparse.Matches) -> McpFormat raise {
+  match matches {
+    { values: { "format": ["text", ..], .. }, .. } => Text
+    { values: { "format": ["json", ..], .. }, .. } => Json
+    { values: { "format": [other, ..], .. }, .. } =>
+      fail("--format must be text or json, got: \{other}")
+    _ => fail("missing parsed argument: format")
+  }
+}
+
+///|
+/// The JSON report: `{"servers": [...]}` in configuration order, one
+/// `server_report` each. The registry is built exactly as the text listing
+/// builds it; the difference is that the events the build reports are
+/// collected rather than dropped, because they are the only place a server's
+/// failure is explained.
+async fn mcp_report(
+  servers : Array[@mcpconfig.McpServer],
+  workspace_root~ : String,
+) -> Json {
+  @async.with_task_group() <| group => {
+    let scope = @agent_runtime.AgentTaskScope(group)
+    let events : Array[@protocol.Event] = []
+    @emit.open()
+    defer @emit.close()
+    // The drain holds the queue it found open, so it must start before the
+    // sink is closed and it finishes once the closed queue is empty.
+    let drain = group.spawn(() => @emit.drain(event => events.push(event)))
+    let groups = @mcptools.build_grouped(
+      scope,
+      servers,
+      client_name="openseek",
+      client_version=@execution.McpClientVersion,
+      workspace_root~,
+    )
+    @emit.close()
+    drain.wait()
+    // The build returns one group per server, in configuration order.
+    let reports : Array[Json] = []
+    for index, server in servers {
+      guard groups.get(index) is Some((_, registered)) else {
+        fail("the MCP build reported no group for server \{server.name()}")
+      }
+      reports.push(server_report(server, registered, events))
+    }
+    let report : Json = { "servers": reports }
+    // The servers spawned above live on this group; returning tears them down.
+    group.return_immediately(report)
+    report
+  }
+}
+
+///|
+/// One server of the JSON report: its `name`, its `transport` (`stdio` or
+/// `http`) and `target` (the command, or the URL without credentials), and a
+/// `state` saying what connecting yielded — `connected` with the `tools` it
+/// registered (`name` and `description` each), `no_tools` for a server that
+/// connected and offers none, `failed` with the `error`, or `skipped` when
+/// the tool budget was spent before its turn.
+fn server_report(
+  server : @mcpconfig.McpServer,
+  registered : Array[@agent_tool.AgentToolDefinition],
+  events : Array[@protocol.Event],
+) -> Json raise {
+  let name = server.name()
+  let (transport, target) = match server {
+    // Arguments are not reported: they can carry credentials (`--token …`).
+    Stdio(command~, ..) => ("stdio", command)
+    Http(url~, ..) => ("http", redact_url(url))
+  }
+  let report : Map[String, Json] = {
+    "name": name.to_json(),
+    "transport": transport.to_json(),
+    "target": target.to_json(),
+  }
+  if !registered.is_empty() {
+    report["state"] = "connected"
+    report["tools"] = [
+      for tool in registered => {
+        let entry : Json = {
+          "name": tool.name.to_json(),
+          "description": tool.description.to_json(),
+        }
+        entry
+      }
+    ].to_json()
+    return Json::object(report)
+  }
+  // A server that registered nothing reported why, exactly once.
+  for event in events {
+    match event {
+      McpConnectFailed(server~, error~) | McpListToolsFailed(server~, error~) if server ==
+        name => {
+        report["state"] = "failed"
+        report["error"] = error.to_json()
+        return Json::object(report)
+      }
+      McpListToolsTimeout(server~) if server == name => {
+        report["state"] = "failed"
+        report["error"] = "timed out listing its tools"
+        return Json::object(report)
+      }
+      McpNoTools(server~) if server == name => {
+        report["state"] = "no_tools"
+        return Json::object(report)
+      }
+      McpServerSkippedOverCap(server~) if server == name => {
+        report["state"] = "skipped"
+        return Json::object(report)
+      }
+      _ => continue
+    }
+  }
+  fail("the MCP build reported no outcome for server \{name}")
 }
 
 ///|

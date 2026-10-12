@@ -271,6 +271,12 @@ Validate a configuration without starting a session:
 moon run . -- mcp --mcp-config mcp.json
 ```
 
+`--format json` prints the same check as one report for a program to read —
+`{"servers": [...]}`, each with its `name`, `transport`, `target` (the command,
+or the URL without credentials), and a `state`: `connected` with the `tools` it
+registered, `no_tools`, `failed` with the `error`, or `skipped` when earlier
+servers used up the tool budget. The desktop's MCP panel is built on it.
+
 Resources and prompts (the other MCP capabilities) are not consumed: openseek's
 agent is tool-driven, and a server that wants to feed it context can expose a
 tool. This keeps the surface small; revisit if a concrete need appears.
