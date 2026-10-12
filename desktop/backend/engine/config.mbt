@@ -307,6 +307,18 @@ async fn serve_config(
 }
 
 ///|
+/// The settings of a config without its prompt — what a live engine keeps
+/// from the config it was spawned with. A prompt can carry several
+/// multi-megabyte images, and an idle engine outlives its first turn by the
+/// life of the conversation. Nothing reads that prompt back (every later turn
+/// brings its own), so keeping it would only pin the payload in memory. The
+/// result is the taskless shape `session_command_config` builds, and its
+/// fingerprint is unchanged because the fingerprint excludes the task.
+fn RunConfig::settings(self : RunConfig) -> RunConfig {
+  { ..self, content: Content([Text("")]), }
+}
+
+///|
 /// Everything that pins a serve process to a config: a prompt whose
 /// fingerprint differs (model change, new session, …) must replace the
 /// process. The task is deliberately excluded — prompts vary per turn.
@@ -381,6 +393,30 @@ test "a different endpoint cannot reuse a live engine process" {
       }),
     }),
   )
+}
+
+///|
+test "an engine's retained settings drop the prompt but keep its fingerprint" {
+  let image = @wire.Image::from_data_url("data:image/png;base64,iVBORw0KGgo=")
+  let config : RunConfig = {
+    content: Content([Text("describe this"), Image(image)]),
+    api_key: "k",
+    key_env: "DEEPSEEK",
+    api_url: None,
+    model: "deepseek-flash",
+    thinking: ThinkingHigh,
+    max_steps: 1000,
+    engine: "openseek",
+    cwd: None,
+    session: "s-settings",
+    session_root: None,
+    mcp_config: None,
+  }
+  let settings = config.settings()
+  assert_true(settings.content is Content([Text("")]))
+  // Dropping the prompt must not make the next prompt look like a different
+  // configuration, or every turn would replace the process.
+  assert_eq(engine_fingerprint(settings), engine_fingerprint(config))
 }
 
 ///|

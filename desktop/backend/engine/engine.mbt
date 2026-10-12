@@ -23,7 +23,8 @@ priv struct ServeEngine {
   // idle writers before hiding their store, and to refuse while one is busy.
   session_root : @pathx.Absolute?
   // Retain the spawn config so queued turns can refresh MCP and replace the
-  // process without changing the other settings of the accepted queue.
+  // process without changing the other settings of the accepted queue. Its
+  // settings only, never the prompt that spawned it (`RunConfig::settings`).
   config : RunConfig
   engine_name : String
   supports_images : Bool
@@ -1557,7 +1558,7 @@ async fn[G] start_serve_engine(
   let engine : ServeEngine = {
     session_key: config.session,
     session_root: config.session_root,
-    config,
+    config: config.settings(),
     engine_name: config.engine,
     model: config.model,
     supports_images: config.supports_images(),
