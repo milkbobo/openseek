@@ -26,14 +26,12 @@ jobs:
   # the editor's own all-target and cross-platform contract, using its scoped
   # editor/moon.work so Proton setup is not part of an editor-only gate.
   moon-gates:
-    name: moon (${{ matrix.channel }}, ${{ matrix.os }})
+    name: moon (stable, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.channel == 'nightly' }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        channel: [stable, nightly]
     permissions:
       contents: read
     defaults:
@@ -44,13 +42,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install MoonBit (${{ matrix.channel }})
+      - name: Install MoonBit (stable)
         run: |
-          if [ "${{ matrix.channel }}" = "nightly" ]; then
-            curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash -s nightly
-          else
-            curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
-          fi
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> $GITHUB_PATH
 
       - name: Update dependencies
@@ -60,11 +54,7 @@ jobs:
 
       - name: Check
         run: |
-          if [ "${{ matrix.channel }}" = "stable" ]; then
-            moon check --target all --warn-list +73 --deny-warn
-          else
-            moon check --target all --warn-list +73
-          fi
+          moon check --target all --warn-list +73 --deny-warn
           moon fmt --check
 
       - name: Test
