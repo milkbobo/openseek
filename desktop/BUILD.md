@@ -72,6 +72,11 @@ never see the channel: before anything else runs, the server moves it to
 private descriptors and leaves the null device and standard error in its
 place. The server does not run on Windows.
 
+One host serves from a runtime directory at a time. The server holds a lock
+on the directory for as long as it runs, so a second one started under the
+same account is refused instead of running the first one's schedules again
+and overwriting its files. The window host does not take this lock yet.
+
 The platform commands remain compatible:
 
 ```sh

@@ -323,6 +323,15 @@ jobs:
           # leaves when its input ends.
           head -n 1 replies | grep -q '"agent.connected"'
           grep -q '"code":-32601' replies
+          # While it runs, a second host on the same runtime directory is
+          # refused before it says anything.
+          if "$server" --stdio --resource-dir desktop < /dev/null > second.out 2> second.err; then
+            echo "a second host was allowed to start" >&2
+            exit 1
+          fi
+          cat second.err
+          grep -q 'already serving' second.err
+          test ! -s second.out
           exec 3>&-
           wait "$pid"
 

@@ -64,6 +64,10 @@ type PackagedTools
 pub fn PackagedTools::apply_to_process_env(Self) -> Unit
 pub async fn PackagedTools::resolve(@resources.Resources?) -> Self?
 
+type RuntimeOwnership
+pub fn RuntimeOwnership::release(Self) -> Unit
+pub async fn RuntimeOwnership::take(@pathx.Path) -> Self
+
 pub struct VizAssets {
   shell : String
   bundle : String
