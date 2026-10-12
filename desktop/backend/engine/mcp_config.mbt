@@ -19,8 +19,17 @@ fn mcp_config_path() -> @pathx.Absolute? {
 /// config. A file that exists but cannot be read is its own observation, not
 /// an absent one: the engine is still pointed at it and reports the failure.
 priv enum McpConfigRevision {
-  Text(String)
+  /// The SHA-256 of the file's content, in hex. A live engine keeps its
+  /// config for its whole life, so what is kept of the file must not grow
+  /// with the file.
+  Digest(String)
   ReadFailed(String)
+}
+
+///|
+/// The revision of a file holding `text`.
+fn McpConfigRevision::of_text(text : String) -> McpConfigRevision {
+  Digest(@crypto.bytes_to_hex_string(@crypto.sha256(@utf8.encode(text))))
 }
 
 ///|
@@ -45,16 +54,16 @@ async fn resolved_mcp_config() -> McpConfig? {
     error => return Some({ path, revision: ReadFailed("\{error}"), })
   }
   guard text is Some(text) else { return None }
-  Some({ path, revision: Text(text), })
+  Some({ path, revision: McpConfigRevision::of_text(text), })
 }
 
 ///|
 /// The fingerprint component for a run's MCP configuration. The tags keep a
-/// read failure from ever colliding with file content of the same text.
+/// read failure from ever colliding with a digest of the same text.
 fn mcp_config_fingerprint(config : McpConfig?) -> String {
   guard config is Some({ path, revision, }) else { return "none" }
   match revision {
-    Text(text) => "text\u{1}\{path}\u{1}\{text}"
+    Digest(digest) => "sha256\u{1}\{path}\u{1}\{digest}"
     ReadFailed(error) => "unreadable\u{1}\{path}\u{1}\{error}"
   }
 }
@@ -81,7 +90,20 @@ async test "an absent MCP configuration names nothing; a present one pins its te
     fail("an existing MCP configuration should be resolved")
   }
   assert_true(empty.path == path)
-  assert_true(empty.revision is Text("{\"mcpServers\": {}}"))
+  // What is kept of the file is a fixed-size digest of it, not its text.
+  guard empty.revision is Digest(digest) else {
+    fail("a readable file is observed by its digest")
+  }
+  assert_eq(digest.length(), 64)
+  assert_true(
+    mcp_config_fingerprint(Some(empty)) ==
+    mcp_config_fingerprint(
+      Some({
+        ..empty,
+        revision: McpConfigRevision::of_text("{\"mcpServers\": {}}"),
+      }),
+    ),
+  )
   @fsx.write_text(
     path.to_path(),
     "{\"mcpServers\": {\"a\": {\"command\": \"a\"}}}",
@@ -113,6 +135,8 @@ async test "an unreadable MCP configuration is carried, not treated as absent" {
   assert_true(config.revision is ReadFailed(_))
   assert_true(
     mcp_config_fingerprint(Some(config)) !=
-    mcp_config_fingerprint(Some({ ..config, revision: Text(""), })),
+    mcp_config_fingerprint(
+      Some({ ..config, revision: McpConfigRevision::of_text(""), }),
+    ),
   )
 }

@@ -2945,7 +2945,10 @@ async test "native engine env has one authoritative bundled moon path" {
   @debug.assert_eq(
     engine_process_args({
       ..config,
-      mcp_config: Some({ path: mcp_path, revision: Text("{}"), }),
+      mcp_config: Some({
+        path: mcp_path,
+        revision: McpConfigRevision::of_text("{}"),
+      }),
     }),
     [
       "serve",
