@@ -56,7 +56,7 @@ fn nested_scrollable(
 fn Model::cross_page(
   self : Model,
   turns : TurnIndex,
-  page~ : Int,
+  page~ : Int32,
   forward~ : Bool,
   key~ : @transcript_overview.TurnKey,
   offset~ : Double,

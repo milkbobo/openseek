@@ -59,7 +59,7 @@ pub extend ProjectChoice with Eq::{equal, not_equal}
 /// through `Input::scroll` when the conversation returns.
 pub(all) enum ScrollPosition {
   Pinned
-  Unpinned(top~ : Double, page~ : Int, overlap~ : Int?)
+  Unpinned(top~ : Double, page~ : Int32, overlap~ : Int32?)
 } derive(Eq)
 
 ///|
@@ -182,10 +182,10 @@ pub(all) struct Actions {
 /// component starts: at the tail, or where the reader left this conversation.
 priv struct Model {
   // None follows the latest page; an explicit index stays on that history page.
-  page : Int?
+  page : Int32?
   navigation : PageNavigation?
-  navigation_generation : Int
-  overlap : Int?
+  navigation_generation : Int32
+  overlap : Int32?
   pinned : Bool
   overview : @transcript_overview.State
   image_owner : ImageOwner
@@ -197,13 +197,13 @@ priv enum Msg {
   Pinned(Bool)
   JumpToLatest
   CrossPage(
-    page~ : Int,
+    page~ : Int32,
     forward~ : Bool,
     key~ : @transcript_overview.TurnKey,
     offset~ : Double
   )
-  MountPage(Int)
-  PageReady(Int)
+  MountPage(Int32)
+  PageReady(Int32)
   ContentRendered
   ImageRequested(String)
   ImageResolved(ImageOwner, String, ImageReadResult)
@@ -216,7 +216,7 @@ fn Model::update(
   input : Input,
   msg : Msg,
   emit : @cmd.Emit[Msg],
-  turns? : TurnIndex = TurnIndex::new(input.items),
+  turns~ : TurnIndex = TurnIndex::new(input.items),
 ) -> (Model, @cmd.Cmd) {
   // The conversation is fixed for this component's lifetime, but its image
   // root can move (a worktree gets bound after the first send). Never project
@@ -639,7 +639,7 @@ fn visible_turn_anchor(transcript : @dom.Element) -> String? {
 fn scroll_turn_into_view(
   emit : @cmd.Emit[Msg],
   key : @transcript_overview.TurnKey,
-  offset? : Double = 10,
+  offset~ : Double = 10,
 ) -> @cmd.Cmd {
   @cmd.custom_cmd(
     scheduler => {
@@ -701,7 +701,7 @@ priv suberror TranscriptSubscription {
     page~ : @transcript_overview.TranscriptPage,
     turns~ : TurnIndex,
     follow_request~ : String?,
-    overlap~ : Int?
+    overlap~ : Int32?
   )
 }
 

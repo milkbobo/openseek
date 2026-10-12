@@ -1,5 +1,5 @@
 ///|
-fn paged_input(turns : Int, without_sequence? : Bool = false) -> Input {
+fn paged_input(turns : Int32, without_sequence~ : Bool = false) -> Input {
   let items : Array[@transcript.TranscriptItem] = []
   for turn in 0..<turns {
     items.push({

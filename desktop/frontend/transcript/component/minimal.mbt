@@ -374,7 +374,7 @@ fn MinimalStream::finish(
 ///|
 fn Input::minimal_blocks(
   self : Input,
-  bounds? : PageRows = TurnIndex::new(self.items).page_rows(None),
+  bounds~ : PageRows = TurnIndex::new(self.items).page_rows(None),
 ) -> @vector.Vector[Block] {
   let locale = self.locale
   let builder : MinimalStream = {

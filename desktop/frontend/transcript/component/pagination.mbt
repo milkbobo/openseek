@@ -3,22 +3,22 @@
 /// numbers do not change when a different page is mounted.
 priv struct PageRows {
   page : @transcript_overview.TranscriptPage
-  start : Int
-  end : Int
+  start : Int32
+  end : Int32
 } derive(Eq)
 
 ///|
 /// Index only user-turn boundaries. Built from the rows once, independently
 /// of hover, scroll position, live text and the selected page.
 priv struct TurnIndex {
-  starts : Array[Int]
+  starts : Array[Int32]
   keys : Array[@transcript_overview.TurnKey]
-  row_count : Int
+  row_count : Int32
 } derive(Eq)
 
 ///|
 fn TurnIndex::new(rows : Array[VisibleRow]) -> TurnIndex {
-  let starts : Array[Int] = []
+  let starts : Array[Int32] = []
   let keys : Array[@transcript_overview.TurnKey] = []
   for index, row in rows {
     if row.item.kind is User(..) {
@@ -32,8 +32,8 @@ fn TurnIndex::new(rows : Array[VisibleRow]) -> TurnIndex {
 ///|
 fn TurnIndex::page_rows(
   self : TurnIndex,
-  index : Int?,
-  overlap? : Int? = None,
+  index : Int32?,
+  overlap~ : Int32? = None,
 ) -> PageRows {
   let page = @transcript_overview.TranscriptPage::of(
     self.starts.length(),
@@ -67,7 +67,7 @@ fn TurnIndex::page_rows(
 fn TurnIndex::page_for_turn(
   self : TurnIndex,
   key : @transcript_overview.TurnKey,
-) -> Int? {
+) -> Int32? {
   self.keys
   .search(key)
   .map(index => index / @transcript_overview.TURNS_PER_PAGE)

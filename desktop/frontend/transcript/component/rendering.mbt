@@ -460,7 +460,7 @@ priv enum BlockContent {
 /// visual order; the keys only determine node identity.
 fn stream_blocks(
   input : Input,
-  bounds? : PageRows = TurnIndex::new(input.items).page_rows(None),
+  bounds~ : PageRows = TurnIndex::new(input.items).page_rows(None),
 ) -> @vector.Vector[Block] {
   let input = if bounds.page.is_latest() {
     input
@@ -629,7 +629,7 @@ fn section_children(
   pinned~ : Bool,
   overview~ : @transcript_overview.State,
   page~ : @transcript_overview.TranscriptPage,
-  loading? : Bool = false,
+  loading~ : Bool = false,
   overview_emit~ : @cmd.Emit[@transcript_overview.Msg],
   on_jump_latest~ : @cmd.Cmd,
 ) -> Map[String, @html.Html] {

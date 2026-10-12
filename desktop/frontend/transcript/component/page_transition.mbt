@@ -2,9 +2,9 @@
 /// The rail can move before the expensive transcript subtree is replaced.
 /// A generation prevents an earlier click from finishing a newer request.
 priv struct PageNavigation {
-  page : Int
+  page : Int32
   anchor : @transcript_overview.TurnKey?
-  generation : Int
+  generation : Int32
 } derive(Eq)
 
 ///|
@@ -24,7 +24,7 @@ fn Model::navigation_page(
 fn Model::mount_page(
   self : Model,
   turns : TurnIndex,
-  generation : Int,
+  generation : Int32,
   emit : @cmd.Emit[Msg],
 ) -> (Model, @cmd.Cmd) {
   guard self.navigation is Some(navigation) &&
@@ -43,7 +43,7 @@ fn Model::mount_page(
 ///|
 /// Yield an actual paint before preparing the page, and another after its
 /// layout. The optional delay belongs to the rail animation, not the loader.
-fn after_page_paint(command : @cmd.Cmd, animate? : Bool = false) -> @cmd.Cmd {
+fn after_page_paint(command : @cmd.Cmd, animate~ : Bool = false) -> @cmd.Cmd {
   @cmd.custom_cmd(
     scheduler => {
       @dom.window().request_animation_frame(_ => {
@@ -70,7 +70,7 @@ fn after_page_paint(command : @cmd.Cmd, animate? : Bool = false) -> @cmd.Cmd {
 ///|
 /// Shared by initial session loading and transcript page navigation.
 pub fn conversation_loading_view(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
 ) -> @html.Html {
   let label = match locale {
     English => "Loading conversation…"
@@ -109,7 +109,7 @@ fn turn_layout_top(bubble : @dom.Element, transcript : @dom.Element) -> Double? 
 fn Model::select_page(
   self : Model,
   turns : TurnIndex,
-  index : Int,
+  index : Int32,
   emit : @cmd.Emit[Msg],
   anchor? : @transcript_overview.TurnKey,
 ) -> (Model, @cmd.Cmd) {
@@ -155,11 +155,11 @@ fn Model::select_page(
 /// wheel crossing supplies the retained turn's offset; clicks align at 10px.
 fn Model::show_page(
   self : Model,
-  page : Int,
+  page : Int32,
   emit : @cmd.Emit[Msg],
   anchor? : @transcript_overview.TurnKey,
-  offset? : Double = 10,
-  overlap? : Int,
+  offset~ : Double = 10,
+  overlap? : Int32,
 ) -> (Model, @cmd.Cmd) {
   (
     { ..self, page: Some(page), overlap, pinned: false, },
