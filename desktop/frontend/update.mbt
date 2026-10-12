@@ -1590,7 +1590,7 @@ fn covering_overlay(model : Model) -> Bool {
   model.archived_delete_confirm is Some(_) ||
   model.quick_open.is_open() ||
   model.api_setup_open ||
-  model.update_ux is ConfirmingRestart(_) ||
+  model.self_update is ConfirmingRestart(_) ||
   // Best effort: with the bridge gone the hide op may not deliver.
   model.bridge_state() is BridgeLost(_)
 }
@@ -3679,214 +3679,27 @@ fn update_msg(
     }
     AppInfoLoaded(version~, console_url~) =>
       (@cmd.none, { ..model, app_version: version, console_url, })
-    CheckForUpdates =>
-      // A user-initiated check; never stacks on an in-flight one, never
-      // interrupts a download already underway, and never clobbers a staged
-      // download waiting for its restart.
-      if model.update_ux
-        is (CheckingForUpdate
-        | ConfirmingRestart(..)
-        | DownloadingUpdate(..)
-        | UpdateReady(..)
-        | RestartingForUpdate(..)) {
-        (@cmd.none, model)
-      } else {
-        (
-          check_for_updates(dispatch, explicit=true),
-          { ..model, update_ux: CheckingForUpdate, },
-        )
-      }
-    UpdateCheckFinished(result~, explicit~) => {
-      // A stale reply must not clobber a flow the user has since started
-      // (confirming, downloading); only the waiting states accept results.
-      guard model.update_ux
-        is (UpdateUnknown
-        | CheckingForUpdate
-        | UpToDate
-        | UpdateCheckFailed(..)) else {
-        return (@cmd.none, model)
-      }
-      match result {
-        CheckFound(version~, installable=true, ..) =>
-          // An installable release downloads itself — restarting into it
-          // stays the user's call.
-          (
-            download_update(dispatch),
-            {
-              ..model,
-              update_ux: DownloadingUpdate(version~, progress={
-                downloaded_bytes: 0,
-                total_bytes: None,
-              }),
-            },
-          )
-        CheckFound(version~, installable=false, unavailable_reason~) => {
-          let (cmd, next) = if unavailable_reason is Some(reason) {
-            model.notify_error(dispatch, reason)
-          } else {
-            (@cmd.none, model)
+    SelfUpdate(msg) => {
+      let (self_update, command, events) = @self_update.update(
+        model.self_update,
+        msg,
+        dispatch.map(msg => SelfUpdate(msg)),
+        busy=model.any_conversation_busy(),
+        locale=model.locale,
+      )
+      let commands = [command]
+      let mut next = { ..model, self_update, }
+      for event in events {
+        match event {
+          Problem(message) => {
+            let (command, notified) = next.notify_error(dispatch, message)
+            commands.push(command)
+            next = notified
           }
-          (
-            cmd,
-            { ..next, update_ux: UpdateAvailable(version~, installable=false), },
-          )
-        }
-        CheckUpToDate =>
-          (
-            @cmd.none,
-            {
-              ..model
-              // Only worth stating when the user asked; a quiet startup
-              // check leaves nothing behind.
-              ,
-              update_ux: if explicit {
-                UpToDate
-              } else {
-                UpdateUnknown
-              },
-            },
-          )
-        CheckUnreachable(reason~) =>
-          // Offline is routine for the app, an answer for the user.
-          if explicit {
-            (
-              @cmd.none,
-              {
-                ..model,
-                update_ux: UpdateCheckFailed(
-                  message=notice_text(
-                    model.locale,
-                    UpdateServer(reason.to_string()),
-                  ),
-                ),
-              },
-            )
-          } else {
-            (@cmd.none, { ..model, update_ux: UpdateUnknown, })
-          }
-        CheckMalformed(reason~) =>
-          // A garbage manifest also happens under captive portals, so the
-          // app asking stays quiet (the host logged it); the user asking
-          // gets the truth.
-          if explicit {
-            (
-              @cmd.none,
-              {
-                ..model,
-                update_ux: UpdateCheckFailed(
-                  message=notice_text(
-                    model.locale,
-                    UpdateReply(reason.to_string()),
-                  ),
-                ),
-              },
-            )
-          } else {
-            (@cmd.none, { ..model, update_ux: UpdateUnknown, })
-          }
-        CheckBroken(version~, reason~) => {
-          // A broken package entry can only be the publisher's fault:
-          // loud both ways.
-          let message = "SeekMoon \{version} is published but its package is unusable: \{reason}"
-          let (cmd, next) = if explicit {
-            (@cmd.none, model)
-          } else {
-            model.notify_error(dispatch, message)
-          }
-          (cmd, { ..next, update_ux: UpdateCheckFailed(message~), })
         }
       }
+      (@cmd.batch(commands), next)
     }
-    UpdateClicked =>
-      // The one accent button walks the whole flow: from an offer it retries
-      // the download (harmless while conversations run), from a staged
-      // download it restarts — asking first when that would cut a
-      // conversation off. The button does not render in other states, but a
-      // stale click must not restart a download or replay an apply.
-      match model.update_ux {
-        UpdateAvailable(version~, installable=true) =>
-          (
-            download_update(dispatch),
-            {
-              ..model,
-              update_ux: DownloadingUpdate(version~, progress={
-                downloaded_bytes: 0,
-                total_bytes: None,
-              }),
-            },
-          )
-        UpdateReady(version~) =>
-          if model.any_conversation_busy() {
-            (@cmd.none, { ..model, update_ux: ConfirmingRestart(version~), })
-          } else {
-            (
-              apply_update(dispatch),
-              { ..model, update_ux: RestartingForUpdate(version~), },
-            )
-          }
-        _ => (@cmd.none, model)
-      }
-    ConfirmUpdateRestart =>
-      if model.update_ux is ConfirmingRestart(version~) {
-        (
-          apply_update(dispatch),
-          { ..model, update_ux: RestartingForUpdate(version~), },
-        )
-      } else {
-        (@cmd.none, model)
-      }
-    CancelUpdateRestart =>
-      if model.update_ux is ConfirmingRestart(version~) {
-        // The download already happened; declining the restart just parks
-        // the staged release until the user is ready.
-        (@cmd.none, { ..model, update_ux: UpdateReady(version~), })
-      } else {
-        (@cmd.none, model)
-      }
-    UpdateDownloadProgress(downloaded_bytes~, total_bytes~) =>
-      if model.update_ux is DownloadingUpdate(version~, ..) {
-        (
-          @cmd.none,
-          {
-            ..model,
-            update_ux: DownloadingUpdate(version~, progress={
-              downloaded_bytes,
-              total_bytes,
-            }),
-          },
-        )
-      } else {
-        // A late event must not revive a completed, failed, or never-started
-        // download after the UI has moved to another state.
-        (@cmd.none, model)
-      }
-    UpdateDownloaded(version~) =>
-      if model.update_ux is DownloadingUpdate(..) {
-        // Staged, not applied: swapping the bundle under the running app
-        // waits for the user's restart, so nothing is pulled out from
-        // beneath the process (or the person) mid-flight. The version shown
-        // from here on is the one the host actually staged — its deliberate
-        // re-check may have picked up a release newer than the one this
-        // flow started from.
-        (@cmd.none, { ..model, update_ux: UpdateReady(version~), })
-      } else {
-        (@cmd.none, model)
-      }
-    UpdateFailed(message~) => {
-      // A failed download can be retried. A failed swap means the preflight
-      // no longer considers this location replaceable, so withdraw the
-      // button until a fresh check says otherwise. Both failures say why.
-      let (cmd, next) = model.notify_error(dispatch, message)
-      let update_ux = match next.update_ux {
-        DownloadingUpdate(version~, ..) =>
-          UpdateAvailable(version~, installable=true)
-        RestartingForUpdate(version~) =>
-          UpdateAvailable(version~, installable=false)
-        other => other
-      }
-      (cmd, { ..next, update_ux, })
-    }
-    UpdateApplied => (close_window(), model)
     OpenSetup =>
       (
         @cmd.none,
@@ -6420,7 +6233,9 @@ fn update_device_msg(
         if model.is_desktop {
           commands.push(fetch_system_appearance(dispatch))
           commands.push(model.fetch_app_info(dispatch))
-          commands.push(check_for_updates(dispatch, explicit=false))
+          commands.push(
+            @self_update.check_at_startup(dispatch.map(msg => SelfUpdate(msg))),
+          )
           commands.push(
             @remote_access.fetch_status(dispatch.map(msg => RemoteAccess(msg))),
           )

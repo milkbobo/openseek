@@ -1,0 +1,69 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "openseek_desktop/frontend/self_update"
+
+import {
+  "moonbit-community/rabbita/cmd",
+  "moonbit-community/rabbita/html",
+  "moonbitlang/core/debug",
+  "openseek_desktop/frontend/i18n",
+  "openseek_desktop/protocol",
+}
+
+// Values
+pub fn check_at_startup(@cmd.Emit[Msg]) -> @cmd.Cmd
+
+pub fn check_controls(@i18n.Locale, @cmd.Emit[Msg], State) -> Array[@html.Html]
+
+pub fn restart_modal(@i18n.Locale, @cmd.Emit[Msg], State) -> @html.Html?
+
+pub fn update(State, Msg, @cmd.Emit[Msg], busy~ : Bool, locale? : @i18n.Locale) -> (State, @cmd.Cmd, Array[Event])
+
+// Errors
+
+// Types and methods
+pub(all) enum Event {
+  Problem(String)
+} derive(Eq, @debug.Debug)
+pub fn Event::equal(Self, Self) -> Bool
+pub fn Event::not_equal(Self, Self) -> Bool
+pub fn Event::to_repr(Self) -> @debug.Repr
+
+pub(all) enum Msg {
+  CheckClicked
+  CheckFinished(reply~ : @protocol.CheckUpdateReply, explicit~ : Bool)
+  UpdateClicked
+  RestartConfirmed
+  RestartCancelled
+  DownloadProgress(downloaded_bytes~ : Int, total_bytes~ : Int?)
+  Downloaded(version~ : String)
+  Failed(message~ : String)
+  Applied
+}
+
+pub struct Progress {
+  downloaded_bytes : Int
+  total_bytes : Int?
+} derive(Eq)
+pub fn Progress::equal(Self, Self) -> Bool
+pub fn Progress::not_equal(Self, Self) -> Bool
+
+pub enum State {
+  Unknown
+  Checking
+  UpToDate
+  Available(version~ : String, installable~ : Bool)
+  Downloading(version~ : String, progress~ : Progress)
+  Ready(version~ : String)
+  ConfirmingRestart(version~ : String)
+  Restarting(version~ : String)
+  CheckFailed(message~ : String)
+} derive(Eq)
+pub fn State::button_enabled(Self) -> Bool
+pub fn State::button_label(Self, @i18n.Locale) -> String?
+pub fn State::empty() -> Self
+pub fn State::equal(Self, Self) -> Bool
+pub fn State::not_equal(Self, Self) -> Bool
+
+// Type aliases
+
+// Traits

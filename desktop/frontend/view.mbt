@@ -710,19 +710,6 @@ fn Model::sidebar_component_input(self : Model) -> @sidebar.Input {
       []
     }
   }
-  // The footer's update button tracks the automatic download so its progress
-  // stays visible from any screen, and asks for the restart once the release
-  // is staged.
-  let update_label : String? = match self.update_ux {
-    UpdateAvailable(installable=true, ..) =>
-      Some(shell_text(self.locale, UpdateLabel))
-    DownloadingUpdate(progress~, ..) =>
-      Some(progress.sidebar_label(locale=self.locale))
-    UpdateReady(..) | ConfirmingRestart(..) =>
-      Some(shell_text(self.locale, RestartToUpdateLabel))
-    RestartingForUpdate(..) => Some(shell_text(self.locale, RestartingLabel))
-    _ => None
-  }
   // The browser console's account row: who is signed in, a roster refresh,
   // and the sign-out — with the last account-level failure inline beneath
   // it. The desktop window's session is its own host's, with nothing to sign
@@ -742,8 +729,8 @@ fn Model::sidebar_component_input(self : Model) -> @sidebar.Input {
     locale: self.locale,
     mode: self.sidebar_mode,
     sections,
-    update_label,
-    update_enabled: self.update_ux is (UpdateAvailable(..) | UpdateReady(..)),
+    update_label: self.self_update.button_label(self.locale),
+    update_enabled: self.self_update.button_enabled(),
     schedules_active: self.screen is Schedules,
     skills_active: self.screen is Skills,
     settings_active: self.screen is Settings,
@@ -935,113 +922,6 @@ fn remote_access_rows(
     ),
   )
   rows
-}
-
-///|
-/// The Settings check-for-updates row: the last check's outcome — status
-/// text, a download's progress, the restart button once a release is
-/// staged, or the accent Update button a failed download restored — on the
-/// left, the Check button on the right.
-fn update_check_controls(
-  dispatch : @cmd.Emit[Msg],
-  model : Model,
-) -> Array[@html.Html] {
-  let controls : Array[@html.Html] = []
-  match model.update_ux {
-    UpdateUnknown => ()
-    CheckingForUpdate =>
-      controls.push(
-        @html.span(
-          class="update-status",
-          @settings.text(model.locale, CheckingUpdate),
-        ),
-      )
-    UpToDate =>
-      controls.push(
-        @html.span(
-          class="update-status",
-          @settings.text(model.locale, UpToDate),
-        ),
-      )
-    UpdateAvailable(version~, installable~) =>
-      if installable {
-        controls.push(
-          @html.button(
-            class="button primary",
-            on_click=dispatch(UpdateClicked),
-            @settings.text(model.locale, UpdateTo(version)),
-          ),
-        )
-      } else {
-        controls.push(
-          @html.span(
-            class="update-status",
-            @settings.text(model.locale, CannotInstallUpdate(version)),
-          ),
-        )
-      }
-    UpdateReady(version~) =>
-      // The release is staged; this button is the restart the flow waits for.
-      controls.push(
-        @html.button(
-          class="button primary",
-          on_click=dispatch(UpdateClicked),
-          @settings.text(model.locale, RestartToInstall(version)),
-        ),
-      )
-    ConfirmingRestart(version~) =>
-      // The interrupt modal is up over this row; keep the button visible
-      // behind it so the row does not blink while the user decides.
-      controls.push(
-        @html.button(
-          class="button primary",
-          @settings.text(model.locale, RestartToInstall(version)),
-        ),
-      )
-    DownloadingUpdate(version~, progress~) => {
-      let (fill_class, fill_style) = match progress.percentage() {
-        Some(percent) =>
-          ("update-progress-fill", ["--progress-width: \{percent}%"])
-        None => ("update-progress-fill indeterminate", [])
-      }
-      controls.push(
-        @html.div(class="update-progress", [
-          @html.span(
-            class="update-status",
-            progress.status_text(version, locale=model.locale),
-          ),
-          // The runtime supplies only the measured percentage. CSS owns the
-          // width property and appearance; the adjacent text is the
-          // accessible progress value.
-          @html.div(class="update-progress-track", [
-            @html.div(class=fill_class, style=fill_style, ""),
-          ]),
-        ]),
-      )
-    }
-    RestartingForUpdate(version~) =>
-      controls.push(
-        @html.span(
-          class="update-status",
-          @settings.text(model.locale, RestartingVersion(version)),
-        ),
-      )
-    UpdateCheckFailed(message~) =>
-      controls.push(@html.span(class="update-status update-error", message))
-  }
-  controls.push(
-    @html.button(
-      class="button secondary",
-      disabled=model.update_ux
-        is (CheckingForUpdate
-        | DownloadingUpdate(..)
-        | UpdateReady(..)
-        | RestartingForUpdate(..)),
-      on_click=dispatch(CheckForUpdates),
-      @settings.text(model.locale, CheckUpdates),
-    ),
-  )
-  controls
 }
 
 ///|
@@ -1473,7 +1353,11 @@ fn settings_page(dispatch : @cmd.Emit[Msg], model : Model) -> @html.Html {
       @settings.group(icon_sync, @settings.text(locale, Updates), [
         @settings.row(
           @settings.text(locale, CheckUpdates),
-          update_check_controls(dispatch, model),
+          @self_update.check_controls(
+            model.locale,
+            dispatch.map(msg => SelfUpdate(msg)),
+            model.self_update,
+          ),
           desc=@settings.text(locale, CurrentVersion(model.app_version)),
         ),
       ]),
@@ -2101,8 +1985,13 @@ fn view(
     ),
   )
   // The interrupt-confirmation modal floats the same way, above the toasts.
-  if model.update_ux is ConfirmingRestart(version~) {
-    children.push(update_confirm_modal(locale=model.locale, dispatch, version))
+  if @self_update.restart_modal(
+      model.locale,
+      dispatch.map(msg => SelfUpdate(msg)),
+      model.self_update,
+    )
+    is Some(modal) {
+    children.push(modal)
   }
   // The API-setup modal floats above the toasts like the other modals: it
   // owns the screen until the user answers it or a usable endpoint arrives.
@@ -2159,39 +2048,6 @@ fn bridge_lost_overlay(
         shell_text(locale, DisconnectedLabel),
       ),
       @html.div(class="bridge-lost-body", message),
-    ]),
-  ])
-}
-
-///|
-/// The modal shown when restarting into a staged update would cut running
-/// conversations off: restarting tears the engine processes down mid-run.
-/// The backdrop and the Cancel button both keep the current version running,
-/// with the downloaded release parked for later.
-fn update_confirm_modal(
-  locale~ : @i18n.Locale = English,
-  dispatch : @cmd.Emit[Msg],
-  version : String,
-) -> @html.Html {
-  @html.div(class="modal-backdrop", on_click=dispatch(CancelUpdateRestart), [
-    @html.div(class="modal", [
-      @html.div(
-        class="modal-title",
-        dynamic_text(locale, DRestartQuestion(version)),
-      ),
-      @html.div(class="modal-body", shell_text(locale, InterruptForUpdate)),
-      @html.div(class="modal-actions", [
-        @html.button(
-          class="button secondary",
-          on_click=dispatch(CancelUpdateRestart),
-          shell_text(locale, KeepWorking),
-        ),
-        @html.button(
-          class="button primary",
-          on_click=dispatch(ConfirmUpdateRestart),
-          shell_text(locale, RestartNow),
-        ),
-      ]),
     ]),
   ])
 }

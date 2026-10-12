@@ -1665,12 +1665,10 @@ priv struct Model {
   notification_corner : NotificationCorner
   // Where the editor panel's file tree docks; a Settings choice, persisted.
   tree_layout : @fileeditor.TreeLayout
-  // Where the self-update flow stands, from "never checked" through the
-  // download to the restart. One enum, so "checking", "downloading" and
-  // "confirming" cannot overlap. The channel is always production: the
-  // update manifest lives on the SeekMoon origin and no longer derives
-  // from the chat provider.
-  update_ux : UpdateUx
+  // Where the self-update flow stands, owned by the `self_update` package.
+  // The channel is always production: the update manifest lives on the
+  // SeekMoon origin and no longer derives from the chat provider.
+  self_update : @self_update.State
   // The host's relay sign-in, owned by the `remote_access` package: the
   // `auth.status` mirror and the Settings section's connect flow.
   // Desktop-window-only UI.
@@ -1827,34 +1825,10 @@ priv enum Msg {
   NotificationExpired(Int32)
   // A toast was clicked: dismiss it now.
   DismissNotification(Int32)
-  // The Settings "Check for updates" button.
-  CheckForUpdates
+  SelfUpdate(@self_update.Msg)
   RemoteAccess(@remote_access.Msg)
   // Proton package metadata returned by the native host.
   AppInfoLoaded(version~ : String, console_url~ : String?)
-  // A `check_update` reply (or its failure, folded into `Unreachable`).
-  // `explicit` says a user asked, which is what decides how loudly each
-  // outcome shows; an installable release starts downloading from here.
-  UpdateCheckFinished(result~ : UpdateCheck, explicit~ : Bool)
-  // The accent update button (sidebar or Settings row): from a restored
-  // offer it retries the download; from a staged release it restarts,
-  // confirming first while a conversation runs.
-  UpdateClicked
-  // The interrupt-confirmation modal's two exits.
-  ConfirmUpdateRestart
-  CancelUpdateRestart
-  // The actor-owned download reports throttled byte progress independently
-  // of the short request that accepted it.
-  UpdateDownloadProgress(downloaded_bytes~ : Int32, total_bytes~ : Int32?)
-  // The host's `update.downloaded` event says the bundle is staged and
-  // verified. It names the version actually staged — the host re-checks
-  // the manifest before downloading, so this can be newer than the one the
-  // frontend's check announced.
-  UpdateDownloaded(version~ : String)
-  // The download or the swap failed; back to Available with a toast.
-  UpdateFailed(message~ : String)
-  // The host swapped the bundle; close the window so `main` can relaunch.
-  UpdateApplied
   OpenSetup
   ReturnToWork
   // The API-setup modal's "Not now" button and its backdrop click.
@@ -2760,7 +2734,7 @@ fn initial_model(desktop~ : Bool) -> Model {
     notification_seq: 0,
     notification_corner: BottomRight,
     tree_layout: RightSidebar,
-    update_ux: UpdateUnknown,
+    self_update: @self_update.State::empty(),
     api_setup_open: false,
     export_dialog: @export_dialog.Model(),
     workspace_settings_dialog: None,

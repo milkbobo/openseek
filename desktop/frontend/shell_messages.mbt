@@ -10,9 +10,6 @@ priv enum ShellMessage {
   LoadingDevice
   NoDevices
   NoOnlineDevice
-  UpdateLabel
-  RestartingLabel
-  RestartToUpdateLabel
   ArchivedReadOnly
   RestoreBeforeContinue
   RestoreLabel
@@ -51,9 +48,6 @@ priv enum ShellMessage {
   ScheduleReadOnly
   ViewTask
   DisconnectedLabel
-  InterruptForUpdate
-  KeepWorking
-  RestartNow
   SetupDeepSeek
   SetupGlm
   SetupOpenRouter
@@ -138,21 +132,6 @@ fn shell_text(locale : @i18n.Locale, message : ShellMessage) -> String {
       "沒有線上裝置，正在重新連線…"
     (Japanese, NoOnlineDevice) =>
       "オンラインのデバイスがありません。再接続中…"
-    (English, UpdateLabel) => "Update"
-    (Spanish, UpdateLabel) => "Actualizar"
-    (SimplifiedChinese, UpdateLabel) => "更新"
-    (TraditionalChinese, UpdateLabel) => "更新"
-    (Japanese, UpdateLabel) => "更新"
-    (English, RestartingLabel) => "Restarting…"
-    (Spanish, RestartingLabel) => "Reiniciando…"
-    (SimplifiedChinese, RestartingLabel) => "正在重启…"
-    (TraditionalChinese, RestartingLabel) => "正在重啟…"
-    (Japanese, RestartingLabel) => "再起動中…"
-    (English, RestartToUpdateLabel) => "Restart to update"
-    (Spanish, RestartToUpdateLabel) => "Reiniciar para actualizar"
-    (SimplifiedChinese, RestartToUpdateLabel) => "重启以更新"
-    (TraditionalChinese, RestartToUpdateLabel) => "重啟以更新"
-    (Japanese, RestartToUpdateLabel) => "再起動して更新"
     (English, ArchivedReadOnly) => "Archived conversation · Read only"
     (Spanish, ArchivedReadOnly) => "Conversación archivada · Solo lectura"
     (SimplifiedChinese, ArchivedReadOnly) => "已归档对话 · 只读"
@@ -377,26 +356,6 @@ fn shell_text(locale : @i18n.Locale, message : ShellMessage) -> String {
     (SimplifiedChinese, DisconnectedLabel) => "已断开连接"
     (TraditionalChinese, DisconnectedLabel) => "已斷開連線"
     (Japanese, DisconnectedLabel) => "切断済み"
-    (English, InterruptForUpdate) =>
-      "A conversation is still running. Restarting the app interrupts it; the transcript so far is saved."
-    (Spanish, InterruptForUpdate) =>
-      "Hay una conversación en curso. Reiniciar la aplicación la interrumpirá; la transcripción hasta este momento está guardada."
-    (SimplifiedChinese, InterruptForUpdate) =>
-      "仍有对话正在运行。重启应用会中断运行，已有的对话记录将会保留。"
-    (TraditionalChinese, InterruptForUpdate) =>
-      "仍有對話正在執行。重啟應用會中斷執行，已有的對話記錄將會保留。"
-    (Japanese, InterruptForUpdate) =>
-      "実行中のチャットがあります。アプリを再起動すると実行が中断されますが、既存のチャット履歴は保持されます。"
-    (English, KeepWorking) => "Keep working"
-    (Spanish, KeepWorking) => "Seguir trabajando"
-    (SimplifiedChinese, KeepWorking) => "继续工作"
-    (TraditionalChinese, KeepWorking) => "繼續工作"
-    (Japanese, KeepWorking) => "作業を続行"
-    (English, RestartNow) => "Restart now"
-    (Spanish, RestartNow) => "Reiniciar ahora"
-    (SimplifiedChinese, RestartNow) => "立即重启"
-    (TraditionalChinese, RestartNow) => "立即重啟"
-    (Japanese, RestartNow) => "今すぐ再起動"
     (English, SetupDeepSeek) => "Set up your DeepSeek API key"
     (Spanish, SetupDeepSeek) => "Configura tu clave de API de DeepSeek"
     (SimplifiedChinese, SetupDeepSeek) => "设置 DeepSeek API 密钥"

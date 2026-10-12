@@ -403,7 +403,7 @@ fn SidebarDispatcher::actions(self : SidebarDispatcher) -> @sidebar.Actions {
     conversation,
   }
   {
-    update: self.emit(UpdateClicked),
+    update: self.emit(SelfUpdate(UpdateClicked)),
     open_schedules: self.emit(OpenSchedules),
     open_skills: self.emit(OpenSkills),
     open_settings: self.emit(OpenSetup),

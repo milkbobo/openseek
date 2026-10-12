@@ -8,8 +8,6 @@ priv enum NoticeMessage {
   ArchiveFailure(String)
   DeleteFailure(String)
   ListSessions(String)
-  UpdateServer(String)
-  UpdateReply(String)
 }
 
 ///|
@@ -68,23 +66,5 @@ fn notice_text(locale : @i18n.Locale, message : NoticeMessage) -> String {
     (TraditionalChinese, ListSessions(p0)) => "無法獲取會話列表：\{p0}"
     (Japanese, ListSessions(p0)) =>
       "セッション一覧を取得できません：\{p0}"
-    (English, UpdateServer(p0)) => "Could not reach the update server: \{p0}"
-    (Spanish, UpdateServer(p0)) =>
-      "No se pudo conectar con el servidor de actualizaciones: \{p0}"
-    (SimplifiedChinese, UpdateServer(p0)) =>
-      "无法连接更新服务器：\{p0}"
-    (TraditionalChinese, UpdateServer(p0)) =>
-      "無法連線更新伺服器：\{p0}"
-    (Japanese, UpdateServer(p0)) =>
-      "更新サーバーに接続できません：\{p0}"
-    (English, UpdateReply(p0)) => "The update server answered unusably: \{p0}"
-    (Spanish, UpdateReply(p0)) =>
-      "El servidor de actualizaciones devolvió una respuesta no válida: \{p0}"
-    (SimplifiedChinese, UpdateReply(p0)) =>
-      "更新服务器返回了无效响应：\{p0}"
-    (TraditionalChinese, UpdateReply(p0)) =>
-      "更新伺服器返回了無效響應：\{p0}"
-    (Japanese, UpdateReply(p0)) =>
-      "更新サーバーが無効な応答を返しました：\{p0}"
   }
 }

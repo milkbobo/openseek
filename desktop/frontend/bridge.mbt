@@ -84,7 +84,7 @@ fn notification_msg(
       // The host names the version it actually staged; its download-time
       // re-check may have found a newer release than the frontend's check.
       if channel is Local {
-        Some(UpdateDownloaded(version=payload.version))
+        Some(SelfUpdate(Downloaded(version=payload.version)))
       } else {
         None
       }
@@ -95,9 +95,11 @@ fn notification_msg(
           _ => None
         }
         Some(
-          UpdateDownloadProgress(
-            downloaded_bytes=payload.downloaded_bytes,
-            total_bytes~,
+          SelfUpdate(
+            DownloadProgress(
+              downloaded_bytes=payload.downloaded_bytes,
+              total_bytes~,
+            ),
           ),
         )
       } else {
@@ -105,7 +107,7 @@ fn notification_msg(
       }
     UpdateDownloadFailed(payload) =>
       if channel is Local {
-        Some(UpdateFailed(message=payload.message))
+        Some(SelfUpdate(Failed(message=payload.message)))
       } else {
         None
       }
@@ -406,14 +408,16 @@ test "update download notifications control only the local desktop flow" {
         total_bytes: Some(100),
       }),
     )
-    is Some(UpdateDownloadProgress(downloaded_bytes=42, total_bytes=Some(100))),
+    is Some(
+      SelfUpdate(DownloadProgress(downloaded_bytes=42, total_bytes=Some(100)))
+    ),
   )
   assert_true(
     notification_msg(
       Local,
       @protocol.Notification::UpdateDownloaded({ version: "0.2.2", }),
     )
-    is Some(UpdateDownloaded(version="0.2.2")),
+    is Some(SelfUpdate(Downloaded(version="0.2.2"))),
   )
   assert_true(
     notification_msg(
@@ -422,7 +426,7 @@ test "update download notifications control only the local desktop flow" {
         message: "digest mismatch",
       }),
     )
-    is Some(UpdateFailed(message="digest mismatch")),
+    is Some(SelfUpdate(Failed(message="digest mismatch"))),
   )
   assert_true(
     notification_msg(
@@ -1648,49 +1652,6 @@ fn approve_openseek(
       }
     })
     |> ignore
-  })
-}
-
-///|
-/// Ask the host to swap the staged update into place. Success means the
-/// bundle on disk is already the new version; the follow-up `UpdateApplied`
-/// closes the window so `main` can relaunch it. A failure pops an error
-/// toast and the app keeps running the current version.
-fn apply_update(dispatch : @cmd.Emit[Msg]) -> @cmd.Cmd {
-  @cmd.custom_cmd(scheduler => {
-    @js.Promise::from_async(() => {
-      // Self-update always targets the page's own desktop host, never a
-      // focused remote device.
-      ignore(
-        @interop.bridge_request(
-          Local,
-          @commands.update_apply,
-          @protocol.EmptyPayload::NoPayload,
-        ) catch {
-          error => {
-            scheduler.add(
-              dispatch(UpdateFailed(message=@interop.bridge_error_text(error))),
-            )
-            return
-          }
-        },
-      )
-      scheduler.add(dispatch(UpdateApplied))
-    })
-    |> ignore
-  })
-}
-
-///|
-/// Close the window through the normal close path — the same teardown as
-/// the user clicking the close button, so engines and the host unwind
-/// before `main` relaunches the swapped bundle.
-fn close_window() -> @cmd.Cmd {
-  @cmd.custom_cmd(_ => {
-    let _ : @js.Value = @js.globalThis.apply_with_string(
-      "close",
-      ([] : FixedArray[@js.Value]),
-    )
   })
 }
 
