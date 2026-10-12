@@ -390,7 +390,7 @@ test "a different endpoint cannot reuse a live engine process" {
   // configuration must replace the process to take effect.
   let mcp : McpConfig = {
     path: @pathx.Path("/home/.openseek/mcp.json").resolve(),
-    revision: Text("{\"mcpServers\": {}}"),
+    revision: McpConfigRevision::of_text("{\"mcpServers\": {}}"),
   }
   let configured = { ..base, mcp_config: Some(mcp), }
   assert_true(engine_fingerprint(base) != engine_fingerprint(configured))
@@ -400,7 +400,7 @@ test "a different endpoint cannot reuse a live engine process" {
       ..base,
       mcp_config: Some({
         ..mcp,
-        revision: Text("{\"mcpServers\": {\"a\": {}}}"),
+        revision: McpConfigRevision::of_text("{\"mcpServers\": {\"a\": {}}}"),
       }),
     }),
   )
@@ -561,7 +561,10 @@ async test "run config carries the MCP observation it is given, not the file" {
     fail("the caller's observation should be carried")
   }
   assert_true(carried.path == path)
-  assert_true(carried.revision is Text("{\"mcpServers\": {}}"))
+  assert_eq(
+    mcp_config_fingerprint(Some(carried)),
+    mcp_config_fingerprint(Some(observed)),
+  )
 }
 
 ///|
