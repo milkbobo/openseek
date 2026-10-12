@@ -166,10 +166,14 @@ fn run_prompt(
 
 ///|
 /// The config a start request's engine runs under. The request's prompt is
-/// validated and built separately by `run_prompt`.
+/// validated and built separately by `run_prompt`. `mcp_config` is what the
+/// caller observed of the MCP configuration file: `start_run` resolves the
+/// placement here while holding the global lifecycle lock, and reads the file
+/// before taking it so that lock is never held across that read.
 async fn run_config(
   manager : EngineManager,
   payload : @protocol.StartPayload,
+  mcp_config? : McpConfig,
 ) -> RunConfig {
   let session = payload.session.trim().to_owned()
   guard !session.is_empty() else {
@@ -182,6 +186,7 @@ async fn run_config(
     max_steps?=payload.max_steps,
     session~,
     workspace?=payload.workspace,
+    mcp_config~,
   )
   if !payload.images.is_empty() && !config.supports_images() {
     raise EngineError("Images require a DeepSeek image-capable endpoint")
@@ -239,14 +244,27 @@ async fn session_command_config(
   guard !session.is_empty() else {
     raise EngineError("session id must not be empty")
   }
-  serve_config(manager, model?, thinking?, max_steps?, session~, workspace?)
+  // Compaction and goal updates resolve their config after releasing the
+  // lifecycle lock, so the file can be read here.
+  serve_config(
+    manager,
+    model?,
+    thinking?,
+    max_steps?,
+    session~,
+    workspace?,
+    mcp_config=resolved_mcp_config(),
+  )
 }
 
 ///|
 /// The validated configuration shared by every op that can spawn a serve
 /// engine. The endpoint (provider, key, URL) comes from the host-owned
 /// settings store, never from the request — a client carries no credentials
-/// (docs/remote-protocol.md).
+/// (docs/remote-protocol.md). The MCP configuration is the caller's
+/// observation of the file (`resolved_mcp_config`), `None` for no file: this
+/// function can run under the global lifecycle lock, and must not read a
+/// file of unbounded size or kind while that is held.
 async fn serve_config(
   manager : EngineManager,
   model? : String,
@@ -254,6 +272,7 @@ async fn serve_config(
   max_steps? : Int32,
   session~ : String,
   workspace? : String,
+  mcp_config~ : McpConfig?,
 ) -> RunConfig {
   let engine = manager.engine
   let (settings, _) = manager.settings_snapshot()
@@ -311,7 +330,7 @@ async fn serve_config(
     cwd: Some(@worktree.run_dir(dir, session).to_path()),
     session,
     session_root: Some(@workspaces.store_root(dir)),
-    mcp_config: resolved_mcp_config(),
+    mcp_config,
   }
 }
 
@@ -492,6 +511,57 @@ async test "run config ignores OPENSEEK_API_URL in favor of the settings" {
   })
   assert_true(config.api_url is None)
   assert_eq(config.api_key, "sk-official")
+}
+
+///|
+/// Building a start request's config happens under the global lifecycle
+/// lock, so it must take the MCP file's observation from its caller and
+/// never read the file itself.
+async test "run config carries the MCP observation it is given, not the file" {
+  ambient_env_test_lock.acquire()
+  defer ambient_env_test_lock.release()
+  let previous_home = @sys.get_env_var(test_home_env_name())
+  defer restore_home_env(previous_home)
+  let root : @pathx.Path = Path(
+    @fs.realpath(@fs.tmpdir(prefix="openseek-config-mcp-")),
+  )
+  defer @fs.rmdir(root.to_string(), recursive=true)
+  set_test_home(root.join("home").to_string())
+  let workspace = attach_run_workspace(root)
+  let manager = new_engine_manager("openseek", runtime_dir=root)
+  let _ = update_settings(manager, {
+    provider: Some("deepseek"),
+    custom_api_url: None,
+    deepseek_api_key: Some("sk-official"),
+    glm_api_key: None,
+    custom_api_key: None,
+  })
+  guard mcp_config_path() is Some(path) else {
+    fail("a home directory should place the MCP configuration")
+  }
+  @fsx.ensure_dir(path.to_path().dirname())
+  @fsx.write_text(path.to_path(), "{\"mcpServers\": {}}")
+  let payload : @protocol.StartPayload = {
+    images: [],
+    task: "hello",
+    submission_id: None,
+    model: None,
+    thinking: None,
+    max_steps: None,
+    session: "s-mcp",
+    workspace: Some(workspace),
+  }
+  // The file exists, and the config still names none: nothing was read.
+  assert_true(run_config(manager, payload).mcp_config is None)
+  guard resolved_mcp_config() is Some(observed) else {
+    fail("the file should be observable by the caller")
+  }
+  guard run_config(manager, payload, mcp_config=observed).mcp_config
+    is Some(carried) else {
+    fail("the caller's observation should be carried")
+  }
+  assert_true(carried.path == path)
+  assert_true(carried.revision is Text("{\"mcpServers\": {}}"))
 }
 
 ///|

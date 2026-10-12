@@ -16,6 +16,10 @@ pub async fn start_run(
   manager : EngineManager,
   payload : @protocol.StartPayload,
 ) -> StartReply {
+  // Read the MCP configuration before taking the global lifecycle lock: the
+  // file is the user's, of any size, on any filesystem, and every other
+  // conversation's start, compaction, and archive waits on that lock.
+  let mcp_config = resolved_mcp_config()
   manager.workspace_lifecycle_lock.acquire()
   let mut placement_locked = true
   defer (if placement_locked { manager.workspace_lifecycle_lock.release() })
@@ -33,7 +37,7 @@ pub async fn start_run(
   let record_guard = manager.begin_record_op(key)
   defer manager.end_record_op(key, record_guard)
   let content = run_prompt(payload)
-  let config = run_config(manager, payload)
+  let config = run_config(manager, payload, mcp_config?)
   @session_store.ensure_not_archived(key)
   let sessions = manager.serving()
   let slot = slot_for(sessions, key)
