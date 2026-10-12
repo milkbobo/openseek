@@ -71,3 +71,35 @@ test "the JSON report says what connecting each server yielded" {
     },
   )
 }
+
+///|
+async test "the JSON report explains a server that fails before the build suspends" {
+  // Spawning a command that does not exist fails at once. The failure is
+  // reported as an event while the build is still running, and the report
+  // has to find it however the build was scheduled.
+  let report = mcp_report(
+    [
+      Stdio(
+        name="report-missing-command",
+        command="openseek-test-no-such-mcp-server",
+        args=[],
+        env={},
+      ),
+    ],
+    workspace_root=".",
+  )
+  guard report
+    is {
+      "servers": [
+        {
+          "name": "report-missing-command",
+          "state": "failed",
+          "error": String(_),
+          ..
+        },
+      ],
+      ..
+    } else {
+    fail("expected one failed server, got \{report.stringify()}")
+  }
+}
