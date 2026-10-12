@@ -55,14 +55,15 @@ the server needs, and Moon picks the nearest one, so nothing of Proton is
 resolved there. The executable lands in
 `desktop/server/_build/native/release/build/openseek_desktop/server/`. It
 needs a C compiler to build and nothing but the system libraries to run.
-`--resource-dir` names the directory its bundled files live under.
+`--resource-dir` names the directory its bundled files live under: a checkout's
+`desktop/`, or with `--packaged` an installed package root holding `seekmoon/`.
 
 The server opens no port and serves no page. Its one client is whoever
 started it and holds its standard streams, which is what `ssh` and
 `docker exec -i` hand over:
 
 ```sh
-ssh box seekmoon-server --stdio --resource-dir /opt/seekmoon
+ssh box seekmoon-server --stdio --packaged --resource-dir /opt/seekmoon
 ```
 
 Each line in either direction is one JSON-RPC message of
