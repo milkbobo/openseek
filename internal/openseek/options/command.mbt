@@ -149,7 +149,15 @@ pub fn root_command() -> @argparse.Command {
       Command(
         "mcp",
         about="List configured MCP servers and the tools they expose.",
-        options=agent_options(),
+        options=[
+          ..agent_options(),
+          OptionArg(
+            "format",
+            long="format",
+            default_values=["text"],
+            about="Output format: text or json.",
+          ),
+        ],
       ),
       Command(
         "sessions",
