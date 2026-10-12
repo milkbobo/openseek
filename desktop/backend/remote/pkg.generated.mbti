@@ -3,18 +3,26 @@ package "openseek_desktop/backend/remote"
 
 import {
   "moonbitlang/async/http",
-  "moonbitlang/async/io",
   "openseek_desktop/backend/api",
 }
 
 // Values
-pub const LocalConsoleDevice : String = "host"
+pub const ListenerSocketPath : String = "/v1/ws"
 
-pub async fn serve_lines(@api.ApiState, &@io.Reader, &@io.Writer) -> Unit
+pub const LocalConsoleDevice : String = "host"
 
 // Errors
 
 // Types and methods
+pub struct Listener {
+  server : @http.Server
+  token : String
+}
+pub async fn Listener::bind(port~ : Int) -> Self
+pub fn Listener::port(Self) -> Int
+pub async fn Listener::run(Self, @api.ApiState) -> Unit
+pub fn Listener::token(Self) -> String
+
 pub struct LocalConsole {
   server : @http.Server
   token : String

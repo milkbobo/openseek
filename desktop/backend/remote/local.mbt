@@ -295,7 +295,7 @@ async fn serve_ws(
 ) -> Unit {
   let ws = @websocket.from_http_server(request, conn)
   defer ws.close()
-  ClientActor(state).serve(ws) catch {
+  WsClientActor(state).serve(ws) catch {
     // The page reloading or the tab closing mid-frame is routine.
     _ => ()
   }

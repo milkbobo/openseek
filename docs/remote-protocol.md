@@ -23,7 +23,7 @@ it:
 
 - `EngineActor` owns serve processes and durable-session followers.
 - `LspPoolActor` owns the language-server actors shared by the host.
-- `RelayActor` owns the control connection and creates one `ClientActor`
+- `RelayActor` owns the control connection and creates one `WsClientActor`
   for each relayed client.
 - Every Proton or WebSocket client owns a separate `HostConnection`, whose
   `FsWatchActor` serves only that client's `fs.watch` state and whose
@@ -76,12 +76,11 @@ larger than 32 MiB is closed with WebSocket code 1009. This accommodates four
 envelope. The reader grows incrementally and stops at the first excess byte;
 small requests do not allocate the full image allowance.
 
-The same envelopes travel over a byte stream to the headless server
-(`seekmoon-server --stdio`): one envelope per line in each direction, on the
-process's standard input and output. A line is the frame, so a request line
-larger than 32 MiB is answered with error `-32600` and a `null` id, and the
-server then stops. The stream closing is the disconnect; there is no
-keepalive frame.
+The headless server (`seekmoon-server`) accepts the same connection directly
+on a loopback port, as a WebSocket at `/v1/ws`, with no relay in between. A
+client presents the token the server reported at startup as `Authorization:
+Bearer <token>`. A request that carries an `Origin` header is refused: its
+clients are programs, and a browser page must not reach it.
 
 Remote delivery trims high-volume transcript objects whose canonical form is
 delivered by `session.event`. Every Desktop API run names a durable session, so

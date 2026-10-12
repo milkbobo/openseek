@@ -58,20 +58,29 @@ needs a C compiler to build and nothing but the system libraries to run.
 `--resource-dir` names the directory its bundled files live under: a checkout's
 `desktop/`, or with `--packaged` an installed package root holding `seekmoon/`.
 
-The server opens no port and serves no page. Its one client is whoever
-started it and holds its standard streams, which is what `ssh` and
-`docker exec -i` hand over:
+The server listens on a loopback port and serves the protocol there, a
+JSON-RPC connection of [`docs/remote-protocol.md`](../docs/remote-protocol.md)
+upgraded to a WebSocket at `/v1/ws`. It serves no page. Its client is a
+program on a machine that can reach the port, usually through one forwarded
+over `ssh`:
 
 ```sh
-ssh box seekmoon-server --stdio --packaged --resource-dir /opt/seekmoon
+ssh -L 27184:127.0.0.1:27184 box \
+  seekmoon-server --packaged --resource-dir /opt/seekmoon
 ```
 
-Each line in either direction is one JSON-RPC message of
-[`docs/remote-protocol.md`](../docs/remote-protocol.md). The server exits when
-its input ends, and everything it started stops with it. Processes it starts
-never see the channel: before anything else runs, the server moves it to
-private descriptors and leaves the null device and standard error in its
-place. The server does not run on Windows.
+`--port` picks the port (27184 unless told otherwise); 0 takes any free one.
+Once it can answer, the server writes one line to standard output and nothing
+else: where it listens and the token a client must present, as
+`{"port":27184,"token":"…"}`. The program that started the server reads it
+and connects with `Authorization: Bearer <token>`. A port that is taken stops
+the server before it writes anything. Any number of clients may connect, and
+the server runs until it is told to stop.
+
+The port is bound to loopback only, which limits who can reach it but not who
+they are. A request that carries an `Origin` header is refused, which keeps
+out a page in the user's browser; the token keeps out everyone else who can
+reach the port, another account on the machine or the far end of a forward.
 
 The server keeps its state in the per-user runtime directory the desktop
 application uses, and shares it with any other SeekMoon host running under

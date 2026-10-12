@@ -306,25 +306,42 @@ jobs:
           fi
           moon -C desktop/server build . --target native --release
 
-      - name: Serve one client on standard streams
+      - name: Serve the protocol on a loopback port
         run: |
           server=desktop/server/_build/native/release/build/openseek_desktop/server/server.exe
-          mkfifo requests
-          "$server" --stdio --resource-dir desktop < requests > replies 2> stdio.err &
+          "$server" --port 0 --resource-dir desktop > ready 2> server.err &
           pid=$!
-          exec 3> requests
-          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"no.such.method"}' >&3
-          for _ in $(seq 1 50); do
-            grep -q '"id":1' replies && break
+          # The one line it writes says where it listens and what a client
+          # must present, once it can answer.
+          for _ in $(seq 1 100); do
+            [ -s ready ] && break
             sleep 0.2
           done
-          cat replies stdio.err
-          # Readiness is the first line and the answer follows; the server
-          # leaves when its input ends.
-          head -n 1 replies | grep -q '"agent.connected"'
-          grep -q '"code":-32601' replies
-          exec 3>&-
-          wait "$pid"
+          cat server.err
+          port=$(sed -n 's/.*"port":\([0-9]*\).*/\1/p' ready)
+          token=$(sed -n 's/.*"token":"\([0-9a-f]*\)".*/\1/p' ready)
+          test -n "$port"
+          test -n "$token"
+          # An upgrade that succeeds keeps the socket open, so curl gives up
+          # after its time limit; the status line has arrived by then.
+          upgrade() {
+            curl --silent --output /dev/null --max-time 2 --write-out '%{http_code}' \
+              --header 'Connection: Upgrade' --header 'Upgrade: websocket' \
+              --header 'Sec-WebSocket-Version: 13' \
+              --header 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+              "$@" "http://127.0.0.1:$port/v1/ws" || true
+          }
+          # The token opens the socket. Without it there is nothing, and
+          # nothing either for a request that names an origin, as every
+          # browser's does, whatever it presents.
+          test "$(upgrade --header "Authorization: Bearer $token")" = 101
+          test "$(upgrade)" = 401
+          test "$(upgrade --header "Authorization: Bearer $token" --header 'Origin: https://example.com')" = 403
+          # It runs until it is told to stop.
+          kill -TERM "$pid"
+          status=0
+          wait "$pid" || status=$?
+          test "$status" = 143
 
   # cmd/viz_app is a separate MoonBit module and owns its browser test runner.
   # Keep it out of Desktop's recipe so either application can be tested alone.
