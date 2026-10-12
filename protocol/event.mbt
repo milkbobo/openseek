@@ -202,6 +202,9 @@ pub(all) enum Event {
   CommandError(error~ : String)
 
   // ── mcp ────────────────────────────────────────────────────────────────
+  /// The answer to an `mcp_snapshot` command: what the engine holds of its
+  /// configured servers right now.
+  McpSnapshot(request_id~ : String, status~ : McpStatus)
   McpConfigIgnored(reason~ : String)
   McpConfigUnreadable(path~ : String, error~ : String)
   McpConfigInvalid(path~ : String, error~ : String)

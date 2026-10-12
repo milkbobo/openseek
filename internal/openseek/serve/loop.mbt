@@ -164,7 +164,7 @@ async fn run_serve(
         criteria=() => @execution.audit_criteria(session),
       )
     })
-    let extra_tools = @execution.build_extra_tools(
+    let { tools: extra_tools, mcp, } = @execution.build_extra_tools(
       scope,
       model~,
       api_key~,
@@ -623,6 +623,10 @@ async fn run_serve(
                 runtime.queue_steer(Notice(text))
               }
           }
+        // Read at the moment of asking: a server that has died since startup
+        // answers as lost, not as it was.
+        Wire(McpSnapshot(request_id~)) =>
+          @emit.emit(McpSnapshot(request_id~, status=mcp.status()))
         Wire(JobsSnapshot(request_id~)) => {
           let jobs = match tools.background_job_runtime() {
             Some(runtime) => runtime.records()

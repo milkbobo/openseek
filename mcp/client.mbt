@@ -42,6 +42,13 @@ pub fn McpClient::close(self : McpClient) -> Unit {
 }
 
 ///|
+/// Whether the connection is gone: closed here, or ended by the server
+/// exiting or the transport failing.
+pub fn McpClient::is_closed(self : McpClient) -> Bool {
+  self.rpc.is_closed()
+}
+
+///|
 /// Run the MCP handshake: send `initialize` with our client identity, then the
 /// `notifications/initialized` notification once the server has answered.
 /// Returns the server's negotiated protocol version and identity. Raises on

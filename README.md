@@ -271,6 +271,16 @@ Validate a configuration without starting a session:
 moon run . -- mcp --mcp-config mcp.json
 ```
 
+A running `serve` engine reports what it holds of those servers on request.
+Send `{"command":"mcp_snapshot","request_id":"<id>"}` on stdin and it answers
+with an `mcp_snapshot` event carrying the same id: whether a configuration was
+given and could be used, and for each server its `transport`, its `target` (the
+command, or the URL without credentials), and a `state` — `connected` with the
+tools it registered, `lost` when it connected and the connection has closed
+since, `no_tools`, `failed` with the error, or `skipped` when earlier servers
+used up the tool budget. The state is read when asked, so it reflects this
+engine's own connections rather than what connecting again would yield.
+
 Resources and prompts (the other MCP capabilities) are not consumed: openseek's
 agent is tool-driven, and a server that wants to feed it context can expose a
 tool. This keeps the surface small; revisit if a concrete need appears.
