@@ -15,8 +15,10 @@ const DefaultMaxSteps = 1000
 const PlaceholderApiKey = "unused"
 
 ///|
+/// What a serve engine is spawned with and pinned to. It carries no prompt:
+/// a process outlives the turn that spawned it and serves every later one,
+/// so a prompt travels beside the config (see `run_prompt`), never in it.
 priv struct RunConfig {
-  content : @wire.Content
   api_key : String
   // The environment variable that carries `api_key` to the engine; see
   // `key_env_for`.
@@ -149,21 +151,31 @@ fn configured_max_steps(value : Int32?) -> Int32 raise EngineError {
 }
 
 ///|
-async fn run_config(
-  manager : EngineManager,
+/// The prompt a start request carries: its trimmed text and decoded images.
+/// A request with neither has nothing to send.
+fn run_prompt(
   payload : @protocol.StartPayload,
-) -> RunConfig {
+) -> @wire.Content raise EngineError {
   let task = payload.task.trim().to_owned()
   let content = prompt_content(task, payload.images)
   guard !task.is_empty() || !payload.images.is_empty() else {
     raise EngineError("task must not be empty")
   }
+  content
+}
+
+///|
+/// The config a start request's engine runs under. The request's prompt is
+/// validated and built separately by `run_prompt`.
+async fn run_config(
+  manager : EngineManager,
+  payload : @protocol.StartPayload,
+) -> RunConfig {
   let session = payload.session.trim().to_owned()
   guard !session.is_empty() else {
     raise EngineError("session id must not be empty")
   }
   let config = serve_config(
-    task,
     manager,
     model?=payload.model,
     thinking?=payload.thinking,
@@ -174,15 +186,14 @@ async fn run_config(
   if !payload.images.is_empty() && !config.supports_images() {
     raise EngineError("Images require a DeepSeek image-capable endpoint")
   }
-  { ..config, content, }
+  config
 }
 
 ///|
 /// The config a compaction spawns an engine with when its conversation has
 /// none live (resumed after a restart, or the process died between turns):
-/// the same settings a start carries, pinned to the compacted session. The
-/// blank task is never sent — `compact_run` writes only the compact command,
-/// and the fingerprint deliberately excludes the task.
+/// the same settings a start carries, pinned to the compacted session.
+/// `compact_run` writes only the compact command, so there is no prompt.
 async fn compact_config(
   manager : EngineManager,
   payload : @protocol.CompactPayload,
@@ -228,7 +239,7 @@ async fn session_command_config(
   guard !session.is_empty() else {
     raise EngineError("session id must not be empty")
   }
-  serve_config("", manager, model?, thinking?, max_steps?, session~, workspace?)
+  serve_config(manager, model?, thinking?, max_steps?, session~, workspace?)
 }
 
 ///|
@@ -237,7 +248,6 @@ async fn session_command_config(
 /// settings store, never from the request — a client carries no credentials
 /// (docs/remote-protocol.md).
 async fn serve_config(
-  task : String,
   manager : EngineManager,
   model? : String,
   thinking? : @protocol.OpenSeekThinking,
@@ -286,7 +296,6 @@ async fn serve_config(
       @env.get("OPENSEEK_MODEL").unwrap_or(settings.provider.default_model())
   }
   {
-    content: Content([Text(task)]),
     api_key: endpoint.api_key,
     key_env: key_env_for(settings.provider, model),
     api_url: endpoint.api_url,
@@ -307,21 +316,9 @@ async fn serve_config(
 }
 
 ///|
-/// The settings of a config without its prompt — what a live engine keeps
-/// from the config it was spawned with. A prompt can carry several
-/// multi-megabyte images, and an idle engine outlives its first turn by the
-/// life of the conversation. Nothing reads that prompt back (every later turn
-/// brings its own), so keeping it would only pin the payload in memory. The
-/// result is the taskless shape `session_command_config` builds, and its
-/// fingerprint is unchanged because the fingerprint excludes the task.
-fn RunConfig::settings(self : RunConfig) -> RunConfig {
-  { ..self, content: Content([Text("")]), }
-}
-
-///|
 /// Everything that pins a serve process to a config: a prompt whose
 /// fingerprint differs (model change, new session, …) must replace the
-/// process. The task is deliberately excluded — prompts vary per turn.
+/// process.
 fn engine_fingerprint(config : RunConfig) -> String {
   [
     config.engine,
@@ -343,7 +340,6 @@ fn engine_fingerprint(config : RunConfig) -> String {
 ///|
 test "a different endpoint cannot reuse a live engine process" {
   let base : RunConfig = {
-    content: Content([Text("t")]),
     api_key: "k",
     key_env: "DEEPSEEK",
     api_url: None,
@@ -364,10 +360,6 @@ test "a different endpoint cannot reuse a live engine process" {
   assert_true(
     engine_fingerprint(base) !=
     engine_fingerprint({ ..base, thinking: ThinkingHigh, }),
-  )
-  assert_eq(
-    engine_fingerprint(base),
-    engine_fingerprint({ ..base, content: Content([Text("u")]), }),
   )
   // cwd is part of the fingerprint: a session bound to a worktree can never
   // reuse a serve process rooted elsewhere (and vice versa).
@@ -396,27 +388,34 @@ test "a different endpoint cannot reuse a live engine process" {
 }
 
 ///|
-test "an engine's retained settings drop the prompt but keep its fingerprint" {
-  let image = @wire.Image::from_data_url("data:image/png;base64,iVBORw0KGgo=")
-  let config : RunConfig = {
-    content: Content([Text("describe this"), Image(image)]),
-    api_key: "k",
-    key_env: "DEEPSEEK",
-    api_url: None,
-    model: "deepseek-flash",
-    thinking: ThinkingHigh,
-    max_steps: 1000,
-    engine: "openseek",
-    cwd: None,
-    session: "s-settings",
-    session_root: None,
-    mcp_config: None,
+test "a start request's prompt needs text or an image" {
+  let payload : @protocol.StartPayload = {
+    images: [],
+    task: "  hello  ",
+    submission_id: None,
+    model: None,
+    thinking: None,
+    max_steps: None,
+    session: "s-prompt",
+    workspace: None,
   }
-  let settings = config.settings()
-  assert_true(settings.content is Content([Text("")]))
-  // Dropping the prompt must not make the next prompt look like a different
-  // configuration, or every turn would replace the process.
-  assert_eq(engine_fingerprint(settings), engine_fingerprint(config))
+  assert_true(run_prompt(payload) is Content([Text("hello")]))
+  let blank = try {
+    ignore(run_prompt({ ..payload, task: "   ", }))
+    "no error"
+  } catch {
+    EngineError(detail) => detail
+  }
+  assert_eq(blank, "task must not be empty")
+  // An image alone is a prompt.
+  assert_true(
+    run_prompt({
+      ..payload,
+      task: "",
+      images: ["data:image/png;base64,iVBORw0KGgo="],
+    })
+    is Content([Text(""), Image(_)]),
+  )
 }
 
 ///|

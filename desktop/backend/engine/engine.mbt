@@ -23,8 +23,7 @@ priv struct ServeEngine {
   // idle writers before hiding their store, and to refuse while one is busy.
   session_root : @pathx.Absolute?
   // Retain the spawn config so queued turns can refresh MCP and replace the
-  // process without changing the other settings of the accepted queue. Its
-  // settings only, never the prompt that spawned it (`RunConfig::settings`).
+  // process without changing the other settings of the accepted queue.
   config : RunConfig
   engine_name : String
   supports_images : Bool
@@ -1558,7 +1557,7 @@ async fn[G] start_serve_engine(
   let engine : ServeEngine = {
     session_key: config.session,
     session_root: config.session_root,
-    config: config.settings(),
+    config,
     engine_name: config.engine,
     model: config.model,
     supports_images: config.supports_images(),
@@ -2901,7 +2900,6 @@ async test "native engine env has one authoritative bundled moon path" {
   prepare_fake_moonbit_seed(seed, version="0.10.0-test")
   prepare_fake_bundled_moonbit_home(moon_home, version="0.10.0-test")
   let config : RunConfig = {
-    content: Content([Text("t")]),
     api_key: "k",
     key_env: "DEEPSEEK",
     api_url: None,
@@ -3037,7 +3035,6 @@ async test "engine startup rolls back follower on pre-spawn failure" {
   let sink = EventSink(_ => ())
   let slot : SessionSlot = { pending: None, engine: None, }
   let config : RunConfig = {
-    content: Content([Text("test")]),
     api_key: "test",
     key_env: "DEEPSEEK",
     api_url: None,
@@ -3153,7 +3150,6 @@ async test "record move waits for readers across pump replacement" {
 ///|
 fn pump_test_config(session : String) -> RunConfig {
   {
-    content: Content([Text("test")]),
     api_key: "test",
     key_env: "DEEPSEEK",
     api_url: None,
