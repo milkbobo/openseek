@@ -60,69 +60,39 @@ fn mcp_config_fingerprint(config : McpConfig?) -> String {
 }
 
 ///|
-/// How long one status check may take. The engine connects the servers one
-/// after another and bounds each on its own, so this only stops a check that
-/// several unresponsive servers would otherwise stretch without limit.
-const McpStatusTimeoutMs : Int32 = 120_000
-
-///|
-/// What the user's MCP configuration yields right now: the servers it lists
-/// and, for each, the tools an engine would get from it or why it would get
-/// none. The host decides only whether there is a usable configuration; the
-/// connecting is the engine's own `mcp` command, run with the environment an
-/// engine's servers see, so the answer is the one a conversation would get.
-/// Stdio servers are started for the check and stopped when it returns.
-pub async fn mcp_status(manager : EngineManager) -> @protocol.McpStatusReply {
-  guard @home.dir() is Some(home) && mcp_config_path() is Some(config_path) else {
+/// What a conversation's engine holds of its MCP servers right now. The host
+/// keeps no connections of its own — each engine connects its servers when it
+/// starts — so this forwards the question to the conversation's live engine
+/// and returns its answer. A conversation with no engine running has nothing
+/// to ask, which is its own answer rather than an error. Nothing is started:
+/// the engine reads the state it already holds.
+pub async fn mcp_status(
+  manager : EngineManager,
+  payload : @protocol.McpStatusPayload,
+) -> @protocol.McpStatusReply {
+  guard mcp_config_path() is Some(config_path) else {
     raise EngineError(
       "there is no home directory to look for the MCP configuration in",
     )
   }
-  let path = config_path.to_string()
-  guard resolved_mcp_config() is Some(config) else { return NoConfig(path~) }
-  let text = match config.revision {
-    Text(text) => text
-    ReadFailed(reason) => return ConfigRejected(path~, reason~)
+  let config_path = config_path.to_string()
+  guard manager.pump is Serving(sessions~) &&
+    sessions.get(payload.session) is Some(slot) &&
+    slot.live() is Some(engine) else {
+    return { config_path, engine: NotRunning, }
   }
-  // The engine's own decoder, so a file is rejected here exactly when an
-  // engine would reject it.
-  let servers = @mcpconfig.decode(@json.parse(text)) catch {
-    error => return ConfigRejected(path~, reason="\{error}")
-  }
-  guard !servers.is_empty() else { return Configured(path~, servers=[]) }
-  let env = @sys.get_env_vars()
-  add_moonbit_path_for_native_engine(env, manager.engine, manager.runtime_dir)
-  // Conversations run their servers in the project directory. A check has no
-  // project, so the servers start in the user's home.
-  let args = ["mcp", "--mcp-config=\{path}", "--format=json", "--dir=\{home}"]
-  guard @async.with_timeout_opt(McpStatusTimeoutMs, () => {
-      @processx.collect_output_no_stdin(
-        manager.engine,
-        args,
-        extra_env=env,
-        inherit_env=false,
-      )
-    })
-    is Some((code, stdout, stderr)) else {
-    raise EngineError("checking the MCP servers timed out")
-  }
-  guard code == 0 else {
-    let detail = (stderr.text() catch { _ => "" }).trim().to_owned()
+  let request_id = @uuid.mint()
+  guard engine.job_request(
+      request_id,
+      McpSnapshot(request_id~),
+      subject="MCP status",
+    )
+    is McpSnapshot(status~, ..) else {
     raise EngineError(
-      if detail.is_empty() {
-        "the engine's MCP check exited with code \{code}"
-      } else {
-        detail
-      },
+      "the engine answered the MCP status request with another event",
     )
   }
-  let servers = @protocol.McpServerStatus::from_report(
-    @json.parse(stdout.text()),
-  ) catch {
-    error =>
-      raise EngineError("the engine wrote a malformed MCP report: \{error}")
-  }
-  Configured(path~, servers~)
+  { config_path, engine: Running(status), }
 }
 
 ///|
@@ -184,7 +154,7 @@ async test "an unreadable MCP configuration is carried, not treated as absent" {
 }
 
 ///|
-async test "MCP status reads the configuration before it asks the engine" {
+async test "MCP status has nothing to ask when the conversation has no engine" {
   ambient_env_test_lock.acquire()
   defer ambient_env_test_lock.release()
   let previous_home = @sys.get_env_var(test_home_env_name())
@@ -194,91 +164,77 @@ async test "MCP status reads the configuration before it asks the engine" {
   )
   defer @fs.rmdir(root.to_string(), recursive=true)
   set_test_home(root.to_string())
-  // None of these states has a server to connect to, so the engine — which
-  // does not exist here — is never run.
-  let manager = new_engine_manager(root.join("no-such-engine").to_string())
-  let config = root.join(".openseek/mcp.json")
-  assert_true(
-    mcp_status(manager) is NoConfig(path~) && path == config.to_string(),
-  )
-  @fsx.ensure_dir(config.dirname())
-  @fsx.write_text(config, "{\"mcpServers\": {}}")
-  assert_true(mcp_status(manager) is Configured(servers=[], ..))
-  @fsx.write_text(config, "not json")
-  assert_true(mcp_status(manager) is ConfigRejected(..))
-  @fsx.write_text(config, "{\"servers\": {}}")
-  guard mcp_status(manager) is ConfigRejected(reason~, ..) else {
-    fail("a file without `mcpServers` should be rejected")
-  }
-  assert_true(reason.contains("mcpServers"))
-  // A file that exists and cannot be read is rejected, never "no config".
-  @fs.remove(config.to_string())
-  @fsx.ensure_dir(config)
-  assert_true(mcp_status(manager) is ConfigRejected(..))
+  let manager = new_engine_manager("unused")
+  // The host is not serving at all, then serving but not this conversation.
+  let reply = mcp_status(manager, { session: "s-idle", })
+  assert_true(reply.engine is NotRunning)
+  assert_eq(reply.config_path, root.join(".openseek/mcp.json").to_string())
+  manager.pump = Serving(sessions=Map([]))
+  assert_true(mcp_status(manager, { session: "s-idle", }).engine is NotRunning)
 }
 
 ///|
 #cfg(not(platform="windows"))
-async test "MCP status forwards the engine's report and its failures" {
+async test "MCP status is the live engine's own answer" {
   ambient_env_test_lock.acquire()
   defer ambient_env_test_lock.release()
   let previous_home = @sys.get_env_var("HOME")
   defer restore_home_env(previous_home)
-  let root : @pathx.Path = Path(
-    @fs.realpath(@fs.tmpdir(prefix="openseek-mcp-status-engine-")),
-  )
-  defer @fs.rmdir(root.to_string(), recursive=true)
-  @sys.set_env_var("HOME", root.join("home").to_string())
-  let engine = root.join("bin/engine.sh")
-  let runtime = root.join("runtime")
-  prepare_fake_moonbit_seed(
-    root.join("bin/toolchains/moonbit/macos-arm64"),
-    version="0.10.0-test",
-  )
-  prepare_fake_bundled_moonbit_home(
-    runtime.join("toolchains/moonbit/macos-arm64"),
-    version="0.10.0-test",
-  )
-  let config = root.join("home/.openseek/mcp.json")
-  @fsx.ensure_dir(config.dirname())
-  @fsx.write_text(config, "{\"mcpServers\": {\"a\": {\"command\": \"a\"}}}")
-  let manager = new_engine_manager(engine.to_string(), runtime_dir=runtime)
-  let args_log = root.join("args")
-  let report =
-    #|{"servers":[{"name":"a","transport":"stdio","target":"a","state":"failed","error":"spawn failed"}]}
-  @fs.write_file(
-    engine.to_string(),
-    "#!/bin/sh\nprintf '%s\\n' \"$@\" > '\{args_log}'\nprintf '%s' '\{report}'\n",
-    create_mode=CreateOrTruncate,
-  )
-  assert_eq(@process.run("chmod", ["+x", engine.to_string()]), 0)
-  guard mcp_status(manager) is Configured(servers=[server], ..) else {
-    fail("the engine's report should be forwarded")
-  }
-  assert_eq(server.name, "a")
-  assert_true(server.state is Failed("spawn failed"))
-  @debug.assert_eq(
-    [..@fsx.read_text(args_log).trim().split("\n")].map(arg => arg.to_owned()),
-    [
-      "mcp",
-      "--mcp-config=\{config}",
-      "--format=json",
-      "--dir=\{root.join("home")}",
-    ],
-  )
-  // An engine that fails is a failed check, with the engine's own words —
-  // not a rejected configuration and not an empty list.
-  @fs.write_file(
-    engine.to_string(),
-    "#!/bin/sh\necho 'engine broke' >&2\nexit 3\n",
-    create_mode=CreateOrTruncate,
-  )
-  let failure = try {
-    ignore(mcp_status(manager))
-    "no error"
-  } catch {
-    EngineError(detail) => detail
-    error => "\{error}"
-  }
-  assert_eq(failure, "engine broke")
+  let root = @fs.realpath(@fs.tmpdir(prefix="openseek-mcp-status-engine-"))
+  defer @fs.rmdir(root, recursive=true)
+  @sys.set_env_var("HOME", root)
+  let manager = new_engine_manager("/bin/sh")
+  let emitted : Array[EngineEvent] = []
+  let sink = EventSink(event => emitted.push(event))
+  // Stands in for a serve engine: answers each command line with a snapshot
+  // carrying that line's request id, as the real one does.
+  let script =
+    #|while IFS= read -r line; do
+    #|  id=$(printf '%s' "$line" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
+    #|  printf '{"event":"mcp_snapshot","request_id":"%s","status":{"config":"loaded","path":"/p/mcp.json","servers":[{"name":"a","transport":"stdio","target":"a","state":"failed","error":"spawn failed"}]}}\n' "$id"
+    #|done
+  @async.with_task_group(group => {
+    let (child_stdin, writer) = @process.write_to_process()
+    let (reader, child_stdout) = @process.read_from_process()
+    let process = @process.spawn(
+      group,
+      "/bin/sh",
+      ["-c", script],
+      stdin=child_stdin,
+      stdout=child_stdout,
+      no_wait=true,
+    )
+    let engine = test_serve_engine(
+      "s-live",
+      writer,
+      process,
+      sink,
+      phase=Idle(last_run=None),
+    )
+    let sessions : Map[String, SessionSlot] = Map([])
+    slot_for(sessions, "s-live").engine = Some(engine)
+    manager.pump = Serving(sessions~)
+    // The two tasks a spawned engine runs for its life: the stdin writer and
+    // the stdout pump.
+    group.spawn_bg(no_wait=true, allow_failure=true, () => {
+      engine.write_commands()
+    })
+    let stderr_task = group.spawn(no_wait=true, () => "")
+    group.spawn_bg(no_wait=true, allow_failure=true, () => {
+      engine.run(manager, reader, group, stderr_task)
+    })
+    let reply = mcp_status(manager, { session: "s-live", })
+    guard reply.engine
+      is Running(Configured(path="/p/mcp.json", servers=[server])) else {
+      fail("the engine's snapshot should be forwarded")
+    }
+    assert_eq(server.name, "a")
+    assert_true(server.state is Failed("spawn failed"))
+    // The reply is private to the request: it is not a conversation event.
+    assert_true(emitted.is_empty())
+    // Another conversation is not answered by this one's engine.
+    assert_true(
+      mcp_status(manager, { session: "s-other", }).engine is NotRunning,
+    )
+  })
 }

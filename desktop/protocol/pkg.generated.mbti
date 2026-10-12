@@ -2091,35 +2091,28 @@ pub fn MaterializeSemanticSelectionReply::to_repr(Self) -> @debug.Repr
 pub impl ToJson for MaterializeSemanticSelectionReply
 pub impl @json.FromJson for MaterializeSemanticSelectionReply
 
-pub(all) enum McpServerState {
-  Connected(Array[McpTool])
-  NoTools
-  Failed(String)
-  Skipped
+pub(all) enum McpEngineStatus {
+  NotRunning
+  Running(@openseek_protocol.McpStatus)
 } derive(Eq, @debug.Debug)
-pub fn McpServerState::equal(Self, Self) -> Bool
-pub fn McpServerState::not_equal(Self, Self) -> Bool
-pub fn McpServerState::to_repr(Self) -> @debug.Repr
+pub fn McpEngineStatus::equal(Self, Self) -> Bool
+pub fn McpEngineStatus::not_equal(Self, Self) -> Bool
+pub fn McpEngineStatus::to_repr(Self) -> @debug.Repr
 
-pub(all) struct McpServerStatus {
-  name : String
-  transport : McpTransport
-  target : String
-  state : McpServerState
+pub(all) struct McpStatusPayload {
+  session : String
 } derive(Eq, @debug.Debug)
-pub fn McpServerStatus::equal(Self, Self) -> Bool
-pub fn McpServerStatus::from_json(Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
-pub fn McpServerStatus::from_report(Json) -> Array[Self] raise @json.JsonDecodeError
-pub fn McpServerStatus::not_equal(Self, Self) -> Bool
-pub fn McpServerStatus::to_json(Self) -> Json
-pub fn McpServerStatus::to_repr(Self) -> @debug.Repr
-pub impl ToJson for McpServerStatus
-pub impl @json.FromJson for McpServerStatus
+pub fn McpStatusPayload::equal(Self, Self) -> Bool
+pub fn McpStatusPayload::from_json(Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
+pub fn McpStatusPayload::not_equal(Self, Self) -> Bool
+pub fn McpStatusPayload::to_json(Self) -> Json
+pub fn McpStatusPayload::to_repr(Self) -> @debug.Repr
+pub impl ToJson for McpStatusPayload
+pub impl @json.FromJson for McpStatusPayload
 
-pub(all) enum McpStatusReply {
-  NoConfig(path~ : String)
-  ConfigRejected(path~ : String, reason~ : String)
-  Configured(path~ : String, servers~ : Array[McpServerStatus])
+pub(all) struct McpStatusReply {
+  config_path : String
+  engine : McpEngineStatus
 } derive(Eq, @debug.Debug)
 pub fn McpStatusReply::equal(Self, Self) -> Bool
 pub fn McpStatusReply::from_json(Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
@@ -2128,26 +2121,6 @@ pub fn McpStatusReply::to_json(Self) -> Json
 pub fn McpStatusReply::to_repr(Self) -> @debug.Repr
 pub impl ToJson for McpStatusReply
 pub impl @json.FromJson for McpStatusReply
-
-pub(all) struct McpTool {
-  name : String
-  description : String
-} derive(Eq, @debug.Debug)
-pub fn McpTool::equal(Self, Self) -> Bool
-pub fn McpTool::from_json(Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
-pub fn McpTool::not_equal(Self, Self) -> Bool
-pub fn McpTool::to_json(Self) -> Json
-pub fn McpTool::to_repr(Self) -> @debug.Repr
-pub impl ToJson for McpTool
-pub impl @json.FromJson for McpTool
-
-pub(all) enum McpTransport {
-  Stdio
-  Http
-} derive(Eq, @debug.Debug)
-pub fn McpTransport::equal(Self, Self) -> Bool
-pub fn McpTransport::not_equal(Self, Self) -> Bool
-pub fn McpTransport::to_repr(Self) -> @debug.Repr
 
 pub(all) struct MoonIdeCodeLens {
   range : LspRange

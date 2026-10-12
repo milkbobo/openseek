@@ -154,11 +154,12 @@ pub let settings_set : Command[
 ] = Command("settings.set")
 
 ///|
-/// Connect to every server of the user's MCP configuration and report what
-/// each one yields. Stdio servers run only for the duration of the check.
-pub let mcp_status : Command[@protocol.EmptyPayload, @protocol.McpStatusReply] = Command(
-  "mcp.status",
-)
+/// Ask a conversation's live engine what it holds of its MCP servers. Reads
+/// the engine's state; starts nothing.
+pub let mcp_status : Command[
+  @protocol.McpStatusPayload,
+  @protocol.McpStatusReply,
+] = Command("mcp.status")
 
 ///|
 pub let app_info : Command[@protocol.EmptyPayload, @protocol.AppInfoReply] = Command(

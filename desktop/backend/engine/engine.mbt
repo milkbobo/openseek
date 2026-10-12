@@ -1382,7 +1382,7 @@ fn path_env_value(env : Map[String, String]) -> String? {
 ///|
 async fn add_moonbit_path_for_native_engine(
   env : Map[String, String],
-  engine : String,
+  config : RunConfig,
   runtime_dir : @pathx.Path?,
 ) -> Unit {
   // The agent tools spawn `moon` by name, so prepend the resolved toolchain's
@@ -1394,7 +1394,7 @@ async fn add_moonbit_path_for_native_engine(
   // An unavailable toolchain fails the spawn: a session whose `moon` would
   // break in confusing ways downstream is worth less than a clear error
   // naming the cause now.
-  let toolchain = @moonbit.resolve_toolchain(engine, runtime_dir?)
+  let toolchain = @moonbit.resolve_toolchain(config.engine, runtime_dir?)
   toolchain.apply_to_env(env)
   @xlog.debug() <?
     {
@@ -1436,7 +1436,7 @@ async fn engine_process_env(
   } else {
     env.remove("OPENSEEK_API_URL")
   }
-  add_moonbit_path_for_native_engine(env, config.engine, runtime_dir)
+  add_moonbit_path_for_native_engine(env, config, runtime_dir)
   env
 }
 
@@ -1768,7 +1768,8 @@ async fn[G] ServeEngine::consume(
             continue
           }
           Some(JobsSnapshot(request_id~, ..) as event)
-          | Some(JobStopResult(request_id~, ..) as event) => {
+          | Some(JobStopResult(request_id~, ..) as event)
+          | Some(McpSnapshot(request_id~, ..) as event) => {
             if self.job_requests.get(request_id) is Some(reply) {
               ignore(reply.try_put(event) catch { _ => false })
             }

@@ -3961,10 +3961,11 @@ fn update_msg(
     }
     UpdateApplied => (close_window(), model)
     OpenSetup => {
-      // The MCP panel's answer belongs to the host Settings is showing.
+      // The MCP panel shows the current conversation's engine, and asks it
+      // afresh each time Settings opens.
       let (cmd, mcp) = @mcp.update(
         dispatch.map(msg => Mcp(msg)),
-        Opened(model.focused),
+        Opened(model.mcp_conversation()),
         model.mcp,
       )
       (

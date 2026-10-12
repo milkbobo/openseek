@@ -1,39 +1,54 @@
 ///|
-/// The rows of the Settings page's MCP group for `host`: the explanation
-/// with its check button, then what the last check of that host found.
+/// The rows of the Settings page's MCP group for `conversation`: the
+/// explanation with its refresh button, then what that conversation's engine
+/// last answered.
 pub fn rows(
   locale~ : @i18n.Locale = English,
-  host~ : @interop.ChannelId,
+  conversation~ : @interop.ConversationKey?,
   state : State,
   emit : @cmd.Emit[Msg],
 ) -> Array[@html.Html] {
-  let phase = state.phase_for(host)
+  let phase = state.phase_for(conversation)
   let checking = phase is Checking
+  let refresh = match conversation {
+    Some(conversation) =>
+      @html.button(
+        class="button secondary",
+        disabled=checking,
+        on_click=emit(Refresh(conversation)),
+        text(locale, if checking { Refreshing } else { Refresh }),
+      )
+    // Nothing to ask about without a conversation.
+    None =>
+      @html.button(
+        class="button secondary",
+        disabled=true,
+        text(locale, Refresh),
+      )
+  }
   let rows : Array[@html.Html] = [
     @settings.row(
       text(locale, Servers),
-      [
-        @html.button(
-          class="button secondary",
-          disabled=checking,
-          on_click=emit(Refresh(host)),
-          text(locale, if checking { Checking } else { CheckAgain }),
-        ),
-      ],
+      [refresh],
       desc=text(locale, Description),
     ),
   ]
+  guard conversation is Some(_) else {
+    rows.push(note(text(locale, NoConversation)))
+    return rows
+  }
   match phase {
-    Unchecked => ()
-    Checking => rows.push(note(text(locale, Connecting)))
+    Unchecked | Checking => ()
     CheckFailed(reason) => rows.push(problem(text(locale, CheckFailed), reason))
-    Loaded(NoConfig(path~)) =>
-      rows.push(note(text(locale, NotConfigured(path))))
-    Loaded(ConfigRejected(path~, reason~)) =>
+    Loaded({ config_path, engine: NotRunning, }) =>
+      rows.push(note(text(locale, EngineNotRunning(config_path))))
+    Loaded({ config_path, engine: Running(NotConfigured), }) =>
+      rows.push(note(text(locale, NotConfigured(config_path))))
+    Loaded({ engine: Running(ConfigRejected(path~, reason~)), .. }) =>
       rows.push(problem(text(locale, ConfigRejected(path)), reason))
-    Loaded(Configured(path~, servers=[])) =>
+    Loaded({ engine: Running(Configured(path~, servers=[])), .. }) =>
       rows.push(note(text(locale, NoServers(path))))
-    Loaded(Configured(servers~, ..)) =>
+    Loaded({ engine: Running(Configured(servers~, ..)), .. }) =>
       for server in servers {
         rows.push(server_row(locale, server))
       }
@@ -62,9 +77,24 @@ fn problem(title : String, reason : String) -> @html.Html {
 }
 
 ///|
+/// The tools a server registered, folded until asked for.
+fn tool_list(locale : @i18n.Locale, tools : Array[@wire.McpTool]) -> @html.Html {
+  @html.details(class="mcp-tools", [
+    @html.summary(text(locale, ToolCount(tools.length()))),
+    @html.ul(
+      [
+        for tool in tools => {
+          @html.li(title=tool.description, [@html.code(tool.name)])
+        }
+      ],
+    ),
+  ])
+}
+
+///|
 fn server_row(
   locale : @i18n.Locale,
-  server : @protocol.McpServerStatus,
+  server : @wire.McpServerStatus,
 ) -> @html.Html {
   let transport = match server.transport {
     Stdio => "stdio"
@@ -76,19 +106,17 @@ fn server_row(
   ]
   let (badge_class, badge) = match server.state {
     Connected(tools) => {
-      details.push(
-        @html.details(class="mcp-tools", [
-          @html.summary(text(locale, ToolCount(tools.length()))),
-          @html.ul(
-            [
-              for tool in tools => {
-                @html.li(title=tool.description, [@html.code(tool.name)])
-              }
-            ],
-          ),
-        ]),
-      )
+      details.push(tool_list(locale, tools))
       ("mcp-state ok", Connected)
+    }
+    // The tools are still registered, so they are still listed: these are
+    // the calls that now fail.
+    Lost(tools) => {
+      details.push(
+        @html.div(class="setting-desc mcp-error", text(locale, LostReason)),
+      )
+      details.push(tool_list(locale, tools))
+      ("mcp-state error", Lost)
     }
     NoTools => {
       details.push(@html.div(class="setting-desc", text(locale, NoToolsReason)))

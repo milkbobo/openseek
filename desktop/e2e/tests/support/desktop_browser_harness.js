@@ -20,9 +20,10 @@ export class DesktopBrowserHarness {
     this.textSearchLimitHit = false;
     this.directoryEntries = {};
     this.workspaces = ['/workspace'];
-    // What the host's MCP configuration yields; the Settings page asks once
-    // when it opens and again on "Check again".
-    this.mcpStatus = { config: 'absent', path: '/home/user/.openseek/mcp.json' };
+    // What `mcp.status` answers for a conversation: by default no engine is
+    // running for it, as before its first message. The Settings page asks
+    // each time it opens and on "Refresh".
+    this.mcpStatus = { config_path: '/home/user/.openseek/mcp.json', engine: 'stopped' };
     this.chatRoot = '/Users/test/Library/Application Support/SeekMoon/workspaces';
     // Per-workspace settings the Workspace Settings page reads and patches,
     // mirroring the host's `.openseek/settings.json` store. Keyed by

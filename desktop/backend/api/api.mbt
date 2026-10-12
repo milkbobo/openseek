@@ -528,7 +528,9 @@ pub fn endpoints(
       state.schedules.action(payload)
     }),
     Endpoint(@commands.settings_get, _ => @engine.settings_status(state.manager)),
-    Endpoint(@commands.mcp_status, _ => @engine.mcp_status(state.manager)),
+    Endpoint(@commands.mcp_status, payload => {
+      @engine.mcp_status(state.manager, payload)
+    }),
     @endpoint.Endpoint::sync(@commands.app_info, _ => {
       version: state.app_version,
       console_url: state.console_url,

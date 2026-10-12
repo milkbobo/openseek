@@ -4,9 +4,10 @@
 priv enum UiMessage {
   Servers
   Description
-  CheckAgain
-  Checking
-  Connecting
+  Refresh
+  Refreshing
+  NoConversation
+  EngineNotRunning(String)
   NotConfigured(String)
   NoServers(String)
   ConfigRejected(String)
@@ -16,6 +17,8 @@ priv enum UiMessage {
   NoTools
   NoToolsReason
   Failed
+  Lost
+  LostReason
   Skipped
   SkippedReason
 }
@@ -29,42 +32,55 @@ fn text(locale : @i18n.Locale, message : UiMessage) -> String {
     (TraditionalChinese, Servers) => "MCP 伺服器"
     (Japanese, Servers) => "MCP サーバー"
     (English, Description) =>
-      "Servers listed in mcp.json give the agent extra tools. Edits apply from the next message of each conversation."
+      "Servers listed in mcp.json give the agent extra tools. This shows what the current conversation's engine is connected to; edits to the file apply from its next message."
     (Spanish, Description) =>
-      "Los servidores indicados en mcp.json dan al agente herramientas adicionales. Los cambios se aplican a partir del siguiente mensaje de cada conversación."
+      "Los servidores indicados en mcp.json dan al agente herramientas adicionales. Aquí se muestra a qué está conectado el motor de la conversación actual; los cambios en el archivo se aplican a partir de su siguiente mensaje."
     (SimplifiedChinese, Description) =>
-      "mcp.json 中配置的服务器会为智能体提供额外的工具。修改从每个对话的下一条消息起生效。"
+      "mcp.json 中配置的服务器会为智能体提供额外的工具。这里显示当前对话的引擎实际连接的服务器；对文件的修改从该对话的下一条消息起生效。"
     (TraditionalChinese, Description) =>
-      "mcp.json 中設定的伺服器會為代理提供額外的工具。修改從每個對話的下一則訊息起生效。"
+      "mcp.json 中設定的伺服器會為代理提供額外的工具。這裡顯示目前對話的引擎實際連線的伺服器；對檔案的修改從該對話的下一則訊息起生效。"
     (Japanese, Description) =>
-      "mcp.json に記載したサーバーがエージェントに追加のツールを提供します。変更は各会話の次のメッセージから適用されます。"
-    (English, CheckAgain) => "Check again"
-    (Spanish, CheckAgain) => "Comprobar de nuevo"
-    (SimplifiedChinese, CheckAgain) => "重新检查"
-    (TraditionalChinese, CheckAgain) => "重新檢查"
-    (Japanese, CheckAgain) => "再確認"
-    (English, Checking) => "Checking…"
-    (Spanish, Checking) => "Comprobando…"
-    (SimplifiedChinese, Checking) => "正在检查…"
-    (TraditionalChinese, Checking) => "正在檢查…"
-    (Japanese, Checking) => "確認中…"
-    (English, Connecting) => "Connecting to the configured servers…"
-    (Spanish, Connecting) => "Conectando con los servidores configurados…"
-    (SimplifiedChinese, Connecting) => "正在连接已配置的服务器…"
-    (TraditionalChinese, Connecting) =>
-      "正在連線至已設定的伺服器…"
-    (Japanese, Connecting) =>
-      "設定済みのサーバーに接続しています…"
+      "mcp.json に記載したサーバーがエージェントに追加のツールを提供します。ここには現在の会話のエンジンが接続しているサーバーが表示されます。ファイルの変更はその会話の次のメッセージから適用されます。"
+    (English, Refresh) => "Refresh"
+    (Spanish, Refresh) => "Actualizar"
+    (SimplifiedChinese, Refresh) => "刷新"
+    (TraditionalChinese, Refresh) => "重新整理"
+    (Japanese, Refresh) => "更新"
+    (English, Refreshing) => "Refreshing…"
+    (Spanish, Refreshing) => "Actualizando…"
+    (SimplifiedChinese, Refreshing) => "正在刷新…"
+    (TraditionalChinese, Refreshing) => "正在重新整理…"
+    (Japanese, Refreshing) => "更新中…"
+    (English, NoConversation) =>
+      "Open a conversation to see what its engine is connected to."
+    (Spanish, NoConversation) =>
+      "Abre una conversación para ver a qué está conectado su motor."
+    (SimplifiedChinese, NoConversation) =>
+      "打开一个对话即可查看它的引擎连接了哪些服务器。"
+    (TraditionalChinese, NoConversation) =>
+      "開啟一個對話即可查看它的引擎連線了哪些伺服器。"
+    (Japanese, NoConversation) =>
+      "会話を開くと、そのエンジンが接続しているサーバーを確認できます。"
+    (English, EngineNotRunning(path)) =>
+      "This conversation's engine is not running. Servers in \{path} connect when its next message starts one."
+    (Spanish, EngineNotRunning(path)) =>
+      "El motor de esta conversación no está en ejecución. Los servidores de \{path} se conectan cuando su siguiente mensaje inicie uno."
+    (SimplifiedChinese, EngineNotRunning(path)) =>
+      "此对话的引擎尚未运行。发送下一条消息启动引擎时，会连接 \{path} 中的服务器。"
+    (TraditionalChinese, EngineNotRunning(path)) =>
+      "此對話的引擎尚未執行。傳送下一則訊息啟動引擎時，會連線 \{path} 中的伺服器。"
+    (Japanese, EngineNotRunning(path)) =>
+      "この会話のエンジンは実行されていません。次のメッセージでエンジンが起動すると、\{path} のサーバーに接続します。"
     (English, NotConfigured(path)) =>
-      "Nothing is configured yet. Create \{path} to add servers."
+      "This conversation's engine started without an MCP configuration. Servers in \{path} connect from its next message."
     (Spanish, NotConfigured(path)) =>
-      "Aún no hay nada configurado. Crea \{path} para añadir servidores."
+      "El motor de esta conversación se inició sin configuración de MCP. Los servidores de \{path} se conectan a partir de su siguiente mensaje."
     (SimplifiedChinese, NotConfigured(path)) =>
-      "尚未配置。创建 \{path} 即可添加服务器。"
+      "此对话的引擎启动时没有 MCP 配置。\{path} 中的服务器会从它的下一条消息起连接。"
     (TraditionalChinese, NotConfigured(path)) =>
-      "尚未設定。建立 \{path} 即可新增伺服器。"
+      "此對話的引擎啟動時沒有 MCP 設定。\{path} 中的伺服器會從它的下一則訊息起連線。"
     (Japanese, NotConfigured(path)) =>
-      "まだ設定されていません。\{path} を作成するとサーバーを追加できます。"
+      "この会話のエンジンは MCP 設定なしで起動しました。\{path} のサーバーには次のメッセージから接続します。"
     (English, NoServers(path)) => "\{path} lists no servers."
     (Spanish, NoServers(path)) => "\{path} no contiene ningún servidor."
     (SimplifiedChinese, NoServers(path)) =>
@@ -79,11 +95,12 @@ fn text(locale : @i18n.Locale, message : UiMessage) -> String {
     (TraditionalChinese, ConfigRejected(path)) => "無法載入 \{path}"
     (Japanese, ConfigRejected(path)) =>
       "\{path} を読み込めませんでした"
-    (English, CheckFailed) => "The check could not run"
-    (Spanish, CheckFailed) => "No se pudo ejecutar la comprobación"
-    (SimplifiedChinese, CheckFailed) => "检查未能执行"
-    (TraditionalChinese, CheckFailed) => "檢查未能執行"
-    (Japanese, CheckFailed) => "確認を実行できませんでした"
+    (English, CheckFailed) => "The engine could not be asked"
+    (Spanish, CheckFailed) => "No se pudo consultar al motor"
+    (SimplifiedChinese, CheckFailed) => "未能向引擎查询"
+    (TraditionalChinese, CheckFailed) => "未能向引擎查詢"
+    (Japanese, CheckFailed) =>
+      "エンジンに問い合わせできませんでした"
     (English, Connected) => "Connected"
     (Spanish, Connected) => "Conectado"
     (SimplifiedChinese, Connected) => "已连接"
@@ -115,6 +132,21 @@ fn text(locale : @i18n.Locale, message : UiMessage) -> String {
     (SimplifiedChinese, Failed) => "失败"
     (TraditionalChinese, Failed) => "失敗"
     (Japanese, Failed) => "失敗"
+    (English, Lost) => "Disconnected"
+    (Spanish, Lost) => "Desconectado"
+    (SimplifiedChinese, Lost) => "已断开"
+    (TraditionalChinese, Lost) => "已中斷"
+    (Japanese, Lost) => "切断"
+    (English, LostReason) =>
+      "The server connected and has since exited or dropped the connection. Its tools fail until the engine restarts."
+    (Spanish, LostReason) =>
+      "El servidor se conectó y después terminó o perdió la conexión. Sus herramientas fallan hasta que el motor se reinicie."
+    (SimplifiedChinese, LostReason) =>
+      "服务器曾经连接成功，之后退出或断开了连接。在引擎重启之前，它的工具调用都会失败。"
+    (TraditionalChinese, LostReason) =>
+      "伺服器曾經連線成功，之後結束或中斷了連線。在引擎重新啟動之前，它的工具呼叫都會失敗。"
+    (Japanese, LostReason) =>
+      "サーバーは接続後に終了したか、接続が切れました。エンジンが再起動するまで、そのツールは失敗します。"
     (English, Skipped) => "Skipped"
     (Spanish, Skipped) => "Omitido"
     (SimplifiedChinese, Skipped) => "已跳过"

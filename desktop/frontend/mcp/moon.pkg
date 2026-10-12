@@ -4,6 +4,7 @@ import {
   "openseek_desktop/frontend/settings",
   "openseek_desktop/commands",
   "openseek_desktop/protocol",
+  "moonbitlang/openseek_protocol" @wire,
   "moonbit-community/rabbita/cmd",
   "moonbit-community/rabbita/html",
 }

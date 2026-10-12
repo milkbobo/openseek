@@ -10,7 +10,7 @@ import {
 }
 
 // Values
-pub fn rows(locale? : @i18n.Locale, host~ : @interop.ChannelId, State, @cmd.Emit[Msg]) -> Array[@html.Html]
+pub fn rows(locale? : @i18n.Locale, conversation~ : @interop.ConversationKey?, State, @cmd.Emit[Msg]) -> Array[@html.Html]
 
 pub fn update(@cmd.Emit[Msg], Msg, State) -> (@cmd.Cmd, State)
 
@@ -18,8 +18,8 @@ pub fn update(@cmd.Emit[Msg], Msg, State) -> (@cmd.Cmd, State)
 
 // Types and methods
 pub(all) enum Msg {
-  Opened(@interop.ChannelId)
-  Refresh(@interop.ChannelId)
+  Opened(@interop.ConversationKey?)
+  Refresh(@interop.ConversationKey)
   Checked(serial~ : Int, Result[@protocol.McpStatusReply, String])
 }
 
@@ -33,14 +33,14 @@ pub fn Phase::equal(Self, Self) -> Bool
 pub fn Phase::not_equal(Self, Self) -> Bool
 
 pub struct State {
-  host : @interop.ChannelId?
+  conversation : @interop.ConversationKey?
   phase : Phase
   serial : Int
 } derive(Eq)
 pub fn State::equal(Self, Self) -> Bool
 pub fn State::initial() -> Self
 pub fn State::not_equal(Self, Self) -> Bool
-pub fn State::phase_for(Self, @interop.ChannelId) -> Phase
+pub fn State::phase_for(Self, @interop.ConversationKey?) -> Phase
 
 // Type aliases
 

@@ -4,37 +4,57 @@ fn quiet() -> @cmd.Emit[@mcp.Msg] {
 }
 
 ///|
-fn answer() -> @protocol.McpStatusReply {
-  Configured(path="/home/.openseek/mcp.json", servers=[
-    { name: "playwright", transport: Stdio, target: "npx", state: NoTools, },
-  ])
+fn conversation(session : String) -> @interop.ConversationKey {
+  { channel: Local, session, }
 }
 
 ///|
-test "opening Settings checks once per host and keeps the answer" {
-  let (_, checking) = @mcp.update(quiet(), Opened(Local), @mcp.State::initial())
+fn answer() -> @protocol.McpStatusReply {
+  {
+    config_path: "/home/.openseek/mcp.json",
+    engine: Running(
+      Configured(path="/home/.openseek/mcp.json", servers=[
+        { name: "playwright", transport: Stdio, target: "npx", state: NoTools, },
+      ]),
+    ),
+  }
+}
+
+///|
+test "opening Settings asks the current conversation's engine, every time" {
+  let one = conversation("s-1")
+  let (_, checking) = @mcp.update(
+    quiet(),
+    Opened(Some(one)),
+    @mcp.State::initial(),
+  )
   assert_true(checking.phase is Checking)
-  assert_true(checking.host == Some(Local))
+  assert_true(checking.conversation == Some(one))
   let (_, loaded) = @mcp.update(
     quiet(),
     Checked(serial=checking.serial, Ok(answer())),
     checking,
   )
   assert_true(loaded.phase is Loaded(reply) && reply == answer())
-  // Reopening Settings must not start the user's servers again.
-  let (_, reopened) = @mcp.update(quiet(), Opened(Local), loaded)
-  assert_true(reopened == loaded)
-  // Another host has its own configuration: its answer is asked for.
-  let (_, other) = @mcp.update(quiet(), Opened(Remote("device-a")), loaded)
-  assert_true(other.phase is Checking)
-  assert_true(other.host == Some(Remote("device-a")))
-  assert_true(other.serial != loaded.serial)
+  // The answer is the engine's state when asked, and asking starts nothing,
+  // so reopening Settings asks again rather than showing an old answer.
+  let (_, reopened) = @mcp.update(quiet(), Opened(Some(one)), loaded)
+  assert_true(reopened.phase is Checking)
+  assert_true(reopened.serial != loaded.serial)
 }
 
 ///|
-test "the answer to a superseded check is dropped" {
-  let (_, first) = @mcp.update(quiet(), Opened(Local), @mcp.State::initial())
-  let (_, second) = @mcp.update(quiet(), Opened(Remote("device-a")), first)
+test "the answer to a superseded question is dropped" {
+  let (_, first) = @mcp.update(
+    quiet(),
+    Opened(Some(conversation("s-1"))),
+    @mcp.State::initial(),
+  )
+  let (_, second) = @mcp.update(
+    quiet(),
+    Opened(Some(conversation("s-2"))),
+    first,
+  )
   let (_, stale) = @mcp.update(
     quiet(),
     Checked(serial=first.serial, Ok(answer())),
@@ -54,38 +74,62 @@ test "the answer to a superseded check is dropped" {
     settled,
   )
   assert_true(again == settled)
+  // Opening Settings with no conversation retires a question still out.
+  let (_, none) = @mcp.update(quiet(), Opened(None), second)
+  assert_true(none.phase is Unchecked)
+  let (_, late) = @mcp.update(
+    quiet(),
+    Checked(serial=second.serial, Ok(answer())),
+    none,
+  )
+  assert_true(late == none)
 }
 
 ///|
-test "refresh asks again, but never while a check is running" {
-  let initial = @mcp.State::initial()
-  let (_, checking) = @mcp.update(quiet(), Opened(Local), initial)
-  let (_, still) = @mcp.update(quiet(), Refresh(Local), checking)
+test "refresh asks again, but never while a question is out" {
+  let one = conversation("s-1")
+  let (_, checking) = @mcp.update(
+    quiet(),
+    Opened(Some(one)),
+    @mcp.State::initial(),
+  )
+  let (_, still) = @mcp.update(quiet(), Refresh(one), checking)
   assert_true(still == checking)
   let (_, failed) = @mcp.update(
     quiet(),
-    Checked(serial=checking.serial, Err("engine broke")),
+    Checked(serial=checking.serial, Err("engine did not answer")),
     checking,
   )
-  let (_, retried) = @mcp.update(quiet(), Refresh(Local), failed)
+  let (_, retried) = @mcp.update(quiet(), Refresh(one), failed)
   assert_true(retried.phase is Checking)
   assert_true(retried.serial != failed.serial)
-  assert_true(retried.host == Some(Local))
+  assert_true(retried.conversation == Some(one))
 }
 
 ///|
-test "an answer is shown only for the host that gave it" {
-  let (_, checking) = @mcp.update(quiet(), Opened(Local), @mcp.State::initial())
+test "an answer is shown only for the conversation whose engine gave it" {
+  let one = conversation("s-1")
+  let two = conversation("s-2")
+  let (_, checking) = @mcp.update(
+    quiet(),
+    Opened(Some(one)),
+    @mcp.State::initial(),
+  )
   let (_, loaded) = @mcp.update(
     quiet(),
     Checked(serial=checking.serial, Ok(answer())),
     checking,
   )
-  assert_true(loaded.phase_for(Local) is Loaded(_))
-  // Another host was never asked; this one's servers are not its servers.
-  assert_true(loaded.phase_for(Remote("device-a")) is Unchecked)
-  // Refreshing there asks that host.
-  let (_, asked) = @mcp.update(quiet(), Refresh(Remote("device-a")), loaded)
-  assert_true(asked.phase_for(Remote("device-a")) is Checking)
-  assert_true(asked.phase_for(Local) is Unchecked)
+  assert_true(loaded.phase_for(Some(one)) is Loaded(_))
+  // Another conversation has its own engine, and no conversation has none.
+  assert_true(loaded.phase_for(Some(two)) is Unchecked)
+  assert_true(loaded.phase_for(None) is Unchecked)
+  // The same session id on another host is another conversation.
+  assert_true(
+    loaded.phase_for(Some({ channel: Remote("device-a"), session: "s-1", }))
+    is Unchecked,
+  )
+  let (_, asked) = @mcp.update(quiet(), Refresh(two), loaded)
+  assert_true(asked.phase_for(Some(two)) is Checking)
+  assert_true(asked.phase_for(Some(one)) is Unchecked)
 }

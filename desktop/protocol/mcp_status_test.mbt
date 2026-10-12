@@ -1,124 +1,68 @@
 ///|
-test "the engine's MCP report decodes into per-server states" {
-  // The exact shape `openseek mcp --format json` prints.
-  let listed : Json = [
+test "an MCP status reply carries the engine's own snapshot unchanged" {
+  let status : @wire.McpStatus = Configured(path="/home/.openseek/mcp.json", servers=[
     {
-      "name": "playwright",
-      "transport": "stdio",
-      "target": "npx",
-      "state": "connected",
-      "tools": [
+      name: "playwright",
+      transport: Stdio,
+      target: "npx",
+      state: Connected([
         {
-          "name": "mcp__playwright__browser_click",
-          "description": "Perform click on a web page",
+          name: "mcp__playwright__browser_click",
+          description: "Perform click on a web page",
         },
-      ],
+      ]),
     },
     {
-      "name": "remote",
-      "transport": "http",
-      "target": "https://example.com/mcp",
-      "state": "failed",
-      "error": "connection refused",
+      name: "docs",
+      transport: Http,
+      target: "https://example.com/mcp",
+      state: Failed("connection refused"),
     },
-    {
-      "name": "quiet",
-      "transport": "stdio",
-      "target": "quiet",
-      "state": "no_tools",
-    },
-    {
-      "name": "late",
-      "transport": "stdio",
-      "target": "late",
-      "state": "skipped",
-    },
-  ]
-  let servers = @protocol.McpServerStatus::from_report({ "servers": listed })
-  @debug.assert_eq(servers.map(server => server.state), [
-    Connected([
-      {
-        name: "mcp__playwright__browser_click",
-        description: "Perform click on a web page",
-      },
-    ]),
-    Failed("connection refused"),
-    NoTools,
-    Skipped,
   ])
-  @debug.assert_eq(servers.map(server => server.transport), [
-    Stdio,
-    Http,
-    Stdio,
-    Stdio,
-  ])
-  // The reply forwards the engine's servers unchanged.
-  let reply : @protocol.McpStatusReply = Configured(
-    path="/home/.openseek/mcp.json",
-    servers~,
-  )
+  let reply : @protocol.McpStatusReply = {
+    config_path: "/home/.openseek/mcp.json",
+    engine: Running(status),
+  }
   let decoded : @protocol.McpStatusReply = @json.from_json(reply.to_json())
   @debug.assert_eq(decoded, reply)
   let expected : Json = {
-    "config": "loaded",
-    "path": "/home/.openseek/mcp.json",
-    "servers": listed,
+    "config_path": "/home/.openseek/mcp.json",
+    "engine": "running",
+    "status": status.to_json(),
   }
   assert_true(reply.to_json() == expected)
 }
 
 ///|
-test "MCP status replies round-trip without servers" {
-  let replies : Array[@protocol.McpStatusReply] = [
-    NoConfig(path="/home/.openseek/mcp.json"),
-    ConfigRejected(
-      path="/home/.openseek/mcp.json",
-      reason="configuration is missing an `mcpServers` object",
-    ),
-    Configured(path="/home/.openseek/mcp.json", servers=[]),
-  ]
-  for reply in replies {
-    let decoded : @protocol.McpStatusReply = @json.from_json(reply.to_json())
-    @debug.assert_eq(decoded, reply)
+test "a conversation without an engine is its own MCP status answer" {
+  let reply : @protocol.McpStatusReply = {
+    config_path: "/home/.openseek/mcp.json",
+    engine: NotRunning,
   }
+  json_inspect(reply.to_json(), content={
+    "config_path": "/home/.openseek/mcp.json",
+    "engine": "stopped",
+  })
+  let decoded : @protocol.McpStatusReply = @json.from_json(reply.to_json())
+  @debug.assert_eq(decoded, reply)
+  let payload : @protocol.McpStatusPayload = @json.from_json({
+    "session": "s-1",
+  })
+  assert_eq(payload.session, "s-1")
 }
 
 ///|
-test "a malformed MCP server status is refused, not guessed" {
+test "a malformed MCP status reply is refused, not guessed" {
   fn refused(json : Json) -> Bool {
-    let _ : @protocol.McpServerStatus = @json.from_json(json) catch {
+    let _ : @protocol.McpStatusReply = @json.from_json(json) catch {
       _ => return true
     }
     false
   }
 
-  // A connected server always lists what it registered.
-  assert_true(
-    refused({
-      "name": "a",
-      "transport": "stdio",
-      "target": "a",
-      "state": "connected",
-      "tools": [],
-    }),
-  )
-  assert_true(
-    refused({
-      "name": "a",
-      "transport": "stdio",
-      "target": "a",
-      "state": "failed",
-    }),
-  )
-  assert_true(
-    refused({
-      "name": "a",
-      "transport": "pipe",
-      "target": "a",
-      "state": "skipped",
-    }),
-  )
-  assert_true(
-    refused({ "name": "a", "transport": "stdio", "target": "a", "state": "up" }),
-  )
+  // A running engine always carries its status; an unknown state is not
+  // read as "stopped".
+  assert_true(refused({ "config_path": "/p", "engine": "running" }))
+  assert_true(refused({ "config_path": "/p", "engine": "starting" }))
+  assert_true(refused({ "engine": "stopped" }))
 }

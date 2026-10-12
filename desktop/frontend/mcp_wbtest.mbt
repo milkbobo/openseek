@@ -45,25 +45,28 @@ test "an MCP failure stamped with a run this page has not opened yet still lands
 }
 
 ///|
-test "opening Settings asks the focused host what its MCP configuration yields" {
+test "opening Settings asks the current conversation's engine for its MCP state" {
   let dispatch = test_dispatch()
   let model = test_model()
+  guard model.mcp_conversation() is Some(current) else {
+    fail("the test model has a conversation on screen")
+  }
   let (_, opened) = update(dispatch, OpenSetup, model)
   assert_true(opened.screen is Settings)
   assert_true(opened.mcp.phase is Checking)
-  assert_true(opened.mcp.host == Some(model.focused))
+  assert_true(opened.mcp.conversation == Some(current))
   // The answer is routed back into the panel.
   let (_, answered) = update(
     dispatch,
     Mcp(
       Checked(
         serial=opened.mcp.serial,
-        Ok(NoConfig(path="/home/.openseek/mcp.json")),
+        Ok({ config_path: "/home/.openseek/mcp.json", engine: NotRunning, }),
       ),
     ),
     opened,
   )
-  assert_true(answered.mcp.phase is Loaded(NoConfig(..)))
+  assert_true(answered.mcp.phase is Loaded({ engine: NotRunning, .. }))
 }
 
 ///|

@@ -1390,7 +1390,7 @@ fn settings_page(dispatch : @cmd.Emit[Msg], model : Model) -> @html.Html {
       "MCP",
       @mcp.rows(
         locale~,
-        host=model.focused,
+        conversation=model.mcp_conversation(),
         model.mcp,
         dispatch.map(msg => Mcp(msg)),
       ),

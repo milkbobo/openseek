@@ -13,9 +13,13 @@ function statusRequests(app) {
   return app.requests.filter(request => request.method === 'mcp.status');
 }
 
-test('Settings lists MCP servers with what connecting to each one yields', async ({ page }, testInfo) => {
+function running(status) {
+  return { config_path: configPath, engine: 'running', status };
+}
+
+test('Settings shows what the current conversation\'s engine holds of its MCP servers', async ({ page }, testInfo) => {
   const app = new DesktopBrowserHarness(page);
-  app.mcpStatus = {
+  app.mcpStatus = running({
     config: 'loaded',
     path: configPath,
     servers: [
@@ -36,11 +40,19 @@ test('Settings lists MCP servers with what connecting to each one yields', async
         state: 'failed',
         error: 'JSON-RPC error -32000: MCP endpoint exchange failed',
       },
+      {
+        name: 'memory',
+        transport: 'stdio',
+        target: 'memory-mcp',
+        state: 'lost',
+        tools: [{ name: 'mcp__memory__recall', description: 'Recall a note' }],
+      },
       { name: 'notes', transport: 'stdio', target: 'notes-mcp', state: 'no_tools' },
     ],
-  };
+  });
   await app.install();
   await app.goto();
+  await app.openSession();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const group = mcpGroup(page);
 
@@ -49,6 +61,7 @@ test('Settings lists MCP servers with what connecting to each one yields', async
   await expect(group.getByText('Connected', { exact: true })).toBeVisible();
   await expect(group.getByText('Failed', { exact: true })).toBeVisible();
   await expect(group.getByText('JSON-RPC error -32000: MCP endpoint exchange failed')).toBeVisible();
+  await expect(group.getByText('Disconnected', { exact: true })).toBeVisible();
   await expect(group.getByText('No tools', { exact: true })).toBeVisible();
 
   // The tools stay folded until asked for.
@@ -58,40 +71,45 @@ test('Settings lists MCP servers with what connecting to each one yields', async
   await expect(tool).toBeVisible();
   await group.screenshot({ path: testInfo.outputPath('mcp-servers.png') });
 
-  // Opening Settings asked the host exactly once.
-  expect(statusRequests(app)).toHaveLength(1);
+  // The question names the conversation on screen, whose engine is asked.
+  expect(statusRequests(app).map(request => request.params)).toEqual([{ session: 'session-1' }]);
   expect(app.pageErrors).toEqual([]);
 });
 
-test('MCP status is asked again only on request, and says why a file is unusable', async ({ page }, testInfo) => {
+test('MCP status says when there is no engine to ask, and asks again on reopen and refresh', async ({ page }, testInfo) => {
   const app = new DesktopBrowserHarness(page);
   await app.install();
   await app.goto();
+  await app.openSession();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const group = mcpGroup(page);
-  await expect(group.getByText(`Nothing is configured yet. Create ${configPath} to add servers.`)).toBeVisible();
-
-  // Leaving and reopening Settings must not start the user's servers again.
-  await page.getByRole('button', { name: 'Skills', exact: true }).click();
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  await expect(group.getByRole('button', { name: 'Check again', exact: true })).toBeVisible();
+  await expect(group.getByText('This conversation\'s engine is not running.', { exact: false })).toBeVisible();
+  await expect(group.getByText(configPath, { exact: false })).toBeVisible();
+  await group.screenshot({ path: testInfo.outputPath('mcp-engine-not-running.png') });
   expect(statusRequests(app)).toHaveLength(1);
 
-  app.mcpStatus = {
+  // Asking reads the engine's state and starts nothing, so every visit asks.
+  await page.getByRole('button', { name: 'Skills', exact: true }).click();
+  app.mcpStatus = running({
     config: 'rejected',
     path: configPath,
     reason: 'mcp config error: configuration is missing an `mcpServers` object',
-  };
-  await group.getByRole('button', { name: 'Check again', exact: true }).click();
+  });
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(group.getByText(`${configPath} could not be loaded`, { exact: true })).toBeVisible();
   await expect(group.getByText('configuration is missing an `mcpServers` object')).toBeVisible();
-  await group.screenshot({ path: testInfo.outputPath('mcp-config-rejected.png') });
   expect(statusRequests(app)).toHaveLength(2);
 
-  // A check that cannot run is reported as that, not as an empty list.
-  app.rpcErrors.set('mcp.status', 'checking the MCP servers timed out');
-  await group.getByRole('button', { name: 'Check again', exact: true }).click();
-  await expect(group.getByText('The check could not run', { exact: true })).toBeVisible();
-  await expect(group.getByText('checking the MCP servers timed out')).toBeVisible();
+  app.mcpStatus = running({ config: 'none' });
+  await group.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(group.getByText('started without an MCP configuration', { exact: false })).toBeVisible();
+  expect(statusRequests(app)).toHaveLength(3);
+
+  // A question the engine did not answer is reported as that, not as an
+  // engine that is not running.
+  app.rpcErrors.set('mcp.status', 'MCP status command could not be delivered');
+  await group.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(group.getByText('The engine could not be asked', { exact: true })).toBeVisible();
+  await expect(group.getByText('MCP status command could not be delivered')).toBeVisible();
   expect(app.pageErrors).toEqual([]);
 });

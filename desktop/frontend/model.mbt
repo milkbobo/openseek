@@ -1526,8 +1526,8 @@ priv struct Model {
   // view and root layout. The root owns the opaque state once so neither side
   // reports a second visibility copy back to the other.
   jobs : @jobs.State
-  // The Settings page's MCP panel: what the focused host's MCP configuration
-  // yields, as of the last check.
+  // The Settings page's MCP panel: what the current conversation's engine
+  // last said it holds of its MCP servers.
   mcp : @mcp.State
   github : @github.State
   terminal : @terminal.State
@@ -3452,6 +3452,14 @@ fn remembered_with(
 /// the only place with no conversation to render.
 fn Model::active_conversation(self : Model) -> Conversation? {
   self.find_conversation(self.focused, self.active_session)
+}
+
+///|
+/// The conversation the Settings page's MCP panel is about: the one on
+/// screen behind Settings, whose engine is the one to ask.
+fn Model::mcp_conversation(self : Model) -> @interop.ConversationKey? {
+  guard self.active_conversation() is Some(conv) else { return None }
+  Some({ channel: conv.device, session: conv.session_id, })
 }
 
 ///|

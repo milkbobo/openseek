@@ -43,7 +43,7 @@ pub async fn load_archived_session(EngineManager, @protocol.LoadSessionPayload) 
 
 pub async fn load_session(EngineManager, @protocol.LoadSessionPayload) -> @protocol.LoadSessionReply
 
-pub async fn mcp_status(EngineManager) -> @protocol.McpStatusReply
+pub async fn mcp_status(EngineManager, @protocol.McpStatusPayload) -> @protocol.McpStatusReply
 
 pub async fn migrate_global_store() -> Int
 
