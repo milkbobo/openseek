@@ -1435,6 +1435,9 @@ fn engine_process_args(config : RunConfig) -> Array[String] {
     args.push("--session-root=\{root.to_string()}")
   }
   args.append(["--dir", ".", "--approval", "ask"])
+  if config.mcp_config is Some(mcp) {
+    args.push("--mcp-config=\{mcp.path}")
+  }
   args
 }
 
@@ -2912,6 +2915,7 @@ async test "native engine env has one authoritative bundled moon path" {
     cwd: None,
     session: "s-env",
     session_root: None,
+    mcp_config: None,
   }
   let env = engine_process_env(config, Some(runtime))
   assert_eq(env["OPENSEEK_THINKING"], "high")
@@ -2940,6 +2944,22 @@ async test "native engine env has one authoritative bundled moon path" {
       ".",
       "--approval",
       "ask",
+    ],
+  )
+  let mcp_path = root.join("mcp.json").resolve()
+  @debug.assert_eq(
+    engine_process_args({
+      ..config,
+      mcp_config: Some({ path: mcp_path, revision: Text("{}"), }),
+    }),
+    [
+      "serve",
+      "--session=s-env",
+      "--dir",
+      ".",
+      "--approval",
+      "ask",
+      "--mcp-config=\{mcp_path}",
     ],
   )
   let moon_bin = moon_home.join("bin").to_string()
@@ -3031,6 +3051,7 @@ async test "engine startup rolls back follower on pre-spawn failure" {
     cwd: None,
     session: "s-startup-failure",
     session_root: Some(@pathx.Path(dir + "/root").resolve()),
+    mcp_config: None,
   }
   @async.with_task_group(group => {
     let failed = try {
@@ -3146,6 +3167,7 @@ fn pump_test_config(session : String) -> RunConfig {
     cwd: None,
     session,
     session_root: Some(@pathx.Path("/tmp/openseek-pump-test").resolve()),
+    mcp_config: None,
   }
 }
 

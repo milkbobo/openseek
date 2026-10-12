@@ -64,6 +64,8 @@ pub(all) enum EngineEvent {
   ApprovalRequested(id~ : String, tool_name~ : String, detail~ : String, body~ : String?)
   ApprovalResolved(id~ : String)
   SessionAppendFailed(String)
+  McpConfigRejected(path~ : String, reason~ : String)
+  McpServerUnavailable(server~ : String, reason~ : String)
 }
 
 pub(all) enum GoalMarker {

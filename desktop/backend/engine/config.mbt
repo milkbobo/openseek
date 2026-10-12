@@ -31,6 +31,8 @@ priv struct RunConfig {
   cwd : @pathx.Path?
   session : String
   session_root : @pathx.Absolute?
+  // The user's MCP server configuration; None when there is no file.
+  mcp_config : McpConfig?
 }
 
 ///|
@@ -300,6 +302,7 @@ async fn serve_config(
     cwd: Some(@worktree.run_dir(dir, session).to_path()),
     session,
     session_root: Some(@workspaces.store_root(dir)),
+    mcp_config: resolved_mcp_config(),
   }
 }
 
@@ -321,6 +324,7 @@ fn engine_fingerprint(config : RunConfig) -> String {
     config.cwd.map(cwd => cwd.to_string()).unwrap_or(""),
     config.session,
     config.session_root.map(root => root.to_string()).unwrap_or(""),
+    mcp_config_fingerprint(config.mcp_config),
   ].join("\u{0}")
 }
 
@@ -338,6 +342,7 @@ test "a different endpoint cannot reuse a live engine process" {
     cwd: None,
     session: "s-fingerprint",
     session_root: None,
+    mcp_config: None,
   }
   let custom = {
     ..base,
@@ -357,6 +362,24 @@ test "a different endpoint cannot reuse a live engine process" {
   assert_true(
     engine_fingerprint(base) !=
     engine_fingerprint({ ..base, cwd: Some(Path("/w/.worktrees/x")), }),
+  )
+  // MCP servers are connected once at engine startup, so an edited
+  // configuration must replace the process to take effect.
+  let mcp : McpConfig = {
+    path: @pathx.Path("/home/.openseek/mcp.json").resolve(),
+    revision: Text("{\"mcpServers\": {}}"),
+  }
+  let configured = { ..base, mcp_config: Some(mcp), }
+  assert_true(engine_fingerprint(base) != engine_fingerprint(configured))
+  assert_true(
+    engine_fingerprint(configured) !=
+    engine_fingerprint({
+      ..base,
+      mcp_config: Some({
+        ..mcp,
+        revision: Text("{\"mcpServers\": {\"a\": {}}}"),
+      }),
+    }),
   )
 }
 

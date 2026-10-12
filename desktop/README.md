@@ -157,6 +157,26 @@ shown but never touched: installs refuse to overwrite a same-named entry that
 has no provenance marker, and only entries the app itself installed get an
 Uninstall button.
 
+## MCP servers
+
+The agent can use tools from [MCP](https://modelcontextprotocol.io) servers
+listed in `~/.openseek/mcp.json`, the `{"mcpServers": {...}}` shape described
+in the repository README. The file is created and edited by hand. The host
+points every engine it spawns at the file with `--mcp-config`; when no file
+exists it passes nothing, so an `OPENSEEK_MCP_CONFIG` inherited from the
+launching environment still applies.
+
+An engine connects its servers once, when it starts — one set of server
+processes per conversation. The file's content is therefore part of what pins
+an engine to its configuration, like the model and the endpoint: an edit
+retires a conversation's engine on its next prompt, with no desktop restart.
+A configuration the engine cannot load, and a server that fails to start, to
+list its tools, or to fit under the tool limit, raise an error toast naming
+the cause; the conversation continues without those tools. MCP tool calls are
+not gated by the approval prompt, which only covers the built-in tools'
+sandbox escalations. Codex conversations do not read this file — Codex takes
+its MCP servers from its own `config.toml`.
+
 ## API endpoint
 
 SeekMoon is bring-your-own-key: there is no hosted chat proxy, so requests
