@@ -164,21 +164,22 @@ fn server_report(
     Http(url~, ..) => ("http", redact_url(url))
   }
   let report : Map[String, Json] = {
-    "name": name.to_json(),
-    "transport": transport.to_json(),
-    "target": target.to_json(),
+    "name": Json::string(name),
+    "transport": Json::string(transport),
+    "target": Json::string(target),
   }
   if !registered.is_empty() {
     report["state"] = "connected"
-    report["tools"] = [
+    let tools : Array[Json] = [
       for tool in registered => {
         let entry : Json = {
-          "name": tool.name.to_json(),
-          "description": tool.description.to_json(),
+          "name": Json::string(tool.name),
+          "description": Json::string(tool.description),
         }
         entry
       }
-    ].to_json()
+    ]
+    report["tools"] = Json::array(tools)
     return Json::object(report)
   }
   // A server that registered nothing reported why, exactly once.
@@ -187,7 +188,7 @@ fn server_report(
       McpConnectFailed(server~, error~) | McpListToolsFailed(server~, error~) if server ==
         name => {
         report["state"] = "failed"
-        report["error"] = error.to_json()
+        report["error"] = Json::string(error)
         return Json::object(report)
       }
       McpListToolsTimeout(server~) if server == name => {
