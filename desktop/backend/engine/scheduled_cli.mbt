@@ -118,7 +118,6 @@ async fn[G] Schedules::run_cli(
     })
   }
   let config = serve_config(
-    spec.task,
     self.manager,
     model?=spec.model,
     max_steps=1000,

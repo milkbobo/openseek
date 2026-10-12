@@ -32,6 +32,7 @@ pub async fn start_run(
   }
   let record_guard = manager.begin_record_op(key)
   defer manager.end_record_op(key, record_guard)
+  let content = run_prompt(payload)
   let config = run_config(manager, payload)
   @session_store.ensure_not_archived(key)
   let sessions = manager.serving()
@@ -95,7 +96,7 @@ pub async fn start_run(
   // recognize its own prompt in the record — the host itself never reads it
   // back.
   let submission_id = normalize_submission_id(payload.submission_id)
-  let command = @protocol.prompt(config.content, submission_id?)
+  let command = @protocol.prompt(content, submission_id?)
   // Submitting, opening the run and announcing it are one synchronous step,
   // with no suspension since the claim check above. That is what makes the
   // ordering hold without a lock: no other request can interleave a command
