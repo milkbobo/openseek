@@ -3,15 +3,15 @@
  * one client talks to it over its standard streams.
  */
 
-#include <errno.h>
-#include <stdint.h>
-
 #include "moonbit.h"
 
+/* Nothing here exists on Windows: the package has no caller there. */
 #if !defined(_WIN32)
+
+#include <errno.h>
 #include <fcntl.h>
+#include <stdint.h>
 #include <unistd.h>
-#endif
 
 /*
  * Duplicate standard input and output to fresh close-on-exec descriptors,
@@ -21,10 +21,6 @@
  */
 MOONBIT_FFI_EXPORT int32_t
 moonbit_openseek_desktop_server_claim_standard_streams(int32_t *descriptors) {
-#if defined(_WIN32)
-  (void)descriptors;
-  return ENOSYS;
-#else
   int input = fcntl(STDIN_FILENO, F_DUPFD_CLOEXEC, 3);
   if (input < 0) {
     return errno;
@@ -50,5 +46,6 @@ moonbit_openseek_desktop_server_claim_standard_streams(int32_t *descriptors) {
   descriptors[0] = input;
   descriptors[1] = output;
   return 0;
-#endif
 }
+
+#endif

@@ -6,7 +6,7 @@ import {
 }
 
 // Values
-pub async fn claim() -> Streams
+pub async fn claim() -> (@raw_fd.RawFdStream, @raw_fd.RawFdStream)
 
 // Errors
 pub suberror ClaimError {
@@ -14,10 +14,6 @@ pub suberror ClaimError {
 }
 
 // Types and methods
-pub struct Streams {
-  input : @raw_fd.RawFdStream
-  output : @raw_fd.RawFdStream
-}
 
 // Type aliases
 

@@ -17,7 +17,7 @@ async fn main {
   }
   // Before anything else can start a process: a child would otherwise
   // inherit the client's channel as its own standard streams.
-  let streams = @stdstreams.claim()
+  let (input, output) = @stdstreams.claim()
   guard matches.values.get("resource-dir") is Some([resource_dir, ..]) else {
     fail("--resource-dir (OPENSEEK_DESKTOP_RESOURCE_DIR) is required")
   }
@@ -72,7 +72,7 @@ async fn main {
     @xlog.info() <? { "event": "desktop_server_serving", "engine": engine }
     // The client's connection is this process's reason to run: when it closes
     // its end, everything started above stops with it.
-    @remote.serve_lines(state, streams.input, streams.output)
+    @remote.serve_lines(state, input, output)
     group.return_immediately(())
   })
 }
