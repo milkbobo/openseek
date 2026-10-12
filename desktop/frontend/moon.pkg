@@ -11,7 +11,6 @@ import {
   "openseek_desktop/frontend/export_dialog",
   "openseek_desktop/frontend/github",
   "moonbitlang/core/cmp",
-  "moonbitlang/core/debug",
   "moonbitlang/core/immut/sorted_map",
   "moonbitlang/core/json",
   "moonbitlang/core/string",
@@ -64,6 +63,7 @@ import {
 
 import {
   "Lampese/office-viewer/viewer" @office_viewer,
+  "moonbitlang/core/debug",
 } for "wbtest"
 
 supported_targets = "js"

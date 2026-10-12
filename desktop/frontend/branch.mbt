@@ -37,6 +37,9 @@ priv struct DiffStat {
 /// here, the counter would restart from zero every time the display state is
 /// cleared (a checkout that stops being a repository, a worktree removed) and
 /// hand a number to a new lookup that an in-flight one still holds.
+// `Debug` serves whitebox test assertions only; the production build never
+// reads it.
+#warnings("-unused_value")
 priv struct PullRequestProbe {
   branch : String
   probing : Bool

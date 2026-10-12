@@ -175,6 +175,9 @@ fn EngineModel::thinking(
 /// that deliberately never crosses a boundary, so persistence spells the same
 /// identity out itself: the channel's stable URI authority joined to the
 /// session id, which keeps two hosts' identical session ids apart.
+// `Debug` serves whitebox test assertions only; the production build never
+// reads it.
+#warnings("-unused_value")
 priv struct StoredConversationModel {
   key : String
   model : EngineModel
@@ -362,6 +365,9 @@ fn Theme::wire(self : Theme) -> String {
 /// The base text size selected in Settings. The CSS token scale derives the
 /// surrounding app sizes from this choice; the editor and terminal receive
 /// the adjacent smaller pixel value because their glyphs look larger.
+// `Debug` serves whitebox test assertions only; the production build never
+// reads it.
+#warnings("-unused_value")
 priv struct AppFontSize(Int32) derive(Eq, Debug)
 
 ///|
@@ -676,6 +682,9 @@ fn Workspace::worktree_name(self : Workspace) -> String? {
 
 ///|
 /// Reasoning visible before its durable assistant event lands.
+// `Debug` serves whitebox test assertions only; the production build never
+// reads it.
+#warnings("-unused_value")
 priv struct LiveReasoning {
   content : String
   complete : Bool
@@ -1785,10 +1794,6 @@ priv enum Msg {
   // action route distinct so an identical thread/session-shaped id can never
   // be mistaken for an OpenSeek conversation owned by the root store.
   CodexComposerAction(@composer.Action)
-  // Jump the editor side-panel to a mention chip's resolved location, by
-  // index. A no-op for a chip with no `path` (a skill, or an unresolved
-  // symbol).
-  JumpToMention(Int32)
   // Jump the editor side-panel to a transcript chip's resolved location — a
   // sent message's mention, parsed back out of its `<user_mentions>` envelope,
   // so it carries the location itself rather than a draft index. The path is
