@@ -328,6 +328,18 @@ test "decode surfaces the ways a configured MCP server ends up without tools" {
       fail("\{event} not decoded")
     }
   }
+  // A server cut off partway through its tools is reported with the budget
+  // that cut it off, which the engine sends as `kept`.
+  guard @transcript.decode_engine_event(
+      event_fields({
+        "event": "mcp_tools_capped",
+        "server": "playwright",
+        "kept": 100,
+      }),
+    )
+    is Some(@transcript.McpToolsDropped(server="playwright", limit=100)) else {
+    fail("mcp_tools_capped not decoded")
+  }
   // A server that connected and simply offers no tools is not a failure.
   assert_true(
     @transcript.decode_engine_event(

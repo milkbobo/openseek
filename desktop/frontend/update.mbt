@@ -815,6 +815,7 @@ fn is_idle_event(event : @transcript.EngineEvent) -> Bool {
     | SessionAppendFailed(_)
     | McpConfigRejected(..)
     | McpServerUnavailable(..)
+    | McpToolsDropped(..)
     | BackgroundNotice(_) => true
     _ => false
   }
@@ -1109,7 +1110,8 @@ fn ends_retry(event : @transcript.EngineEvent) -> Bool {
     | ApprovalResolved(..)
     | SessionAppendFailed(_)
     | McpConfigRejected(..)
-    | McpServerUnavailable(..) => false
+    | McpServerUnavailable(..)
+    | McpToolsDropped(..) => false
   }
 }
 
@@ -1427,6 +1429,13 @@ fn apply_engine_event(
       (Some("MCP configuration \{path} was not loaded: \{reason}"), conv)
     McpServerUnavailable(server~, reason~) =>
       (Some("MCP server \{server} is unavailable: \{reason}"), conv)
+    McpToolsDropped(server~, limit~) =>
+      (
+        Some(
+          "MCP server \{server} is missing some of its tools: the limit of \{limit} MCP tools was reached",
+        ),
+        conv,
+      )
     CompactionFailed(reason) => {
       let content = if reason.is_blank() {
         "compaction failed"
