@@ -112,12 +112,12 @@ const ExplorerPanelId = "explorer-inventory"
 const BreadcrumbPickerId = "breadcrumb-directory-picker"
 
 ///|
-fn breadcrumb_entry_id(index : Int) -> String {
+fn breadcrumb_entry_id(index : Int32) -> String {
   "breadcrumb-entry-\{index}"
 }
 
 ///|
-fn focus_breadcrumb_entry_after_render(index : Int) -> @cmd.Cmd {
+fn focus_breadcrumb_entry_after_render(index : Int32) -> @cmd.Cmd {
   @cmd.custom_cmd(
     _ => {
       if @dom.document()
@@ -225,7 +225,7 @@ fn explorer_tab(
 }
 
 ///|
-fn changed_file_row_id(index : Int) -> String {
+fn changed_file_row_id(index : Int32) -> String {
   "changed-file-row-\{index}"
 }
 
@@ -280,18 +280,19 @@ pub fn resize_handle_view() -> @html.Html {
 /// always rooted at the workspace root) as a toggleable pane on
 /// the viewer's right. Always rendered so the viewer's host element
 /// (`viewer-host`, `markdown-viewer-host`, `mbti-diagram-host`,
-/// `package-diagram-host`, `diff-editor-host`, and `semantic-review-host`) stay put
+/// `package-diagram-host`, `diff-editor-host`, `semantic-review-host`, and the
+/// Office surface) stay put
 /// across renders and screen
 /// switches; CSS hides the inactive surface and the tree pane when toggled off,
 /// and collapses the whole panel to zero width when it is closed. The children's
 /// order is structural — rabbita diffs by index, so every part renders
 /// unconditionally.
 pub fn body_view(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
-  semantic_review? : @html.Html = @html.nothing,
+  semantic_review~ : @html.Html = @html.nothing,
 ) -> @html.Html {
   // The stable elements the code Viewer, MarkdownViewer, and switchable Line
   // DiffEditor attach their imperative DOM into. Semantic review owns keyed
@@ -314,7 +315,10 @@ pub fn body_view(
       None => false
     }
   }
+  let office_document = active_office_surface(state, ctx)
+  let use_office_surface = !use_diff_surface && office_document is Some(_)
   let use_markdown_surface = !use_diff_surface &&
+    !use_office_surface &&
     (match ctx.active_file {
       Some(path) =>
         uses_markdown_presentation(
@@ -324,10 +328,12 @@ pub fn body_view(
     })
   let use_mbti_surface = !use_diff_surface &&
     !use_markdown_surface &&
+    !use_office_surface &&
     uses_mbti_diagram_surface(state, ctx)
   let use_package_surface = !use_diff_surface &&
     !use_markdown_surface &&
     !use_mbti_surface &&
+    !use_office_surface &&
     uses_package_diagram_surface(state, ctx)
   let use_semantic_surface = use_diff_surface &&
     state.review_diff_mode != ReviewDiffLine &&
@@ -343,6 +349,7 @@ pub fn body_view(
       .id(ViewerHostId)
       .class(
         if use_diff_surface ||
+          use_office_surface ||
           use_markdown_surface ||
           use_mbti_surface ||
           use_package_surface {
@@ -353,6 +360,12 @@ pub fn body_view(
       )
       .data_set("theme", if ctx.dark_mode { "dark" } else { "light" }),
     ([] : Array[@html.Html]),
+  )
+  let office_surface = @office_viewer.render_surface(
+    match office_document {
+      Some(config) => config
+      None => empty_office_surface_config(state)
+    },
   )
   let markdown_viewer_host = @html.div(
     attrs=@html.Attrs::build()
@@ -430,6 +443,8 @@ pub fn body_view(
   @html.div(class="editor-body", [
     @html.div(class="viewer-stack", [
       viewer_host,
+      office_surface,
+      pdf_password_dialog(locale~, dispatch, state, ctx),
       markdown_viewer_host,
       mbti_diagram_host,
       package_diagram_host,
@@ -437,9 +452,30 @@ pub fn body_view(
       semantic_review_host,
       viewer_notice(locale~, state, ctx),
       github_review_line_layer(locale~, dispatch, state, ctx),
+      office_selection_preview_view(locale, dispatch, state, ctx),
     ]),
     tree_pane(locale~, dispatch, state, ctx),
   ])
+}
+
+///|
+/// An Office tab owns the same stable surface as the standalone viewer. Keep
+/// history, diffs, Markdown, and code tabs on their existing surfaces; an
+/// Office document is selected after its package renders into `TabOffice`;
+/// `TabPdf` owns the asynchronous PDF surface and its loading/error notice.
+fn active_office_surface(
+  state : State,
+  ctx : Ctx,
+) -> @office_viewer.SurfaceConfig? {
+  guard ctx.active_history_diff is None && ctx.active_file is Some(path) else {
+    return None
+  }
+  match state.docs.get(path) {
+    Some({ state: TabOffice(document~, ..), .. }) =>
+      Some(office_surface_config(state, document))
+    Some({ state: TabPdf(..), .. }) => Some(pdf_surface_config(state, path))
+    _ => None
+  }
 }
 
 ///|
@@ -448,7 +484,7 @@ pub fn body_view(
 /// chrome laid over the (cleared) viewer, so a notice never renders as a
 /// highlighted source document. Always in the DOM; blank and hidden otherwise.
 fn viewer_notice(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   state : State,
   ctx : Ctx,
 ) -> @html.Html {
@@ -506,7 +542,13 @@ fn viewer_notice(
                 )
               }
             TabUnavailable(message) => message
-            TabLoading | TabLoaded(..) => ""
+            TabPdf(document~, ..) =>
+              match document.status {
+                PdfLoading => ui(locale, PdfLoading)
+                PdfFailed(message) => message
+                PdfReady | PdfPasswordRequired(_) => ""
+              }
+            TabLoading | TabLoaded(..) | TabOffice(..) => ""
           }
         None => ""
       }
@@ -529,7 +571,7 @@ fn viewer_notice(
 
 ///|
 fn history_diff_notice(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   state : State,
   diff : @dock.GitHistoryDiff,
 ) -> String {
@@ -561,7 +603,7 @@ fn history_diff_notice(
 /// bottom window. Request-local listing failures remain beside the inventory;
 /// watcher failures use the root app's transient toast rail instead.
 fn tree_pane(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
@@ -681,7 +723,7 @@ fn change_count(changes : ChangeList) -> @html.Html {
 
 ///|
 fn review_git_sections(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
@@ -837,7 +879,7 @@ fn review_git_sections(
 
 ///|
 fn git_graph_repository_label(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   ctx : Ctx,
 ) -> String {
   ctx
@@ -848,7 +890,7 @@ fn git_graph_repository_label(
 
 ///|
 fn git_graph_branch_label(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   state : State,
 ) -> String {
   match state.git_graph {
@@ -861,12 +903,12 @@ fn git_graph_branch_label(
 }
 
 ///|
-fn git_commit_row_id(index : Int) -> String {
+fn git_commit_row_id(index : Int32) -> String {
   "git-commit-row-\{index}"
 }
 
 ///|
-fn focus_git_commit_after_render(index : Int) -> @cmd.Cmd {
+fn focus_git_commit_after_render(index : Int32) -> @cmd.Cmd {
   @cmd.custom_cmd(
     _ => {
       if @dom.document().get_element_by_id(git_commit_row_id(index)).to_option()
@@ -883,7 +925,7 @@ fn focus_git_commit_after_render(index : Int) -> @cmd.Cmd {
 
 ///|
 fn git_graph_inventory(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
@@ -974,17 +1016,17 @@ fn git_graph_inventory(
 }
 
 ///|
-fn graph_color_class(color : Int) -> String {
+fn graph_color_class(color : Int32) -> String {
   "git-graph-color-\{color}"
 }
 
 ///|
-fn graph_lane_x(lane : Int) -> Int {
+fn graph_lane_x(lane : Int32) -> Int32 {
   11 * (lane + 1)
 }
 
 ///|
-fn graph_row_index(row : GraphRow, id : String) -> Int {
+fn graph_row_index(row : GraphRow, id : String) -> Int32 {
   match find_graph_lane(row.input_swimlanes, id) {
     Some(index) => index
     None => row.input_swimlanes.length()
@@ -992,13 +1034,13 @@ fn graph_row_index(row : GraphRow, id : String) -> Int {
 }
 
 ///|
-fn graph_row_width(row : GraphRow) -> Int {
+fn graph_row_width(row : GraphRow) -> Int32 {
   11 *
   (row.input_swimlanes.length().max(row.output_swimlanes.length()).max(1) + 1)
 }
 
 ///|
-fn find_last_graph_lane(lanes : Array[GraphLane], id : String) -> Int? {
+fn find_last_graph_lane(lanes : Array[GraphLane], id : String) -> Int32? {
   let mut index = lanes.length()
   while index > 0 {
     index -= 1
@@ -1010,7 +1052,7 @@ fn find_last_graph_lane(lanes : Array[GraphLane], id : String) -> Int? {
 }
 
 ///|
-fn graph_circle_color(row : GraphRow, circle_index : Int) -> Int {
+fn graph_circle_color(row : GraphRow, circle_index : Int32) -> Int32 {
   if circle_index < row.output_swimlanes.length() {
     row.output_swimlanes[circle_index].color
   } else if circle_index < row.input_swimlanes.length() {
@@ -1023,7 +1065,7 @@ fn graph_circle_color(row : GraphRow, circle_index : Int) -> Int {
 ///|
 fn git_graph_placeholder(
   columns : Array[GraphLane],
-  highlight_index : Int?,
+  highlight_index : Int32?,
 ) -> @html.Html {
   let graph_width = 11 * (columns.length() + 1)
   let paths : Array[@svg.Svg] = []
@@ -1254,14 +1296,14 @@ fn git_commit_refs(
 
 ///|
 fn git_commit_row(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
   commit : @protocol.GitHistoryCommit,
   layout : GraphRow,
-  index : Int,
-  total : Int,
+  index : Int32,
+  total : Int32,
 ) -> @html.Html {
   let expanded = state.git_graph_selected is Some(selected) &&
     selected == commit.id
@@ -1356,7 +1398,7 @@ fn historical_status_label(status : String) -> String {
 
 ///|
 fn git_commit_files(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
@@ -1482,7 +1524,7 @@ fn git_commit_files(
 
 ///|
 fn file_inventory(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
@@ -1510,7 +1552,7 @@ fn file_inventory(
 
 ///|
 fn change_inventory_rows(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
@@ -1605,13 +1647,13 @@ fn ChangedFile::kind_class(self : ChangedFile) -> String {
 
 ///|
 fn change_tree_row(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
   rows : Array[ChangeTreeRow],
   row : ChangeTreeRow,
-  index : Int,
+  index : Int32,
   focus : ChangeTreeItem?,
 ) -> @html.Html {
   let item = row.node.item
@@ -1794,7 +1836,7 @@ fn reviewable_changes(state : State) -> Array[ChangedFile] {
 }
 
 ///|
-fn change_row_index(state : State, selected : ChangedFile) -> Int? {
+fn change_row_index(state : State, selected : ChangedFile) -> Int32? {
   filtered_changes(state).search_by(change => change == selected)
 }
 
@@ -1804,7 +1846,7 @@ fn change_row_index(state : State, selected : ChangedFile) -> Int? {
 fn review_neighbor(
   state : State,
   selected : ChangedFile,
-  delta : Int,
+  delta : Int32,
 ) -> ChangedFile? {
   let changes = reviewable_changes(state)
   guard delta != 0 &&
@@ -1853,7 +1895,10 @@ fn active_review_change(state : State, ctx : Ctx) -> ChangedFile? {
 }
 
 ///|
-fn active_review_position(state : State, ctx : Ctx) -> (ChangedFile, Int, Int)? {
+fn active_review_position(
+  state : State,
+  ctx : Ctx,
+) -> (ChangedFile, Int32, Int32)? {
   guard active_review_change(state, ctx) is Some(selected) else { return None }
   let changes = reviewable_changes(state)
   changes
@@ -1897,7 +1942,7 @@ fn path_segments(path : @pathx.Relative) -> Array[String] {
 /// `segments_prefix(["cef", "runtime.mbt"], 1)` → `"cef"`. The inverse of
 /// `path_segments`, used to recover an ancestor directory's path for a
 /// breadcrumb click.
-fn segments_prefix(segments : Array[String], count : Int) -> @pathx.Relative {
+fn segments_prefix(segments : Array[String], count : Int32) -> @pathx.Relative {
   let mut path = @pathx.Relative::root()
   for index in 0..<count {
     path = child_path(path, segments[index])
@@ -1909,7 +1954,7 @@ fn segments_prefix(segments : Array[String], count : Int) -> @pathx.Relative {
 /// A breadcrumb segment that opens `path`'s immediate children in the
 /// anchored picker below the breadcrumb.
 fn crumb_link(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   label : String,
   path : @pathx.Relative,
@@ -1936,6 +1981,93 @@ fn crumb_link(
 }
 
 ///|
+/// Embedded Office controls stay beside the document breadcrumb so they do
+/// not cover the page or sheet. They operate on the shared surface config;
+/// the reducer applies the visual change after Rabbita has rendered the new
+/// input values.
+fn office_viewer_toolbar(
+  locale~ : @i18n.Locale = English,
+  dispatch : @cmd.Emit[Msg],
+  state : State,
+  ctx : Ctx,
+) -> @html.Html {
+  guard active_office_surface(state, ctx) is Some(_) else {
+    return @html.nothing
+  }
+  let pdf = active_pdf_document(state, ctx) is Some(_)
+  let minimum = if pdf { 25 } else { 50 }
+  let maximum = if pdf { 400 } else { 200 }
+  let zoom_out = if state.office_zoom <= minimum {
+    @cmd.none
+  } else {
+    dispatch(OfficeZoomChanged((state.office_zoom - 10).to_string()))
+  }
+  let zoom_in = if state.office_zoom >= maximum {
+    @cmd.none
+  } else {
+    dispatch(OfficeZoomChanged((state.office_zoom + 10).to_string()))
+  }
+  @html.div(
+    class="office-viewer-toolbar",
+    attrs=@html.Attrs::build()
+      .role("group")
+      .aria_label(ui(locale, OfficeControls)),
+    [
+      @html.input(
+        input_type=@html.InputType::Search,
+        value=state.office_query,
+        placeholder=ui(locale, OfficeFind),
+        on_input=dispatch.map(value => OfficeSearchChanged(value)),
+        attrs=@html.Attrs::build()
+          .aria_label(ui(locale, OfficeFind))
+          .data_set("focus-owner", ""),
+      ),
+      @html.button(
+        type_="button",
+        class="office-viewer-control",
+        title=ui(locale, OfficeZoomOut),
+        disabled=state.office_zoom <= minimum,
+        on_click=zoom_out,
+        attrs=@html.Attrs::build().aria_label(ui(locale, OfficeZoomOut)),
+        "−",
+      ),
+      @html.span(class="office-viewer-zoom-value", "\{state.office_zoom}%"),
+      @html.button(
+        type_="button",
+        class="office-viewer-control",
+        title=ui(locale, OfficeZoomIn),
+        disabled=state.office_zoom >= maximum,
+        on_click=zoom_in,
+        attrs=@html.Attrs::build().aria_label(ui(locale, OfficeZoomIn)),
+        "+",
+      ),
+      if pdf {
+        @html.nothing
+      } else {
+        @html.button(
+          type_="button",
+          class=if state.office_prefer_system_fonts {
+            "office-viewer-control active"
+          } else {
+            "office-viewer-control"
+          },
+          title=if state.office_prefer_system_fonts {
+            ui(locale, OfficeBundledFonts)
+          } else {
+            ui(locale, OfficeInstalledFonts)
+          },
+          on_click=dispatch(OfficeSystemFontsToggled),
+          attrs=@html.Attrs::build()
+            .aria_label(ui(locale, OfficeFontSource))
+            .aria_pressed(state.office_prefer_system_fonts.to_string()),
+          "Aa",
+        )
+      },
+    ],
+  )
+}
+
+///|
 /// The breadcrumb under the tab bar: the active file's path as
 /// `dir › dir › file` (the file segment emphasized) behind a leading
 /// ui(locale, WorkspaceLabel) crumb. Every crumb but the last opens a VS Code-style picker
@@ -1946,11 +2078,11 @@ fn crumb_link(
 /// With no file open the whole breadcrumb hides; it stays in the DOM so the
 /// editor's child order, and thus the viewer host, is never re-keyed.
 pub fn breadcrumb_view(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
-  reveal? : (String, @cmd.Cmd)? = None,
+  reveal~ : (String, @cmd.Cmd)? = None,
 ) -> @html.Html {
   if ctx.active_history_diff is Some(diff) {
     return @html.div(
@@ -2044,6 +2176,10 @@ pub fn breadcrumb_view(
     path_row.push(review_badge(locale~, dispatch, state, ctx))
   }
   path_row.push(review_progress(locale~, dispatch, state, ctx))
+  let pdf = active_pdf_document(state, ctx) is Some(_)
+  if !pdf && active_office_surface(state, ctx) is Some(_) {
+    path_row.push(office_viewer_toolbar(locale~, dispatch, state, ctx))
+  }
   if mbti_view_available(state, ctx) {
     path_row.push(mbti_view_toolbar(locale~, dispatch, state, ctx))
   }
@@ -2074,6 +2210,19 @@ pub fn breadcrumb_view(
       icon(icon_folder),
     ),
   )
+  if pdf && !review {
+    let children : Array[@html.Html] = [
+      @html.div(class="viewer-breadcrumb-row", path_row),
+      @html.div(class="pdf-command-row", [
+        office_viewer_toolbar(locale~, dispatch, state, ctx),
+        pdf_viewer_toolbar(locale~, dispatch, state, ctx),
+      ]),
+    ]
+    if state.highlighted is Some(directory) {
+      children.push(breadcrumb_picker(locale~, dispatch, state, ctx, directory))
+    }
+    return @html.div(class="viewer-breadcrumb review-toolbar", children)
+  }
   if review {
     let children : Array[@html.Html] = [
       @html.div(class="viewer-breadcrumb-row", path_row),
@@ -2162,7 +2311,7 @@ fn mbti_view_button(
 
 ///|
 fn mbti_view_toolbar(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
@@ -2241,7 +2390,7 @@ fn moon_mod_view_button(
 
 ///|
 fn moon_mod_view_toolbar(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
@@ -2378,7 +2527,7 @@ fn review_diff_navigation_enabled(state : State, ctx : Ctx) -> Bool {
 
 ///|
 fn ReviewDiffMode::label(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   self : ReviewDiffMode,
 ) -> String {
   match self {
@@ -2399,7 +2548,7 @@ fn ReviewDiffMode::attribute(self : ReviewDiffMode) -> String {
 
 ///|
 fn review_diff_mode_button(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   mode : ReviewDiffMode,
   active : Bool,
   on_click : @cmd.Cmd,
@@ -2440,7 +2589,7 @@ fn review_diff_mode_button(
 
 ///|
 fn review_mode_toolbar(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
@@ -2526,7 +2675,7 @@ fn review_mode_toolbar(
 /// Historical comparisons have no File surface, but retain the same explicit
 /// MoonBit comparison algorithms as changed-file reviews.
 fn review_diff_mode_toolbar(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
@@ -2567,7 +2716,7 @@ fn review_diff_mode_toolbar(
 
 ///|
 fn review_comments_control(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
@@ -2614,7 +2763,7 @@ fn review_comments_control(
 
 ///|
 fn review_tests_control(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
@@ -2662,7 +2811,7 @@ fn review_tests_control(
 ///|
 /// Retain the last complete navigation while a replacement is preparing.
 fn review_navigation_controls(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
@@ -2691,7 +2840,7 @@ fn review_navigation_controls(
 ///|
 /// One navigation group walks changes, then files, and wraps the review queue.
 fn review_diff_navigation(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
@@ -2705,7 +2854,7 @@ fn review_diff_navigation(
 
 ///|
 fn review_navigation_view(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   display : ReviewNavigationDisplay,
 ) -> @html.Html {
@@ -2789,7 +2938,7 @@ fn review_navigation_view(
 
 ///|
 fn review_hunk_toggle_button(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   hunk_state : ReviewHunkState,
   disabled : Bool,
@@ -2842,7 +2991,7 @@ fn review_hunk_toggle_button(
 /// this explicit pair changes either presentation. File mode preserves the
 /// preference but disables both choices until the next review reveal.
 fn review_diff_layout_toggle(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
@@ -2913,7 +3062,7 @@ fn review_diff_layout_toggle(
 /// explorer's cache and filesystem messages, but not its expanded/collapsed
 /// presentation, so it can stay compact over the source viewer.
 fn breadcrumb_picker(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
@@ -2996,8 +3145,8 @@ fn breadcrumb_picker_row(
   ctx : Ctx,
   directory : @pathx.Relative,
   entry : FileEntry,
-  index : Int,
-  total : Int,
+  index : Int32,
+  total : Int32,
 ) -> @html.Html {
   let selected = !entry.is_dir &&
     ctx.active_file is Some(active) &&
@@ -3080,7 +3229,7 @@ fn breadcrumb_picker_row(
 /// Keeping it beside the diff-mode badge makes completion explicit without
 /// turning an ordinary file open into review state.
 fn review_progress(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
@@ -3134,7 +3283,7 @@ fn review_progress(
 /// full diff; unavailable reviews retain a non-interactive status. Loading uses
 /// the delayed overlay so it cannot change the breadcrumb layout.
 fn review_badge(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
@@ -3277,7 +3426,7 @@ fn tree_row(
   state : State,
   ctx : Ctx,
   entry : FileEntry,
-  depth : Int,
+  depth : Int32,
   focus : @pathx.Relative?,
 ) -> @html.Html {
   let indent_style = "--tree-depth: \{depth}"
@@ -3296,6 +3445,7 @@ fn tree_row(
         @html.nothing
       },
     ),
+    tree_entry_icon(entry, expanded),
     @html.span(class="tree-name", entry.name),
     // Decorative guides never intercept clicks or change the label's slot.
     @html.span(
@@ -3370,8 +3520,35 @@ fn tree_row(
 }
 
 ///|
+/// Keep the workspace tree's entry slot aligned with the compact file cards:
+/// folders use the existing sidebar folder glyph, while files use the shared
+/// type-specific 16px path without a surrounding badge.
+fn tree_entry_icon(entry : FileEntry, expanded : Bool) -> @html.Html {
+  let icon = if entry.is_dir {
+    @icons.icon(
+      if expanded {
+        @icons.icon_folder_opened
+      } else {
+        @icons.icon_folder
+      },
+    )
+  } else {
+    @icons.codicon(
+      @workspace_file_ref.file_icon_path(
+        @workspace_file_ref.file_kind(entry.name),
+      ),
+    )
+  }
+  @html.span(
+    class="tree-entry-icon",
+    attrs=@html.Attrs::build().aria_hidden("true"),
+    [icon],
+  )
+}
+
+///|
 fn review_filter_controls(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
 ) -> @html.Html {
@@ -3459,7 +3636,7 @@ fn focus_change_filter_after_render() -> @cmd.Cmd {
 
 ///|
 fn change_extension_filter(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
 ) -> @html.Html {
@@ -3543,7 +3720,7 @@ extern "js" fn bind_change_types() -> Unit =
 
 ///|
 fn review_git_layout(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,

@@ -1,6 +1,6 @@
 ///|
 fn Completion::view(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   self : Completion,
   emit : @cmd.Emit[Msg],
 ) -> @html.Html {
@@ -33,7 +33,7 @@ fn Completion::view(
 /// Render the permanent mention tray. Keeping it mounted when empty preserves
 /// the textarea's positional DOM identity.
 fn Entry::mention_chips(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   self : Entry,
   emit : @cmd.Emit[Msg],
 ) -> Array[@html.Html] {
@@ -53,6 +53,9 @@ fn Entry::mention_chips(
           element.url + "\n" + element.selector.unwrap_or(element.tag)
         } else if mention.ref_ is @mention_context.SemanticSearch(reference) {
           "Open semantic search with \{reference.matches.length()} matches"
+        } else if mention.ref_
+          is @mention_context.OfficeSelection(materialized~) {
+          @mention_context.office_selection_title(materialized)
         } else if target is Some(target) {
           dynamic_text(locale, DJump(target.file.to_string()))
         } else {
@@ -89,7 +92,7 @@ fn GoalInput::first_line(_self : GoalInput, text : String) -> String {
 /// Render the stable standing-goal row. All user operations leave the package
 /// as owner-bound actions instead of dispatching root messages directly.
 fn GoalInput::view(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   self : GoalInput,
   identity : Identity,
   action_emit : @cmd.Emit[Action],
@@ -181,7 +184,7 @@ fn GoalInput::view(
 
 ///|
 fn Entry::action_buttons(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   self : Entry,
   emit : @cmd.Emit[Msg],
   action_emit : @cmd.Emit[Action],
@@ -209,6 +212,7 @@ fn Entry::action_buttons(
           title: ui(locale, SendLabel),
           disabled: !available ||
           self.image_reads > 0 ||
+          !self.attachment_requests.is_empty() ||
           self.draft.is_blank() ||
           (
             input.shell_command(self.draft) is Some(command) &&
@@ -239,7 +243,7 @@ fn Entry::action_buttons(
             Queue => ui(locale, QueueNextTurn)
             SaveQueue => ui(locale, SaveQueued)
           },
-          disabled: self.image_reads > 0,
+          disabled: self.image_reads > 0 || !self.attachment_requests.is_empty(),
           command: emit(SubmitRequested),
           content: @icons.icon(@icons.icon_arrow_up),
         })
@@ -251,7 +255,7 @@ fn Entry::action_buttons(
 
 ///|
 fn Entry::view(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   self : Entry,
   emit : @cmd.Emit[Msg],
   action_emit : @cmd.Emit[Action],
@@ -272,8 +276,10 @@ fn Entry::view(
   // other's child index as a run starts and ends.
   context.push(running_row(locale~, input.run, clock_ms~))
   context.push(input.goal.view(locale~, self.identity(), action_emit))
-  let image_emit = emit.map(event => ImageRead(self.identity(), event))
-  let can_attach = input.presentation.images_enabled &&
+  let image_emit = emit.map(event => {
+    ImageRead(self.identity(), self.root, event)
+  })
+  let can_attach = (input.presentation.images_enabled || input.root is Some(_)) &&
     !input.presentation.disabled &&
     !goal_mode &&
     shell_command is None
@@ -286,7 +292,7 @@ fn Entry::view(
         class="composer-attach",
         type_="button",
         title=ui(locale, AttachHint),
-        on_click=@image_input.pick(locale~, image_emit),
+        on_click=pick_attachments(locale, input, image_emit),
         attrs=@html.Attrs::build().aria_label(ui(locale, AttachImages)),
         ui(locale, AttachImages),
       ),
@@ -306,7 +312,11 @@ fn Entry::view(
       ),
     )
   }
+  for confirmation in self.attachment_confirmations(locale, emit) {
+    context.push(confirmation)
+  }
   View::{
+    allow_images: input.presentation.images_enabled,
     images: if can_attach {
       Some(image_emit)
     } else {
@@ -404,7 +414,7 @@ fn Entry::submission_choice(self : Entry, input : Input) -> FollowupChoice? {
 
 ///|
 fn Entry::followup_menu(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   self : Entry,
   input : Input,
   emit : @cmd.Emit[Msg],

@@ -594,6 +594,22 @@ fn default_prompt() -> String {
     #|  line number inside the target, angle brackets around a target with spaces
     #|  (`[My Report.md](</abs/My Project/My Report.md:3>)`), no backticks in or
     #|  around the link, no `file://` or other URI schemes, no line ranges.
+    #|- Use the workspace-file fence only when a file already exists in the active
+    #|  workspace and the user should open it as a separate deliverable, such as a
+    #|  generated report, spreadsheet, or image. It renders as a file card in the
+    #|  desktop transcript and exported viewer:
+    #|
+    #|  ```openseek-file
+    #|  reports/prompt_leak_red_team_matrix.xlsx
+    #|  ```
+    #|
+    #|  Put exactly one path relative to the active workspace root on the line
+    #|  inside the fence. Do not use an absolute path, `file://`, `~`, or a path
+    #|  containing `..`; do not put file contents or multiple paths in this fence.
+    #|  Do not use this syntax for a file that has not been created or whose
+    #|  workspace location is unknown. When the user needs the contents in the
+    #|  answer, provide them directly; when citing a particular source file or line,
+    #|  use the ordinary Markdown link form above.
     #|
     #|## Git Authorship And Shipping
     #|
@@ -1220,7 +1236,7 @@ fn default_prompt() -> String {
     #|applications, `frontend-rabbita/README.md` covers browser UIs and full-stack web
     #|applications, and `moongrep/README.md` covers the structural-search tool.
     #|
-    #|For Typst tasks, read the relevant files under `<bundled-resources>/typst/`.
+    #|For slide tasks, read the file `<bundled-resources>/slides/README.md`.
     #|
     #|Directory layout relative to `Bundled resources`:
     #|
@@ -1246,7 +1262,7 @@ fn default_prompt() -> String {
     #|├── examples
     #|├── frontend-rabbita
     #|├── moongrep
-    #|├── typst
+    #|├── slides
     #|└── workflow
     #|```
     #|

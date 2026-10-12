@@ -498,6 +498,15 @@ async fn State::materialized_turn_inputs(
   channel : @interop.ChannelId,
   cwd : String?,
 ) -> Array[Json] {
+  if cwd is Some(workspace) && self.active_thread() is Some(thread) {
+    @composer.stage_attachments(
+      channel,
+      thread.id,
+      workspace,
+      thread.project_root.unwrap_or(thread.cwd.unwrap_or(workspace)),
+      self.mentions.map(mention => mention.ref_),
+    )
+  }
   let mentions : Array[@composer.Mention] = []
   for mention in self.mentions {
     if mention.ref_ is @mention_context.SemanticSearch(reference) &&
@@ -754,6 +763,7 @@ fn State::mention_input(self : State, mention : @composer.Mention) -> Json? {
     }
     @mention_context.Symbol(..)
     | @mention_context.SemanticSearch(_)
+    | @mention_context.OfficeSelection(_)
     | @mention_context.Annotation(..)
     | @mention_context.BrowserAnnotation(..)
     | @mention_context.ReviewChanges(_) =>
@@ -1010,7 +1020,7 @@ fn State::respond(
 ) -> @cmd.Cmd {
   let mut selected : CodexPendingRequest? = None
   for request in self.pending_requests {
-    if request.request_id.stringify() == request_key &&
+    if request.response_token == request_key &&
       self.active_thread() is Some(active) &&
       request.thread_id == active.id {
       selected = Some(request)
@@ -1024,7 +1034,11 @@ fn State::respond(
     dispatch,
     channel,
     @commands.codex_server_request_respond,
-    { request_id: request.request_id, result, },
+    {
+      request_id: request.request_id,
+      response_token: request.response_token,
+      result,
+    },
   )
 }
 
