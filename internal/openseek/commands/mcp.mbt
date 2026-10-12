@@ -115,12 +115,8 @@ async fn mcp_report(
 ) -> Json {
   @async.with_task_group() <| group => {
     let scope = @agent_runtime.AgentTaskScope(group)
-    let events : Array[@protocol.Event] = []
     @emit.open()
     defer @emit.close()
-    // The drain holds the queue it found open, so it must start before the
-    // sink is closed and it finishes once the closed queue is empty.
-    let drain = group.spawn(() => @emit.drain(event => events.push(event)))
     let groups = @mcptools.build_grouped(
       scope,
       servers,
@@ -128,8 +124,17 @@ async fn mcp_report(
       client_version=@execution.McpClientVersion,
       workspace_root~,
     )
-    @emit.close()
-    drain.wait()
+    // Read the build's events back while the sink still holds them. The sink
+    // was open before the build and is read before it closes, so nothing
+    // depends on when a draining task would have started — a build that
+    // fails without ever suspending is reported like any other. `poll_line`
+    // is the sink's in-process read side and hands out the wire line.
+    let events : Array[@protocol.Event] = []
+    while @emit.poll_line() is Some(line) {
+      if @protocol.parse(@json.parse(line)) is Some(event) {
+        events.push(event)
+      }
+    }
     // The build returns one group per server, in configuration order.
     let reports : Array[Json] = []
     for index, server in servers {
