@@ -56,28 +56,21 @@ fn nested_scrollable(
 fn Model::cross_page(
   self : Model,
   turns : TurnIndex,
-  forward : Bool,
+  page~ : Int,
+  forward~ : Bool,
+  key~ : @transcript_overview.TurnKey,
+  offset~ : Double,
   emit : @cmd.Emit[Msg],
 ) -> (Model, @cmd.Cmd) {
-  let page = turns.page_rows(self.page).page
-  let index = page.index + (if forward { 1 } else { -1 })
-  guard index >= 0 && index < page.count else { return (self, @cmd.none) }
-  let boundary = if forward { page.end - 1 } else { page.start }
-  guard turns.keys.get(boundary) is Some(key) else { return (self, @cmd.none) }
-  guard @dom.document().get_element_by_id(key.anchor()).to_option()
-    is Some(bubble) &&
-    @dom.document().get_element_by_id("transcript").to_option()
-    is Some(transcript) &&
-    turn_layout_top(bubble, transcript) is Some(top) else {
-    return (self, @cmd.none)
-  }
-  self.show_page(
-    index,
-    emit,
-    anchor=key,
-    overlap=boundary,
-    offset=top - transcript.get_scroll_top(),
-  )
+  let current = turns.page_rows(self.page).page
+  // The subscription measured the mounted page. A queued wheel message may
+  // arrive after navigation or a history replacement changed its boundary.
+  guard page == current.index else { return (self, @cmd.none) }
+  let index = page + (if forward { 1 } else { -1 })
+  guard index >= 0 && index < current.count else { return (self, @cmd.none) }
+  let boundary = if forward { current.end - 1 } else { current.start }
+  guard turns.keys.get(boundary) == Some(key) else { return (self, @cmd.none) }
+  self.show_page(index, emit, anchor=key, overlap=boundary, offset~)
 }
 
 ///|

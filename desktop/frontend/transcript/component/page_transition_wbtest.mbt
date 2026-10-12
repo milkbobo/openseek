@@ -48,7 +48,7 @@ test "layout and scroll reports cannot overwrite a pending navigation target" {
       Msg::Pinned(true),
       ContentRendered,
       Overview(ActiveChanged(None)),
-      CrossPage(true),
+      CrossPage(page=2, forward=true, key=Durable(119), offset=10),
     ] {
     assert_true(moving.step(input, message) == moving)
   }

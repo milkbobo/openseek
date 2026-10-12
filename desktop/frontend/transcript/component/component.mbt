@@ -196,7 +196,12 @@ priv struct Model {
 priv enum Msg {
   Pinned(Bool)
   JumpToLatest
-  CrossPage(Bool)
+  CrossPage(
+    page~ : Int,
+    forward~ : Bool,
+    key~ : @transcript_overview.TurnKey,
+    offset~ : Double
+  )
   MountPage(Int)
   PageReady(Int)
   ContentRendered
@@ -224,7 +229,10 @@ fn Model::update(
   }
   if self.navigation is Some(_) &&
     msg
-    is (Pinned(_) | ContentRendered | CrossPage(_) | Overview(ActiveChanged(_))) {
+    is (Pinned(_)
+    | ContentRendered
+    | CrossPage(..)
+    | Overview(ActiveChanged(_))) {
     return (self, @cmd.none)
   }
   match msg {
@@ -250,7 +258,8 @@ fn Model::update(
         @cmd.none,
       )
     }
-    CrossPage(forward) => self.cross_page(turns, forward, emit)
+    CrossPage(page~, forward~, key~, offset~) =>
+      self.cross_page(turns, page~, forward~, key~, offset~, emit)
     JumpToLatest =>
       (
         { ..self, pinned: true, page: None, overlap: None, navigation: None, },
@@ -373,7 +382,7 @@ pub fn component(
       let (input, turns) = indexed
       transcript_subscription(
         model,
-        turns.page_rows(model.page).page,
+        turns,
         input.follow_request,
         emit,
         actions.departed,
@@ -690,6 +699,7 @@ priv suberror TranscriptSubscription {
     pinned~ : Bool,
     active~ : @transcript_overview.TurnKey?,
     page~ : @transcript_overview.TranscriptPage,
+    turns~ : TurnIndex,
     follow_request~ : String?,
     overlap~ : Int?
   )
@@ -701,7 +711,7 @@ priv suberror TranscriptSubscription {
 /// forwards a synthetic "content changed" message into child state.
 fn transcript_subscription(
   model : Model,
-  page : @transcript_overview.TranscriptPage,
+  turns : TurnIndex,
   follow_request : String?,
   emit : @cmd.Emit[Msg],
   departed : @cmd.Emit[ScrollPosition],
@@ -714,7 +724,8 @@ fn transcript_subscription(
       departed~,
       pinned=model.pinned,
       active=model.overview.active,
-      page~,
+      page=turns.page_rows(model.page).page,
+      turns~,
       follow_request~,
       overlap=model.overlap,
     ),
@@ -734,6 +745,7 @@ fn transcript_sub_loader(
       pinned~,
       active~,
       page~,
+      turns~,
       follow_request~,
       overlap~
     ) => {
@@ -742,6 +754,7 @@ fn transcript_sub_loader(
       let mut pinned = pinned
       let mut active = active
       let mut page = page
+      let mut turns = turns
       let mut overlap = overlap
       let gesture = PageGesture::new()
       let mut follow_request = follow_request
@@ -789,8 +802,24 @@ fn transcript_sub_loader(
           page.index > 0 && transcript.get_scroll_top() <= 1
         }
         if gesture.wheel(wheel.get_time_stamp(), boundary, forward) {
+          let boundary = if forward { page.end - 1 } else { page.start }
+          guard turns.keys.get(boundary) is Some(key) &&
+            @dom.document().get_element_by_id(key.anchor()).to_option()
+            is Some(bubble) &&
+            turn_layout_top(bubble, transcript) is Some(top) else {
+            return
+          }
           event.prevent_default()
-          scheduler.add(emit(CrossPage(forward)))
+          scheduler.add(
+            emit(
+              CrossPage(
+                page=page.index,
+                forward~,
+                key~,
+                offset=top - transcript.get_scroll_top(),
+              ),
+            ),
+          )
         }
       }
       target.add_event_listener_with_options(
@@ -840,6 +869,7 @@ fn transcript_sub_loader(
               pinned=next_pinned,
               active=next_active,
               page=next_page,
+              turns=next_turns,
               follow_request=next_request,
               overlap=next_overlap
             ) else {
@@ -851,6 +881,7 @@ fn transcript_sub_loader(
           active = next_active
           overlap = next_overlap
           page = next_page
+          turns = next_turns
           if next_request != follow_request {
             follow_request = next_request
             if next_request is Some(_) {

@@ -320,3 +320,67 @@ test('a second tick in a pending page replaces the first destination', async ({ 
   await expectTurnAligned(page, 17);
   expect(app.pageErrors).toEqual([]);
 });
+
+for (const minimal of [false, true]) {
+  for (const running of [false, true]) {
+    test(`Codex ${running ? 'steer' : 'send'} leaves an older history page and follows output (${minimal ? 'minimal' : 'detailed'})`, async ({ page }) => {
+      await page.addInitScript(minimal => localStorage.setItem('openseek.minimal_transcript', String(minimal)), minimal);
+      const app = new DesktopBrowserHarness(page);
+      app.codexModels = [{ id: 'gpt-test', displayName: 'Codex pagination fixture', isDefault: true }];
+      const turns = Array.from({ length: 40 }, (_, i) => ({
+        id: `turn-${i + 1}`, status: running && i === 39 ? 'inProgress' : 'completed', items: [
+          { id: `user-${i + 1}`, type: 'userMessage', content: [{ type: 'text', text: `Codex question ${i + 1}` }] },
+          { id: `answer-${i + 1}`, type: 'agentMessage', text: `Codex answer ${i + 1}\n\n` + 'Historical paragraph.\n\n'.repeat(5) },
+        ],
+      }));
+      const thread = { id: 'codex-thread-e2e', cwd: '/workspace', projectRoot: '/workspace', preview: 'Codex pagination fixture', updatedAt: 2, turns };
+      const method = running ? 'codex.turn.steer' : 'codex.turn.start';
+      const turnId = running ? 'turn-40' : 'turn-41';
+      const replyFor = app.replyFor.bind(app);
+      app.replyFor = request => {
+        if (request.method === 'codex.thread.list') return { data: request.params?.archived ? [] : [thread] };
+        if (request.method === 'codex.thread.history.read' || request.method === 'codex.thread.resume') return { thread };
+        if (request.method === method) return { turn: { id: turnId, status: 'inProgress', items: [
+          ...(running ? turns.at(-1).items : []),
+          { id: 'new-user', type: 'userMessage', content: request.params.input },
+        ] } };
+        return replyFor(request);
+      };
+      await app.install();
+      await app.goto();
+      await page.getByText('Codex pagination fixture', { exact: true }).first().click();
+      const users = page.locator('#transcript .msg.user .msg-content');
+      await expect(users.last()).toHaveText('Codex question 40');
+      await page.getByRole('button', { name: 'Previous history page', exact: true }).click();
+      await expect(users.first()).toHaveText('Codex question 1');
+      await expect(page.locator('#transcript')).toHaveAttribute('aria-busy', 'false');
+      await page.locator('#task').fill('New local Codex question');
+      await page.getByTitle(running ? 'Steer the running task' : 'Send', { exact: true }).click();
+      await expect.poll(() => app.requests.some(request => request.method === method)).toBe(true);
+      await expect(page.locator('.overview-tick')).toHaveCount(41);
+      await expect(users.first()).toHaveText('New local Codex question');
+      app.notify('codex.notification', {
+        generation: 1, method: 'item/started', params: {
+          threadId: thread.id, turnId,
+          item: { id: 'new-answer', type: 'agentMessage', text: 'Visible live response' },
+        },
+      });
+      await expect(page.locator('#stream')).toContainText('Visible live response');
+      await expect(page.getByTitle('Jump to latest', { exact: true })).toHaveCount(0);
+      // Reading history again must not replay the local send's follow request.
+      await page.getByRole('button', { name: 'Previous history page', exact: true }).click();
+      await expect(users.first()).toHaveText('Codex question 21');
+      await expect(page.locator('#transcript')).toHaveAttribute('aria-busy', 'false');
+      app.notify('codex.notification', {
+        generation: 1, method: 'item/completed', params: {
+          threadId: thread.id, turnId,
+          item: { id: 'new-answer', type: 'agentMessage', text: 'Completed response stays on the latest page' },
+        },
+      });
+      await page.getByTitle('Jump to latest', { exact: true }).waitFor();
+      await expect(users.first()).toHaveText('Codex question 21');
+      await expect(page.locator('#stream')).not.toContainText('Completed response stays on the latest page');
+      expect(app.pageErrors).toEqual([]);
+    });
+  }
+}

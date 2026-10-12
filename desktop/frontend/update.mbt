@@ -2380,7 +2380,20 @@ fn update_msg(
             channel,
             url => open_external_link(dispatch, url),
           )
-          (command, { ..model, codex, })
+          // A transition into a foreground request means this local submit
+          // was accepted. Rejected or stale actions must not move the reader.
+          let submitted = model.screen is Codex &&
+            action is @composer.DraftSubmitted(..) &&
+            !model.codex.is_busy() &&
+            codex.is_busy()
+          let next = { ..model, codex, }
+          let next = if submitted {
+            let (next, submission) = next.allocate_submission_id()
+            next.follow_transcript_latest(submission)
+          } else {
+            next
+          }
+          (command, next)
         }
       }
     ComposerAction(action) =>
