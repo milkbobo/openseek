@@ -1526,6 +1526,9 @@ priv struct Model {
   // view and root layout. The root owns the opaque state once so neither side
   // reports a second visibility copy back to the other.
   jobs : @jobs.State
+  // The Settings page's MCP panel: what the focused host's MCP configuration
+  // yields, as of the last check.
+  mcp : @mcp.State
   github : @github.State
   terminal : @terminal.State
   // The archive-discard confirmation, staged when the host refused an
@@ -2126,6 +2129,7 @@ priv enum Msg {
   GithubRequested
   Github(@github.Msg)
   Jobs(@jobs.Msg)
+  Mcp(@mcp.Msg)
   // The browser toolbar, acting on whatever Browser tab is active — the
   // messages carry no id so a stale click cannot outlive a tab switch.
   BrowserAddressEdited(String)
@@ -2745,6 +2749,7 @@ fn initial_model(desktop~ : Bool) -> Model {
     dock_tab_menu_open: false,
     right_panel_expanded: false,
     jobs: @jobs.State::empty(),
+    mcp: @mcp.State::initial(),
     github: @github.State::empty(),
     terminal: @terminal.State::empty(),
     active_session: "",

@@ -435,6 +435,7 @@ still signs out a session whose issuer no longer matches the origin.
 |---|---|---|
 | `settings.get` | `{}` | the status shape below |
 | `settings.set` | `{provider?, custom_api_url?, deepseek_api_key?, glm_api_key?, custom_api_key?}` — absent fields stay unchanged; a present string field is trimmed and, when empty, **clears** the stored value; an unknown `provider` is refused. | the status shape below, post-write |
+| `mcp.status` | `{}` | what the host's MCP configuration (`mcp.json` beside the global session store) yields right now, tagged by `config`: `{config:"absent", path}` when there is no file; `{config:"rejected", path, reason}` when the file is unreadable, not JSON, or not the `mcpServers` shape; `{config:"loaded", path, servers:[…]}` otherwise. Each server is `{name, transport:"stdio"\|"http", target, state, …}` — `target` is the command or the URL without credentials — with `state:"connected"` plus `tools:[{name, description}]`, `"no_tools"`, `"failed"` plus `error`, or `"skipped"` (the tool budget was spent before its turn). The host connects every server to answer, through the engine's `mcp --format json`; stdio servers run only for the duration of the request, which is bounded at two minutes and fails rather than answering partially |
 
 The status shape, also the params of every `settings.changed` notification:
 

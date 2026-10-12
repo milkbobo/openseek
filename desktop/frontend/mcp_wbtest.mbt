@@ -43,3 +43,25 @@ test "an MCP failure stamped with a run this page has not opened yet still lands
   }
   assert_true(toast.message.contains("/home/.openseek/mcp.json"))
 }
+
+///|
+test "opening Settings asks the focused host what its MCP configuration yields" {
+  let dispatch = test_dispatch()
+  let model = test_model()
+  let (_, opened) = update(dispatch, OpenSetup, model)
+  assert_true(opened.screen is Settings)
+  assert_true(opened.mcp.phase is Checking)
+  assert_true(opened.mcp.host == Some(model.focused))
+  // The answer is routed back into the panel.
+  let (_, answered) = update(
+    dispatch,
+    Mcp(
+      Checked(
+        serial=opened.mcp.serial,
+        Ok(NoConfig(path="/home/.openseek/mcp.json")),
+      ),
+    ),
+    opened,
+  )
+  assert_true(answered.mcp.phase is Loaded(NoConfig(..)))
+}

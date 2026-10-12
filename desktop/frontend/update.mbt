@@ -3879,11 +3879,24 @@ fn update_msg(
       (cmd, { ..next, update_ux, })
     }
     UpdateApplied => (close_window(), model)
-    OpenSetup =>
-      (
-        @cmd.none,
-        { ..model, screen: Settings, setup_api_key: "", api_setup_open: false, },
+    OpenSetup => {
+      // The MCP panel's answer belongs to the host Settings is showing.
+      let (cmd, mcp) = @mcp.update(
+        dispatch.map(msg => Mcp(msg)),
+        Opened(model.focused),
+        model.mcp,
       )
+      (
+        cmd,
+        {
+          ..model,
+          screen: Settings,
+          setup_api_key: "",
+          api_setup_open: false,
+          mcp,
+        },
+      )
+    }
     ReturnToWork =>
       if model.screen.work_screen() is None {
         (
@@ -5724,6 +5737,14 @@ fn update_msg(
         model.jobs,
       )
       (cmd, { ..model, jobs, })
+    }
+    Mcp(msg) => {
+      let (cmd, mcp) = @mcp.update(
+        dispatch.map(msg => Mcp(msg)),
+        msg,
+        model.mcp,
+      )
+      (cmd, { ..model, mcp, })
     }
     Github(msg) => {
       let completed = msg is @github.CheckedOut(epoch, _) &&

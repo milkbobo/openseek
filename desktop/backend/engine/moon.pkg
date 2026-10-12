@@ -5,6 +5,7 @@ import {
   "moonbitlang/async/os_error",
   "moonbitlang/openseek/agent_session",
   "moonbitlang/openseek/agent_session/store",
+  "moonbitlang/openseek/mcp/config" @mcpconfig,
   "moonbitlang/openseek/viz_export",
   "moonbitlang/openseek_protocol" @wire,
   "moonbitlang/jsonl",

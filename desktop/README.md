@@ -166,6 +166,16 @@ points every engine it spawns at the file with `--mcp-config`; when no file
 exists it passes nothing, so an `OPENSEEK_MCP_CONFIG` inherited from the
 launching environment still applies.
 
+**Settings → MCP** lists the file's servers with what connecting to each one
+yields: connected with its tools, no tools, failed with the reason, or skipped
+over the tool limit. The host holds no standing connections — each
+conversation's engine connects its own — so the panel is a check, run through
+the engine's `openseek mcp --format json` with the environment an engine's
+servers see. It runs once when Settings first opens on a host and again on
+**Check again**; stdio servers are started for the check and stopped when it
+returns, in the user's home directory rather than a project. A file the engine
+cannot load is reported as such, apart from a check that could not run at all.
+
 An engine connects its servers once, when it starts — one set of server
 processes per conversation. The file's content is therefore part of what pins
 an engine to its configuration, like the model and the endpoint: an edit

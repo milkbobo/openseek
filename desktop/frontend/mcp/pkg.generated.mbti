@@ -1,0 +1,47 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "openseek_desktop/frontend/mcp"
+
+import {
+  "moonbit-community/rabbita/cmd",
+  "moonbit-community/rabbita/html",
+  "openseek_desktop/frontend/i18n",
+  "openseek_desktop/frontend/interop",
+  "openseek_desktop/protocol",
+}
+
+// Values
+pub fn rows(locale? : @i18n.Locale, host~ : @interop.ChannelId, State, @cmd.Emit[Msg]) -> Array[@html.Html]
+
+pub fn update(@cmd.Emit[Msg], Msg, State) -> (@cmd.Cmd, State)
+
+// Errors
+
+// Types and methods
+pub(all) enum Msg {
+  Opened(@interop.ChannelId)
+  Refresh(@interop.ChannelId)
+  Checked(serial~ : Int, Result[@protocol.McpStatusReply, String])
+}
+
+pub enum Phase {
+  Unchecked
+  Checking
+  Loaded(@protocol.McpStatusReply)
+  CheckFailed(String)
+} derive(Eq)
+pub fn Phase::equal(Self, Self) -> Bool
+pub fn Phase::not_equal(Self, Self) -> Bool
+
+pub struct State {
+  host : @interop.ChannelId?
+  phase : Phase
+  serial : Int
+} derive(Eq)
+pub fn State::equal(Self, Self) -> Bool
+pub fn State::initial() -> Self
+pub fn State::not_equal(Self, Self) -> Bool
+pub fn State::phase_for(Self, @interop.ChannelId) -> Phase
+
+// Type aliases
+
+// Traits

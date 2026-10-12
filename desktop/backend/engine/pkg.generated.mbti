@@ -43,6 +43,8 @@ pub async fn load_archived_session(EngineManager, @protocol.LoadSessionPayload) 
 
 pub async fn load_session(EngineManager, @protocol.LoadSessionPayload) -> @protocol.LoadSessionReply
 
+pub async fn mcp_status(EngineManager) -> @protocol.McpStatusReply
+
 pub async fn migrate_global_store() -> Int
 
 pub fn new_engine_actor(String, runtime_dir? : @pathx.Path) -> EngineActor
