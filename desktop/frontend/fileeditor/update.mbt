@@ -60,6 +60,7 @@ fn Doc::diff_content(self : Doc) -> (String, String)? {
   }
   let modified = match self.state {
     TabLoaded(content~, ..) => content
+    TabOffice(..) | TabPdf(..) => return None
     TabDeleted => ""
     TabLoading
     | TabBinary
@@ -122,7 +123,7 @@ fn Doc::uses_diff_surface(self : Doc) -> Bool {
 }
 
 ///|
-fn ReviewState::diff_loading_generation(self : ReviewState) -> Int {
+fn ReviewState::diff_loading_generation(self : ReviewState) -> Int32 {
   if self.generation >= self.working_generation {
     self.generation
   } else {
@@ -131,7 +132,7 @@ fn ReviewState::diff_loading_generation(self : ReviewState) -> Int {
 }
 
 ///|
-fn Doc::diff_pending_generation(self : Doc) -> Int? {
+fn Doc::diff_pending_generation(self : Doc) -> Int32? {
   guard self.diff_is_pending() && self.review is Some(review) else {
     return None
   }
@@ -167,7 +168,7 @@ fn delayed_diff_loading(
 /// The newest working-tree request that owns an auxiliary review reload.
 /// Ordinary documents carry no token; each review reload advances this token
 /// independently of its HEAD request so out-of-order file replies are fenced.
-fn Doc::review_generation(self : Doc) -> Int? {
+fn Doc::review_generation(self : Doc) -> Int32? {
   match self.review {
     Some(review) => Some(review.working_generation)
     None => None
@@ -183,6 +184,7 @@ fn Doc::review_generation(self : Doc) -> Int? {
 /// review baseline for the document that is already on screen.
 fn show_tab_impl(
   dispatch : @cmd.Emit[Msg],
+  state : State,
   ctx : Ctx,
   search_highlights : @grep_search.EditorHighlights?,
   path : @common.Uri,
@@ -243,6 +245,16 @@ fn show_tab_impl(
         show
       }
     }
+    TabOffice(document~, sig~) =>
+      @cmd.batch([
+        clear_document(),
+        show_office_document(dispatch, ctx.owner, state, path, document, sig),
+      ])
+    TabPdf(document~, sig~) =>
+      @cmd.batch([
+        clear_document(),
+        show_pdf_document(dispatch, state, ctx, path, document, sig),
+      ])
     // A deleted change, or a transiently unreadable working file, can still
     // have a useful textual HEAD side. Show that baseline under explicit
     // review chrome; other unavailable cases use the panel notice overlay.
@@ -291,12 +303,13 @@ fn show_tab_impl(
 ///|
 fn show_tab(
   dispatch : @cmd.Emit[Msg],
+  state : State,
   ctx : Ctx,
   search_highlights : @grep_search.EditorHighlights?,
   path : @common.Uri,
   doc : Doc,
 ) -> @cmd.Cmd {
-  show_tab_impl(dispatch, ctx, search_highlights, path, doc, true, true)
+  show_tab_impl(dispatch, state, ctx, search_highlights, path, doc, true, true)
 }
 
 ///|
@@ -306,12 +319,13 @@ fn show_tab(
 /// quick-diff baseline or the deleted/unavailable preview.
 fn show_settled_review(
   dispatch : @cmd.Emit[Msg],
+  state : State,
   ctx : Ctx,
   search_highlights : @grep_search.EditorHighlights?,
   path : @common.Uri,
   doc : Doc,
 ) -> @cmd.Cmd {
-  show_tab_impl(dispatch, ctx, search_highlights, path, doc, true, false)
+  show_tab_impl(dispatch, state, ctx, search_highlights, path, doc, true, false)
 }
 
 ///|
@@ -320,12 +334,15 @@ fn show_settled_review(
 /// it must neither start a duplicate file read nor another full `moon check`.
 fn show_pending_review(
   dispatch : @cmd.Emit[Msg],
+  state : State,
   ctx : Ctx,
   search_highlights : @grep_search.EditorHighlights?,
   path : @common.Uri,
   doc : Doc,
 ) -> @cmd.Cmd {
-  show_tab_impl(dispatch, ctx, search_highlights, path, doc, false, false)
+  show_tab_impl(
+    dispatch, state, ctx, search_highlights, path, doc, false, false,
+  )
 }
 
 ///|
@@ -335,18 +352,20 @@ fn show_pending_review(
 /// makes an older in-flight reply harmless.
 fn show_activated_tab(
   dispatch : @cmd.Emit[Msg],
+  state : State,
   ctx : Ctx,
   search_highlights : @grep_search.EditorHighlights?,
   path : @common.Uri,
   doc : Doc,
-  generation : Int,
-) -> (@cmd.Cmd, Doc, Int) {
+  generation : Int32,
+) -> (@cmd.Cmd, Doc, Int32) {
+  let doc = doc.prepare_pdf_runtime(state.pdf_generation + 1)
   guard doc.stale &&
     !(doc.state is TabLoading) &&
     doc.review is Some(review) &&
     review.selected.has_working_tree_file() else {
     return (
-      show_tab(dispatch, ctx, search_highlights, path, doc),
+      show_tab(dispatch, state, ctx, search_highlights, path, doc),
       doc,
       generation,
     )
@@ -355,7 +374,9 @@ fn show_activated_tab(
   let next_doc = { ..doc, review: Some({ ..review, working_generation, }), }
   (
     @cmd.batch([
-      show_pending_review(dispatch, ctx, search_highlights, path, next_doc),
+      show_pending_review(
+        dispatch, state, ctx, search_highlights, path, next_doc,
+      ),
       read_file(
         dispatch,
         ctx.owner,
@@ -392,7 +413,7 @@ pub fn open_document(
   ctx : Ctx,
   path : @common.Uri,
   name~ : String,
-  file_link_generation? : Int,
+  file_link_generation? : Int32,
   range~ : @common.Range?,
   annotation? : String,
   had_active~ : Bool,
@@ -479,12 +500,14 @@ pub fn open_document(
     | TabDeleted)) {
     let (show, doc, review_generation) = show_activated_tab(
       dispatch,
+      state,
       ctx,
       state.editor_search_highlights(ctx, path),
       path,
       doc,
       state.review_generation,
     )
+    let state = state.record_pdf_generation(doc)
     let docs = state.docs.copy()
     docs[path] = doc
     // Gaining the first active tab reveals the breadcrumb row, and the
@@ -617,12 +640,14 @@ pub fn open_changed_document(
     let doc = { ..doc, review: Some({ ..review, view_mode: ReviewDiff, }), }
     let (show, next_doc, review_generation) = show_activated_tab(
       dispatch,
+      state,
       ctx,
       state.editor_search_highlights(ctx, path),
       path,
       doc,
       state.review_generation,
     )
+    let state = state.record_pdf_generation(next_doc)
     let docs = state.docs.copy()
     docs[path] = next_doc
     let cmds = [show, delayed_diff_loading(dispatch, ctx.owner, path, next_doc)]
@@ -708,6 +733,7 @@ pub fn open_changed_document(
       cmds.push(
         show_pending_review(
           dispatch,
+          state,
           ctx,
           state.editor_search_highlights(ctx, path),
           path,
@@ -723,6 +749,7 @@ pub fn open_changed_document(
       cmds.push(
         show_pending_review(
           dispatch,
+          state,
           ctx,
           state.editor_search_highlights(ctx, path),
           path,
@@ -865,7 +892,7 @@ fn reconcile_reviews_after_changes(
   head~ : String?,
   head_changed~ : Bool,
   restart_incomplete~ : Bool,
-) -> (Array[@cmd.Cmd], Map[@common.Uri, Doc], Int) {
+) -> (Array[@cmd.Cmd], Map[@common.Uri, Doc], Int32) {
   let docs = state.docs.copy()
   let cmds : Array[@cmd.Cmd] = []
   let restat_paths : Array[@common.Uri] = []
@@ -903,6 +930,7 @@ fn reconcile_reviews_after_changes(
           cmds.push(
             show_tab(
               dispatch,
+              state,
               ctx,
               state.editor_search_highlights(ctx, path),
               path,
@@ -927,6 +955,7 @@ fn reconcile_reviews_after_changes(
           cmds.push(
             show_tab(
               dispatch,
+              state,
               ctx,
               state.editor_search_highlights(ctx, path),
               path,
@@ -1031,6 +1060,7 @@ fn reconcile_reviews_after_changes(
             cmds.push(
               show_pending_review(
                 dispatch,
+                state,
                 ctx,
                 state.editor_search_highlights(ctx, path),
                 path,
@@ -1055,6 +1085,7 @@ fn reconcile_reviews_after_changes(
           cmds.push(
             show_tab(
               dispatch,
+              state,
               ctx,
               state.editor_search_highlights(ctx, path),
               path,
@@ -1089,7 +1120,7 @@ pub fn open_file(
   state : State,
   ctx : Ctx,
   path : @common.Uri,
-  file_link_generation? : Int,
+  file_link_generation? : Int32,
   range~ : @common.Range?,
   annotation? : String,
   had_active~ : Bool,
@@ -1124,12 +1155,14 @@ pub fn activate(
   let state = { ..state.invalidate_review_hunk_surface(), highlighted: None, }
   let (show, doc, review_generation) = show_activated_tab(
     dispatch,
+    state,
     ctx,
     state.editor_search_highlights(ctx, path),
     path,
     doc,
     state.review_generation,
   )
+  let state = state.record_pdf_generation(doc)
   let docs = state.docs.copy()
   docs[path] = doc
   // The narrow drill-down closing the tree reveals a viewer that was last
@@ -1205,12 +1238,14 @@ pub fn close_document(
       if docs.get(next_path) is Some(doc) {
         let (show, doc, review_generation) = show_activated_tab(
           dispatch,
+          state,
           ctx,
           state.editor_search_highlights(ctx, next_path),
           next_path,
           doc,
           state.review_generation,
         )
+        let state = state.record_pdf_generation(doc)
         docs[next_path] = doc
         (
           @cmd.batch([show, forget_view_state(path)]),
@@ -1348,7 +1383,7 @@ fn package_graph_input(path : @pathx.Relative) -> Bool {
 fn active_moonbit_diagnostics(
   dispatch : @cmd.Emit[Msg],
   owner : @interop.ConversationKey,
-  epoch : Int,
+  epoch : Int32,
   root : @common.Uri?,
   docs : Map[@common.Uri, Doc],
   active : @common.Uri?,
@@ -1522,7 +1557,7 @@ fn State::watched_paths(self : State, ctx : Ctx) -> WatchedPaths? {
 ///|
 /// The opaque token echoed by host watcher notifications. The namespace keeps
 /// the counter unique across frontend reloads.
-fn Ctx::watch_identity(self : Ctx, generation : Int) -> String {
+fn Ctx::watch_identity(self : Ctx, generation : Int32) -> String {
   self.watch_namespace + ":" + generation.to_string()
 }
 
@@ -1758,11 +1793,11 @@ fn review_needs_unknown_head_refresh(
 fn refresh_unknown_head_reviews(
   dispatch : @cmd.Emit[Msg],
   docs : Map[@common.Uri, Doc],
-  review_generation : Int,
-  background_review_requests : Map[@common.Uri, Int],
+  review_generation : Int32,
+  background_review_requests : Map[@common.Uri, Int32],
   ctx : Ctx,
   files : Array[ChangedFile],
-) -> (Array[@cmd.Cmd], Map[@common.Uri, Doc], Int, Map[@common.Uri, Int]) {
+) -> (Array[@cmd.Cmd], Map[@common.Uri, Doc], Int32, Map[@common.Uri, Int32]) {
   let docs = docs.copy()
   let background_review_requests = background_review_requests.copy()
   let cmds = []
@@ -1946,7 +1981,7 @@ pub fn sync(
   dispatch : @cmd.Emit[Msg],
   state : State,
   ctx : Ctx,
-  review_context? : Array[@mention_context.ReviewChanges] = [],
+  review_context~ : Array[@mention_context.ReviewChanges] = [],
 ) -> (State, @cmd.Cmd) {
   let checkout_ready = ctx.checkout_ready()
   let owner_changed = state.owner != Some(ctx.owner)
@@ -2080,6 +2115,10 @@ pub fn sync(
         // reconciles from `PlacementUnknown` rather than the outgoing value.
         placement: PlacementUnknown.reconcile(ctx.placement),
         tree_open: state.tree_open,
+        office_zoom: state.office_zoom,
+        office_query: state.office_query,
+        office_prefer_system_fonts: state.office_prefer_system_fonts,
+        pdf_generation: state.pdf_generation,
         explorer_mode: state.explorer_mode,
         search: state.search.reset_checkout(),
         review_diff_layout: state.review_diff_layout,
@@ -2217,11 +2256,13 @@ pub fn sync(
       }
     }
     let mut review_generation = state.review_generation
+    let mut pdf_generation = state.pdf_generation
     let restore_cmd = if ctx.panel_open &&
       ctx.active_file is Some(path) &&
       docs.get(path) is Some(doc) {
       let (cmd, doc, generation) = show_activated_tab(
         dispatch,
+        state,
         ctx,
         state.editor_search_highlights(ctx, path),
         path,
@@ -2230,6 +2271,7 @@ pub fn sync(
       )
       docs[path] = doc
       review_generation = generation
+      pdf_generation = state.record_pdf_generation(doc).pdf_generation
       cmd
     } else {
       @cmd.none
@@ -2239,6 +2281,7 @@ pub fn sync(
         ..state,
         docs,
         review_generation,
+        pdf_generation,
         placement: state.placement.reconcile(ctx.placement),
       },
       restore_cmd,
@@ -2330,6 +2373,7 @@ pub fn sync(
     dispatch, state, ctx,
   )
   let state = state.sync_review_navigation_display(ctx)
+  let state = state.sync_office_selection(ctx)
   let pending_cmd = @cmd.batch([
     retire_index_cmd,
     reroot_cmd,
@@ -2399,6 +2443,7 @@ fn select_review_view_mode(
   docs[path] = next_doc
   let show = show_pending_review(
     dispatch,
+    state,
     ctx,
     state.editor_search_highlights(ctx, path),
     path,
@@ -2490,6 +2535,47 @@ fn update_inner(
   match msg {
     // Checkout ownership and the unsaved-change dialog belong to the shell.
     UpdatePullRequest => (@cmd.none, state)
+    // The root owns the pending selection and confirmed composer mention. Keep
+    // the file-editor reducer total for embedders that delegate every message.
+    OfficeSelectionChanged(..)
+    | PdfSelectionChanged(..)
+    | OfficeSelectionConfirmed(_) => (@cmd.none, state)
+    OfficeSelectionDismissed(preview) =>
+      state.dismiss_office_selection(ctx, preview)
+    PdfStateChanged(..)
+    | PdfPageChanged(_)
+    | PdfFitWidth
+    | PdfRotated
+    | PdfFind(_)
+    | PdfPasswordChanged(_)
+    | PdfPasswordSubmitted
+    | PdfPasswordCancelled => update_pdf(state, ctx, msg)
+    OfficeZoomChanged(raw) => {
+      let zoom = @string.parse_int(raw) catch { _ => state.office_zoom }
+      let pdf = active_pdf_document(state, ctx) is Some(_)
+      let minimum = if pdf { 25 } else { 50 }
+      let maximum = if pdf { 400 } else { 200 }
+      let bounded = if zoom < minimum {
+        minimum
+      } else if zoom > maximum {
+        maximum
+      } else {
+        zoom
+      }
+      let next = { ..state, office_zoom: bounded, }
+      (refresh_office_visual(next, ctx), next)
+    }
+    OfficeSearchChanged(query) => {
+      let next = { ..state, office_query: query, }
+      (refresh_office_visual(next, ctx), next)
+    }
+    OfficeSystemFontsToggled => {
+      let next = {
+        ..state,
+        office_prefer_system_fonts: !state.office_prefer_system_fonts,
+      }
+      (refresh_office_visual(next, ctx), next)
+    }
     PullRequestUpdated => {
       let (comments, state) = update_inner(
         dispatch,
@@ -3561,6 +3647,7 @@ fn update_inner(
         working_side_ready_for_review(next_doc) {
         show_settled_review(
           dispatch,
+          state,
           ctx,
           state.editor_search_highlights(ctx, path),
           path,
@@ -3607,6 +3694,7 @@ fn update_inner(
         !(next_doc.state is TabLoading) {
         show_settled_review(
           dispatch,
+          state,
           ctx,
           state.editor_search_highlights(ctx, path),
           path,
@@ -3708,6 +3796,29 @@ fn update_inner(
         let previous = doc.state
         let doc_state = match file {
           Content(content~, sig~) => TabState::TabLoaded(content~, sig~)
+          Office(data_base64~, media_type~, sig~) =>
+            if media_type == "application/pdf" {
+              match
+                decode_pdf_document(
+                  locale=ctx.locale,
+                  data_base64,
+                  state.pdf_generation + 1,
+                ) {
+                Ok(document) => TabPdf(document~, sig~)
+                Err(message) => TabReadFailed(message)
+              }
+            } else {
+              match
+                render_office_document(
+                  locale=ctx.locale,
+                  name,
+                  path,
+                  data_base64,
+                ) {
+                Ok(document) => TabState::TabOffice(document~, sig~)
+                Err(message) => TabState::TabReadFailed(message)
+              }
+            }
           Binary => TabBinary
           Oversized => TabOversized
         }
@@ -3729,14 +3840,14 @@ fn update_inner(
         let reveal_range = if stale_file_link { None } else { range }
         let reveal_annotation = if stale_file_link { None } else { annotation }
         let cmd = if ctx.active_file is Some(active) && active == path {
-          match file {
+          match next_doc.state {
             // A real MoonBit file also gets a diagnostics request: the host
             // runs `moon check` over the file's module and returns its
             // current diagnostics, and future re-analysis arrives as
             // `diagnostics` events. Other files have nothing behind
             // `lsp_open` — moon has no diagnostics for a README or JSON file
             // — so only the viewer shows.
-            Content(content~, ..) => {
+            TabLoaded(content~, ..) => {
               let show = show_file_in_viewer(
                 ctx.owner,
                 root=ctx.root(),
@@ -3768,14 +3879,43 @@ fn update_inner(
                 show
               }
             }
+            TabOffice(document~, sig~) =>
+              @cmd.batch([
+                clear_document(),
+                show_office_document(
+                  dispatch,
+                  ctx.owner,
+                  state,
+                  path,
+                  document,
+                  sig,
+                ),
+              ])
+            TabPdf(document~, sig~) =>
+              @cmd.batch([
+                clear_document(),
+                show_pdf_document(dispatch, state, ctx, path, document, sig),
+              ])
             // The notice overlay (rendered from the tab's new state) covers
             // the viewer; drop whatever document it was showing.
-            Binary | Oversized => clear_document()
+            TabBinary | TabOversized | TabReadFailed(_) => clear_document()
+            TabLoading | TabDeleted | TabUnavailable(_) => clear_document()
           }
         } else {
           @cmd.none
         }
-        (cmd, { ..state, docs, })
+        (
+          cmd,
+          {
+            ..state,
+            docs,
+            pdf_generation: if doc_state is TabPdf(..) {
+              state.pdf_generation + 1
+            } else {
+              state.pdf_generation
+            },
+          },
+        )
       } else {
         (@cmd.none, state)
       }
@@ -4092,6 +4232,7 @@ fn update_inner(
                   cmds.push(
                     show_tab(
                       dispatch,
+                      state,
                       ctx,
                       state.editor_search_highlights(ctx, stat.path),
                       stat.path,
@@ -4114,7 +4255,8 @@ fn update_inner(
               // deletion row reviews HEAD rather than whatever now sits at
               // its path.
               let affected = match doc.state {
-                TabLoaded(..) | TabReadFailed(_) => true
+                TabLoaded(..) | TabOffice(..) | TabPdf(..) | TabReadFailed(_) =>
+                  true
                 TabDeleted =>
                   doc.review
                   .map(review => review.selected.has_working_tree_file())
@@ -4144,6 +4286,7 @@ fn update_inner(
                   cmds.push(
                     show_tab(
                       dispatch,
+                      state,
                       ctx,
                       state.editor_search_highlights(ctx, stat.path),
                       stat.path,
@@ -4159,6 +4302,7 @@ fn update_inner(
           let changed = match doc.state {
             // The loaded baseline says whether the disk moved on.
             TabLoaded(sig~, ..) => sig != current_sig
+            TabOffice(sig~, ..) | TabPdf(sig~, ..) => sig != current_sig
             // A deleted file whose signature came back ordinarily reappeared.
             // A selected deletion row is different: porcelain can also carry
             // a same-path untracked row, so the current filesystem object is
@@ -4296,6 +4440,7 @@ fn update_inner(
               active == path {
               show_tab(
                 dispatch,
+                state,
                 ctx,
                 state.editor_search_highlights(ctx, path),
                 path,
@@ -4326,6 +4471,7 @@ fn update_inner(
         let cmd = if ctx.active_file is Some(active) && active == path {
           show_tab(
             dispatch,
+            state,
             ctx,
             state.editor_search_highlights(ctx, path),
             path,
@@ -4395,6 +4541,7 @@ fn test_emit() -> @cmd.Emit[Msg] {
 ///|
 fn test_ctx() -> Ctx {
   {
+    locale: English,
     owner: { channel: @interop.ChannelId::Local, session: "desktop-test", },
     request_epoch: 0,
     watch_namespace: "test-page",

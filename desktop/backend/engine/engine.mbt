@@ -28,7 +28,7 @@ priv struct ServeEngine {
   engine_name : String
   supports_images : Bool
   model : String
-  max_steps : Int
+  max_steps : Int32
   // Owned exclusively by this engine's writer task. No request ever touches
   // it, which is what makes a partial JSONL frame impossible and stdin's
   // close a single-owner event.
@@ -689,8 +689,8 @@ fn PendingClaim::release(self : PendingClaim, manager : EngineManager) -> Unit {
 /// sets `moving` first, blocking newcomers, then waits for both counts to
 /// reach zero.
 priv struct SessionRecordGuard {
-  mut readers : Int
-  mut active_ops : Int
+  mut readers : Int32
+  mut active_ops : Int32
   mut moving : Bool
 }
 
@@ -737,7 +737,7 @@ struct EngineManager {
   // deliberately process-local: BridgeReady starts a fresh revision epoch
   // after a host restart, while the credential file's v1 format stays
   // unchanged.
-  mut settings_revision : Int
+  mut settings_revision : Int32
   commands : @async.Queue[EngineActorCommand]
   mut pump : PumpState
   // Record arbitration must survive pump replacement: a load started under
@@ -1649,7 +1649,7 @@ async fn[G] ServeEngine::run(
       self.process.cancel()
       // A wait that errors yields no status; absence stays absent rather
       // than becoming a fabricated exit code downstream.
-      let code : Int? = try self.process.wait() catch {
+      let code : Int32? = try self.process.wait() catch {
         _ => None
       } noraise {
         code => Some(code)
@@ -1727,7 +1727,7 @@ async fn[G] ServeEngine::consume(
   manager : EngineManager,
   reader : @process.ReadFromProcess,
   owner_group : @async.TaskGroup[G],
-) -> Int {
+) -> Int32 {
   let engine = self
   let sink = self.sink
   // The read end belongs to this task for its whole life, so every way out —
@@ -2034,7 +2034,7 @@ async fn ServeEngine::retire(
   self : ServeEngine,
   manager : EngineManager,
   stderr_task : @async.Task[String],
-  code? : Int,
+  code? : Int32,
 ) -> Unit {
   let engine = self
   let sink = self.sink
@@ -2045,7 +2045,7 @@ async fn ServeEngine::retire(
       "pid": engine.process.pid,
       // Absent when the process handle yielded no status (a forced
       // retirement whose wait failed) — never a fabricated sentinel.
-      "exit_code": code.map_or(Json::null(), c => c.to_json()),
+      "exit_code": code.map_or(Json::null(), c => Json(c)),
       "run_id": engine.phase.latest_run().unwrap_or(""),
     }
   engine.discard_commands("the engine exited")
@@ -2225,7 +2225,7 @@ fn test_serve_engine(
   phase~ : EnginePhase,
   session_root? : @pathx.Absolute,
   follower? : SessionFollower,
-  condemned? : Bool = false,
+  condemned~ : Bool = false,
 ) -> ServeEngine {
   {
     session_key: session,
