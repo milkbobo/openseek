@@ -655,7 +655,6 @@ fn follower_test_config(
   root : @pathx.Absolute,
 ) -> RunConfig {
   {
-    content: Content([Text("test")]),
     api_key: "test",
     key_env: "DEEPSEEK",
     api_url: None,
