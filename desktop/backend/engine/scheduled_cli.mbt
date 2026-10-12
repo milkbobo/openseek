@@ -123,6 +123,7 @@ async fn[G] Schedules::run_cli(
     max_steps=1000,
     session=run.session,
     workspace=run.workspace,
+    mcp_config=resolved_mcp_config(),
   )
   guard config.cwd is Some(cwd) && @fs.kind(cwd.to_string()) is Directory else {
     raise EngineError("The scheduled project's directory is unavailable")
