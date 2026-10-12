@@ -14,36 +14,34 @@ async fn main {
     fail("--port has no value")
   }
   let port = @string.parse_int(port)
+  guard @env.args() is [executable, ..] else {
+    fail("the server's own command is unavailable")
+  }
+  // Standard output carries one line for whoever started this process, and
+  // the logger writes there until it is given somewhere else. So the log
+  // file comes before anything that might log, beside the rest of the
+  // runtime state as the window host's is. A host with no runtime directory
+  // does not start: it would have nowhere to keep its state either.
+  guard @host.prepared_runtime_dir(executable) is Some(runtime_dir) else {
+    fail("cannot determine the per-user runtime directory")
+  }
+  @xlog.global().set_handler(
+    @xlog.File(runtime_dir.join("openseek-server.log").to_string()),
+  )
   // No window toolkit answers where this host's files are, so the launcher
   // says: the package root holding `seekmoon/`, or a checkout's `desktop/`.
   let resources : @resources.Resources = {
     dir: @pathx.Path(resource_dir).resolve().to_path(),
     packaged: matches.flags.get("packaged") is Some(true),
   }
-  let executable = match @env.args() {
-    [executable, ..] => Some(executable)
-    [] => None
-  }
   if @host.PackagedTools::resolve(Some(resources)) is Some(tools) {
     tools.apply_to_process_env()
   }
   let engine = @engine.engine_command(resources)
-  let runtime_dir = match executable {
-    Some(executable) => @host.prepared_runtime_dir(executable)
-    None => None
-  }
-  let codex_home = match runtime_dir {
-    Some(dir) => @codex.prepared_home(dir)
-    None => None
-  }
-  let codex = @codex.CodexSettings(command=@codex.command(), home=codex_home)
-  // No terminal is watching this process, and its standard output carries
-  // one line for whoever started it. The log goes to a file beside the rest
-  // of the runtime state, as the window host's does.
-  if runtime_dir is Some(dir) {
-    let path = dir.join("openseek-server.log").to_string()
-    @xlog.global().set_handler(@xlog.File(path))
-  }
+  let codex = @codex.CodexSettings(
+    command=@codex.command(),
+    home=@codex.prepared_home(runtime_dir),
+  )
   // Like a development window host, the server persists no relay sign-in:
   // it may share the runtime directory with an installed application, and
   // one `auth.json` is one device token.
@@ -54,8 +52,8 @@ async fn main {
   let state = @api.ApiState(
     engine~,
     codex~,
-    runtime_dir?,
-    executable?,
+    runtime_dir~,
+    executable~,
     auth~,
     resources~,
   )
