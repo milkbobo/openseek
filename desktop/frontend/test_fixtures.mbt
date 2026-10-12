@@ -100,14 +100,8 @@ fn test_model() -> Model {
     ],
     focused: @interop.ChannelId::Local,
     console: local_console_state(login_return_to="/console/"),
-    // The shared fixture represents a connected desktop after its initial
-    // settings snapshot. Loading-state tests opt back into revision -1.
-    host_settings_revision: 0,
-    // BYOK means a ready app has a key saved: without one, the composer's
-    // send gate stays shut and every submission test would first need to
-    // configure an endpoint. Setup-flow tests load their own keyless
-    // settings payloads instead.
-    deepseek_key_saved: true,
+    // A connected fixture has received a keyed host snapshot.
+    host_settings: test_host_settings(has_deepseek_key=true),
     active_session: "desktop-test",
     conversations: [test_conversation()],
   }
@@ -262,4 +256,40 @@ fn desktop_model() -> Model {
     model,
   )
   model
+}
+
+///|
+/// Reach a host mirror through the same messages used by the live bridge.
+fn test_host_settings(
+  provider~ : String = "deepseek",
+  revision~ : Int32 = 0,
+  custom_api_url~ : String = "",
+  has_deepseek_key~ : Bool = false,
+  has_glm_key~ : Bool = false,
+  has_custom_key~ : Bool = false,
+  followup_behavior~ : String = "steer",
+  messages~ : Array[@host_settings.Msg] = [],
+) -> @host_settings.State {
+  let payload : @protocol.SettingsStatusPayload = {
+    revision,
+    provider,
+    custom_api_url: Some(custom_api_url),
+    has_deepseek_key,
+    has_glm_key,
+    has_custom_key,
+    followup_behavior,
+  }
+  let mut state = @host_settings.State::empty()
+  for msg in [@host_settings.Loaded(payload), ..messages] {
+    let (next, _, _) = @host_settings.update(
+      state,
+      msg,
+      @cmd.Emit(_ => @cmd.none),
+      channel=Local,
+      on_settings=false,
+      locale=English,
+    )
+    state = next
+  }
+  state
 }

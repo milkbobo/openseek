@@ -160,11 +160,17 @@ test "a background retirement expires old actions without poisoning a reopened i
 test "composer follow-up overrides route the message without changing the default" {
   for
     pair in [
-      (@composer.QueueNext, FollowupSteer),
-      (@composer.SteerNow, FollowupQueue),
+      (@composer.QueueNext, @host_settings.FollowupSteer),
+      (@composer.SteerNow, @host_settings.FollowupQueue),
     ] {
     let (choice, default) = pair
-    let model = { ..running_model(), followup_behavior: default, }
+    let model = {
+      ..running_model(),
+      host_settings: test_host_settings(
+        has_deepseek_key=true,
+        followup_behavior=default.wire(),
+      ),
+    }
     let identity = model.composer_input().identity
     let (_, submitted) = update(
       test_dispatch(),
@@ -177,7 +183,7 @@ test "composer follow-up overrides route the message without changing the defaul
       ),
       model,
     )
-    assert_true(submitted.followup_behavior == default)
+    assert_true(submitted.host_settings.followup_behavior == default)
     let conv = submitted.active()
     assert_eq(conv.pending_steers.length(), 1)
     match choice {

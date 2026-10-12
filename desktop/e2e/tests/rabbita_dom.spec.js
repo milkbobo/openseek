@@ -2394,14 +2394,21 @@ test('initial OpenRouter setup only needs an API key', async ({ page }) => {
   await page.getByLabel('API key').fill('sk-openrouter-test');
   await page.getByRole('button', { name: 'Save API key' }).click();
 
-  await expect.poll(() => app.requests.some(request =>
-    request.method === 'settings.set' &&
-    request.params?.provider === 'custom' &&
-    request.params?.custom_api_url === 'https://openrouter.ai/api/v1/chat/completions')).toBe(true);
-  await expect.poll(() => app.requests.some(request =>
-    request.method === 'settings.set' &&
-    request.params?.provider === 'custom' &&
-    request.params?.custom_api_key === 'sk-openrouter-test')).toBe(true);
+  // Each preset write is atomic: endpoint and provider travel together,
+  // including the credential write. Exercise the real request builder.
+  await expect.poll(() => app.requests
+    .filter(request => request.method === 'settings.set')
+    .map(request => request.params)).toContainEqual({
+      provider: 'custom',
+      custom_api_url: 'https://openrouter.ai/api/v1/chat/completions',
+    });
+  await expect.poll(() => app.requests
+    .filter(request => request.method === 'settings.set')
+    .map(request => request.params)).toContainEqual({
+      provider: 'custom',
+      custom_api_url: 'https://openrouter.ai/api/v1/chat/completions',
+      custom_api_key: 'sk-openrouter-test',
+    });
   await expect(page.getByText('Set up OpenRouter')).toBeHidden();
   expect(app.hostSettings.has_deepseek_key).toBe(false);
   expect(app.hostSettings.has_custom_key).toBe(true);
@@ -2418,6 +2425,15 @@ test('initial OpenRouter setup only needs an API key', async ({ page }) => {
     .toBe('deepseek-flash');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page.getByLabel('OpenRouter model')).toHaveCount(0);
+  await page.getByRole('button', { name: 'API endpoint' }).click();
+  await page.getByRole('option', { name: 'Custom URL' }).click();
+  await expect.poll(() => app.requests
+    .filter(request => request.method === 'settings.set')
+    .map(request => request.params)).toContainEqual({
+      provider: 'custom',
+      custom_api_url: '',
+    });
+  await expect(page.getByRole('textbox', { name: 'Endpoint URL' })).toHaveValue('');
   expect(app.pageErrors).toEqual([]);
 });
 

@@ -1,0 +1,95 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "openseek_desktop/frontend/host_settings"
+
+import {
+  "moonbit-community/rabbita/cmd",
+  "moonbit-community/rabbita/html",
+  "openseek_desktop/frontend/i18n",
+  "openseek_desktop/frontend/interop",
+  "openseek_desktop/protocol",
+}
+
+// Values
+pub fn api_settings_rows(@cmd.Emit[Msg], State, @i18n.Locale, is_desktop~ : Bool, menu~ : Menu) -> Array[@html.Html]
+
+pub fn api_setup_modal(@cmd.Emit[Msg], State, @i18n.Locale, is_desktop~ : Bool, menu~ : Menu) -> @html.Html
+
+pub fn fetch_status(@cmd.Emit[Msg], @interop.ChannelId) -> @cmd.Cmd
+
+pub fn update(State, Msg, @cmd.Emit[Msg], channel~ : @interop.ChannelId, on_settings~ : Bool, locale~ : @i18n.Locale) -> (State, @cmd.Cmd, Array[Event])
+
+// Errors
+
+// Types and methods
+pub(all) enum ApiProvider {
+  Deepseek
+  Glm
+  OpenRouter
+  Custom
+} derive(Eq)
+pub fn ApiProvider::equal(Self, Self) -> Bool
+pub fn ApiProvider::not_equal(Self, Self) -> Bool
+pub fn ApiProvider::wire(Self) -> String
+
+pub(all) enum Event {
+  AlignProvider
+  CloseMenu
+  OpenSettings
+  OpenExternal(String)
+  Problem(String)
+}
+
+pub(all) enum FollowupBehavior {
+  FollowupSteer
+  FollowupQueue
+} derive(Eq)
+pub fn FollowupBehavior::equal(Self, Self) -> Bool
+pub fn FollowupBehavior::not_equal(Self, Self) -> Bool
+pub fn FollowupBehavior::wire(Self) -> String
+
+pub(all) struct Menu {
+  open : Bool
+  toggle : @cmd.Cmd
+  dismiss : @cmd.Cmd
+}
+
+pub(all) enum Msg {
+  MaxStepsChanged(String)
+  SetupApiKeyChanged(String)
+  ProviderChanged(String)
+  FollowupBehaviorChanged(String)
+  CustomApiUrlChanged(String)
+  SaveApiKey
+  DismissApiSetup
+  OpenApiSetup
+  OpenSettings
+  OpenExternal(String)
+  Loaded(@protocol.SettingsStatusPayload)
+  Applied(@protocol.SettingsStatusPayload)
+  SaveFailed(String)
+}
+
+pub struct State {
+  max_steps : String
+  custom_api_url : String
+  deepseek_key_saved : Bool
+  glm_key_saved : Bool
+  custom_key_saved : Bool
+  setup_api_key : String
+  followup_behavior : FollowupBehavior
+  settings_saves : Int
+  revision : Int?
+  api_setup_open : Bool
+  // private fields
+} derive(Eq)
+pub fn State::api_ready(Self) -> Bool
+pub fn State::clear(Self) -> Self
+pub fn State::empty() -> Self
+pub fn State::equal(Self, Self) -> Bool
+pub fn State::loaded(Self) -> Bool
+pub fn State::not_equal(Self, Self) -> Bool
+pub fn State::provider(Self) -> ApiProvider
+
+// Type aliases
+
+// Traits

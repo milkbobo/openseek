@@ -77,18 +77,20 @@ test "BridgeReady clears focused host settings until the refetch lands" {
   let dispatch = test_dispatch()
   let model = {
     ..test_model(),
-    api_provider: Custom,
-    custom_api_url: "https://old.example/chat",
-    custom_key_saved: true,
-    setup_api_key: "old-key",
-    host_settings_revision: 7,
+    host_settings: test_host_settings(
+      provider="custom",
+      revision=7,
+      custom_api_url="https://old.example/chat",
+      has_custom_key=true,
+      messages=[SetupApiKeyChanged("old-key")],
+    ),
   }
   let (_, next) = update_dev(dispatch, BridgeReady, model)
   assert_false(next.host_settings_loaded())
-  assert_true(next.api_provider is Deepseek)
-  inspect(next.custom_api_url, content="")
-  assert_false(next.custom_key_saved)
-  inspect(next.setup_api_key, content="")
+  assert_true(next.host_settings.provider() is Deepseek)
+  inspect(next.host_settings.custom_api_url, content="")
+  assert_false(next.host_settings.custom_key_saved)
+  inspect(next.host_settings.setup_api_key, content="")
 }
 
 ///|

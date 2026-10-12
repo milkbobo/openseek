@@ -26,13 +26,13 @@ Measured in `desktop/frontend` (the root package):
 
 | | Before | Now |
 |---|---|---|
-| `update.mbt` | 21,808 lines | 8,974 lines |
+| `update.mbt` | 21,808 lines | 8,815 lines |
 | inline tests in `update.mbt` | 315 | 0 |
-| `Model` fields | 90 | 88 |
-| `Msg` variants | 163 | 148 |
-| `DeviceMsg` variants | 62 | 62 |
-| `update_msg` | 4,049 lines | 3,831 lines |
-| `update_device_msg` | 2,744 lines | 2,744 lines |
+| `Model` fields | 90 | 76 |
+| `Msg` variants | 163 | 140 |
+| `DeviceMsg` variants | 62 | 60 |
+| `update_msg` | 4,049 lines | 3,734 lines |
+| `update_device_msg` | 2,744 lines | 2,684 lines |
 
 Done:
 
@@ -46,7 +46,17 @@ Done:
 3. **`self_update` package** — the self-update flow. The example for a package
    that reports outward (`Event`) and takes an input it cannot know (`busy`).
 
-Read both packages before starting an extraction; they are short.
+4. **`host_settings` package** — the focused host's settings mirror, optimistic
+   saves, setup modal, and API rows. The root supplies the focused channel and
+   an emit that captures its connection generation, rejects stale/background
+   device messages, and folds `AlignProvider`, `CloseMenu`, `OpenSettings`,
+   `OpenExternal`, and `Problem` events. Revision absence is `None`; editable
+   URL/key fields remain form text. Provider reads use `State::provider()`.
+   The package has 19 blackbox tests; eight root tests cover its wiring.
+   The former private OpenRouter patch test now exercises the actual bridge
+   requests in the existing browser setup test, including clearing the preset.
+
+Read the extracted packages before starting another extraction.
 
 ## The package template
 
@@ -81,6 +91,14 @@ Every extracted subsystem follows the same shape. `remote_access/` and
   `State::empty()` and asserts on readable fields and returned events. A
   whitebox test is acceptable only for a pure helper whose result is visible
   nowhere but in rendered HTML (`self_update/progress_wbtest.mbt`).
+- **Shared view state.** `host_settings.Menu` is a view-only input carrying
+  open/toggle/dismiss for the root-owned selector. It is never stored in
+  package state. External-link clicks emit a message and then an event; the
+  root executes the existing opener.
+- **Device replies.** `host_settings` receives raw protocol payloads inside
+  `Msg`. The root captures channel/generation in the command emit and checks
+  them before forwarding a reply. Broadcasts use the same route with no
+  request generation.
 - **Root side.** One field (`self_update : @self_update.State`), one variant
   (`SelfUpdate(@self_update.Msg)`), one forwarding arm in `update_msg`. The
   root keeps tests only for its own wiring: an event becomes a toast, an input
@@ -149,34 +167,7 @@ Every extracted subsystem follows the same shape. `remote_access/` and
 
 In suggested order. Each item is one pull request unless it says otherwise.
 
-### 1. `host_settings` — the focused host's settings mirror and the API setup modal
-
-- Fields (13): `max_steps`, `deepseek_key_saved`, `glm_key_saved`,
-  `custom_key_saved`, `setup_api_key`, `api_provider`, `custom_api_url`,
-  `followup_behavior`, `settings_saves`, `host_settings_revision`,
-  `deferred_host_settings`, `api_setup_open`, `api_setup_dismissed`.
-- Messages: `MaxStepsChanged`, `SetupApiKeyChanged`, `ProviderChanged`,
-  `FollowupBehaviorChanged`, `CustomApiUrlChanged`, `SaveApiKey`,
-  `OpenApiSetup`, `DismissApiSetup`; `DeviceMsg::HostSettingsLoaded`,
-  `HostSettingsApplied`, `HostSettingsSaveFailed`.
-- Existing code: `host_settings.mbt`, and in `model.mbt`
-  `Model::apply_host_settings`, `clear_host_settings`, `defer_host_settings`,
-  `host_settings_loaded`, `settle_api_setup`. Views: `api_settings_rows`,
-  `byok_setup_guide`, `api_setup_modal`, `provider_hint` in `view.mbt`.
-- Tests waiting: `host_settings_wbtest.mbt` (21).
-- Inputs the arms read: the focused channel and its connection generation
-  (replies are fenced by both).
-- Expect events: the GLM provider aligning a fresh chat's model family reaches
-  into conversations, and `OpenSetup` changes `screen`; both belong to the
-  root.
-- `api_provider` is read 18 times across the root (model family, send gate).
-  Expose what those readers need as methods on `State` rather than widening
-  the struct.
-- The three device messages currently live in `DeviceMsg`. The root should
-  unwrap them and forward only when the channel is the focused one, which is
-  the check the arms make today.
-
-### 2. `preferences` — theme, language, type scale and the other page-local choices
+### 1. `preferences` — theme, language, type scale and the other page-local choices
 
 - Fields (9): `system_dark`, `theme`, `language`, `locale`, `app_font_size`,
   `minimal_transcript`, `fps_overlay_enabled`, `notification_corner`,
@@ -201,9 +192,9 @@ In suggested order. Each item is one pull request unless it says otherwise.
 - If the three points cost more than the nine fields are worth, skip this
   item; it is the least valuable one in the queue.
 
-### 3. The session core — devices, conversations and runs
+### 2. The session core — devices, conversations and runs
 
-This is where the weight is: `update_device_msg` (2,744 lines, 62 variants),
+This is where the weight is: `update_device_msg` (2,684 lines, 60 variants),
 the `Send`/`ComposerAction` arms of `update_msg` (about 680 lines),
 `DeviceState` (19 fields) and `Conversation` (37 fields). Goal, branch and
 pull-request state, archive, steer, compaction and sub-runs are all fields of
@@ -252,7 +243,7 @@ with the owner before starting stage B.
   its test driver are worth reading if you have access
   (`git show components:desktop/frontend/store/…`).
 
-### 4. Finish moving tests out of regular files
+### 3. Finish moving tests out of regular files
 
 `goal.mbt` (31), `workspaces.mbt` (27), `worktrees.mbt` (20), `console.mbt`
 (14), `workspace_settings.mbt` (12) and a few smaller files still carry inline

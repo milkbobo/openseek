@@ -93,12 +93,16 @@ test "switching the chat provider leaves the update answer alone" {
   // update channel no longer derives from the chat provider.
   let (_, switched) = update(
     dispatch,
-    ProviderChanged("openseek-staging"),
+    HostSettings(ProviderChanged("openseek-staging")),
     available,
   )
-  assert_true(switched.api_provider is Deepseek)
+  assert_true(switched.host_settings.provider() is Deepseek)
   assert_true(switched.self_update is Available(..))
-  let (_, kept) = update(dispatch, ProviderChanged("custom"), available)
-  assert_true(kept.api_provider is Custom)
+  let (_, kept) = update(
+    dispatch,
+    HostSettings(ProviderChanged("custom")),
+    available,
+  )
+  assert_true(kept.host_settings.provider() is Custom)
   assert_true(kept.self_update is Available(..))
 }

@@ -1,7 +1,6 @@
 ///|
 priv enum NoticeMessage {
   CreateChat(String)
-  SaveSettings(String)
   WorkspaceFailure(String)
   SaveWorkspace(String, String)
   ListWorktrees(String, String)
@@ -18,12 +17,6 @@ fn notice_text(locale : @i18n.Locale, message : NoticeMessage) -> String {
     (SimplifiedChinese, CreateChat(p0)) => "无法创建对话：\{p0}"
     (TraditionalChinese, CreateChat(p0)) => "無法建立對話：\{p0}"
     (Japanese, CreateChat(p0)) => "チャットを作成できません：\{p0}"
-    (English, SaveSettings(p0)) => "Saving settings failed: \{p0}"
-    (Spanish, SaveSettings(p0)) => "No se pudo guardar la configuración: \{p0}"
-    (SimplifiedChinese, SaveSettings(p0)) => "保存设置失败：\{p0}"
-    (TraditionalChinese, SaveSettings(p0)) => "儲存設定失敗：\{p0}"
-    (Japanese, SaveSettings(p0)) =>
-      "設定を保存できませんでした：\{p0}"
     (English, WorkspaceFailure(p0)) => "Workspace error: \{p0}"
     (Spanish, WorkspaceFailure(p0)) => "Error del espacio de trabajo: \{p0}"
     (SimplifiedChinese, WorkspaceFailure(p0)) => "工作区错误：\{p0}"

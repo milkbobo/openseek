@@ -88,11 +88,11 @@ fn host_settings(
   has_glm_key~ : Bool = false,
   has_custom_key~ : Bool = false,
   custom_api_url~ : String = "",
-) -> HostSettings {
+) -> @protocol.SettingsStatusPayload {
   {
     revision,
     provider,
-    custom_api_url,
+    custom_api_url: Some(custom_api_url),
     has_deepseek_key,
     has_glm_key,
     has_custom_key,

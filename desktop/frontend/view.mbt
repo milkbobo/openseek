@@ -925,209 +925,6 @@ fn remote_access_rows(
 }
 
 ///|
-fn provider_hint(model : Model, provider : ApiProvider) -> String {
-  match provider {
-    Deepseek => @settings.text(model.locale, DeepseekHint)
-    Glm => @settings.text(model.locale, GlmHint)
-    OpenRouter => @settings.text(model.locale, OpenRouterHint)
-    Custom => @settings.text(model.locale, CustomHint)
-  }
-}
-
-///|
-/// The bring-your-own-key guide shown at the top of the API group while the
-/// configured endpoint is not usable. SeekMoon ships no hosted API: every
-/// request goes straight from this machine to the user's own model
-/// provider, so a key (official) or an endpoint URL (custom) must be
-/// configured first. The steps follow the selected provider.
-fn byok_setup_guide(dispatch : @cmd.Emit[Msg], model : Model) -> @html.Html {
-  let provider = model.api_provider
-  // Account setup belongs in the user's system browser, even while this
-  // guide is displayed over Chat. Bypass Rabbita's dock URL routing.
-  let provider_link = (url, label) => {
-    @html.a(
-      class="button secondary setting-link",
-      href=url,
-      target=Blank,
-      rel="noopener noreferrer",
-      escape=true,
-      attrs=@html.Attrs::build().on_click(event => {
-        if model.is_desktop {
-          event.prevent_default()
-          open_external_link(dispatch, url)
-        } else {
-          @cmd.none
-        }
-      }),
-      [icon(icon_link_external), @html.span(label)],
-    )
-  }
-  let step : (Int32, String) -> @html.Html = (index, text) => {
-    @html.div(class="setup-guide-step", [
-      @html.span(class="setup-guide-index", index.to_string()),
-      @html.span(class="setup-guide-text", text),
-    ])
-  }
-  let steps : Array[@html.Html] = match provider {
-    Deepseek =>
-      [
-        step(1, @settings.text(model.locale, DeepseekStepOne)),
-        step(2, @settings.text(model.locale, CreateKey)),
-        step(3, @settings.text(model.locale, DeepseekPasteKey)),
-      ]
-    Glm =>
-      [
-        step(1, @settings.text(model.locale, GlmStepOne)),
-        step(2, @settings.text(model.locale, CreateKey)),
-        step(3, @settings.text(model.locale, GlmPasteKey)),
-      ]
-    OpenRouter =>
-      [
-        step(1, @settings.text(model.locale, OpenRouterStepOne)),
-        step(2, @settings.text(model.locale, OpenRouterPasteKey)),
-      ]
-    Custom =>
-      [
-        step(1, @settings.text(model.locale, StartEndpoint)),
-        step(2, @settings.text(model.locale, EnterEndpoint)),
-        step(3, @settings.text(model.locale, OptionalEndpointKey)),
-      ]
-  }
-  @html.div(
-    class="setup-guide",
-    [
-      @html.p(@settings.text(model.locale, OwnProviderDescription)),
-      @html.div(class="setup-guide-steps", steps),
-      ..if provider is Deepseek {
-        [
-          provider_link(
-            "https://platform.deepseek.com/api_keys",
-            @settings.text(model.locale, DeepseekKeysLink),
-          ),
-        ]
-      },
-      ..if provider is Glm {
-        [
-          provider_link(
-            "https://z.ai/manage-apikey/apikey-list",
-            @settings.text(model.locale, GlmKeysLink),
-          ),
-        ]
-      },
-    ],
-  )
-}
-
-///|
-/// The API configuration rows shared by the Settings page and the API-setup
-/// modal: the BYOK guide while the endpoint is unusable, the provider
-/// selector, and the endpoint URL / API key fields that complete the setup.
-/// The modal is this same section lifted out of the page, so setup happens
-/// in place instead of a navigation.
-fn api_settings_rows(
-  dispatch : @cmd.Emit[Msg],
-  model : Model,
-) -> Array[@html.Html] {
-  let settings_loaded = model.host_settings_loaded()
-  let ready = model.api_ready()
-  let rows : Array[@html.Html] = [
-    ..if !ready {
-      [byok_setup_guide(dispatch, model)]
-    },
-    @settings.row(
-      @settings.text(model.locale, ApiEndpoint),
-      [
-        ApiProviderMenu.setting_control(
-          dispatch,
-          model,
-          id="api-provider-select",
-          options=[
-            {
-              value: "deepseek",
-              label: @settings.text(model.locale, DeepseekOfficial),
-            },
-            { value: "glm", label: @settings.text(model.locale, GlmOfficial), },
-            { value: "openrouter", label: "OpenRouter", },
-            { value: "custom", label: @settings.text(model.locale, CustomUrl), },
-          ],
-          selected=model.api_provider.wire(),
-          aria_label=@settings.text(model.locale, ApiEndpoint),
-          change=dispatch.map(value => ProviderChanged(value)),
-          disabled=!settings_loaded,
-        ),
-      ],
-      desc=provider_hint(model, model.api_provider),
-    ),
-  ]
-  if model.api_provider is Custom {
-    rows.push(
-      @settings.row(
-        @settings.text(model.locale, EndpointUrl),
-        [
-          @html.input(
-            input_type=@html.InputType::Text,
-            value=model.custom_api_url,
-            placeholder="https://host/chat/completions",
-            on_input=dispatch.map(value => CustomApiUrlChanged(value)),
-            attrs=@html.Attrs::build()
-              .aria_label(@settings.text(model.locale, EndpointUrl))
-              .data_set("focus-owner", "")
-              .disabled(!settings_loaded),
-          ),
-        ],
-        stack=true,
-      ),
-    )
-  }
-  // The key lives on the host and is never echoed back — the page only
-  // knows one is saved; saving a new one overwrites it.
-  {
-    let (key_label, key_saved) = match model.api_provider {
-      Deepseek =>
-        (@settings.text(model.locale, DeepseekApiKey), model.deepseek_key_saved)
-      Glm => (@settings.text(model.locale, GlmApiKey), model.glm_key_saved)
-      OpenRouter =>
-        (@settings.text(model.locale, OpenRouterApiKey), model.custom_key_saved)
-      Custom =>
-        (@settings.text(model.locale, CustomApiKey), model.custom_key_saved)
-    }
-    rows.push(
-      @settings.row(
-        key_label,
-        [
-          @html.input(
-            input_type=@html.InputType::Password,
-            value=model.setup_api_key,
-            placeholder=if key_saved {
-              @settings.text(model.locale, SavedKey)
-            } else {
-              "sk-..."
-            },
-            on_input=dispatch.map(value => SetupApiKeyChanged(value)),
-            attrs=@html.Attrs::build()
-              .aria_label(@settings.text(model.locale, ApiKey))
-              .data_set("focus-owner", "")
-              .disabled(!settings_loaded),
-          ),
-          @html.button(
-            // The id is layout only (grid placement); the fill is the
-            // shared primary style.
-            id="saveApiKey",
-            class="button primary",
-            disabled=!settings_loaded || model.setup_api_key.is_blank(),
-            on_click=dispatch(SaveApiKey),
-            @settings.text(model.locale, SaveApiKey),
-          ),
-        ],
-        desc=@settings.text(model.locale, KeyStorageDescription),
-        stack=true,
-      ),
-    )
-  }
-  rows
-}
-
-///|
 /// The Settings page, shown in the main area in place of the conversation
 /// inside the shared management shell with explicit return navigation.
 /// While the configured endpoint is unusable the BYOK guide leads the API
@@ -1145,9 +942,9 @@ fn settings_page(dispatch : @cmd.Emit[Msg], model : Model) -> @html.Html {
       [
         @html.input(
           input_type=@html.InputType::Number,
-          value=model.max_steps,
+          value=model.host_settings.max_steps,
           placeholder="1000",
-          on_input=dispatch.map(value => MaxStepsChanged(value)),
+          on_input=dispatch.map(value => HostSettings(MaxStepsChanged(value))),
           attrs=@html.Attrs::build()
             .aria_label(@settings.text(locale, MaxSteps))
             .data_set("focus-owner", ""),
@@ -1201,9 +998,11 @@ fn settings_page(dispatch : @cmd.Emit[Msg], model : Model) -> @html.Html {
               { value: "steer", label: @settings.text(locale, Steer), },
               { value: "queue", label: @settings.text(locale, Queue), },
             ],
-            selected=model.followup_behavior.wire(),
+            selected=model.host_settings.followup_behavior.wire(),
             aria_label=@settings.text(locale, Followup),
-            change=dispatch.map(value => FollowupBehaviorChanged(value)),
+            change=dispatch.map(value => {
+              HostSettings(FollowupBehaviorChanged(value))
+            }),
             disabled=!settings_loaded,
           ),
         ],
@@ -1373,7 +1172,7 @@ fn settings_page(dispatch : @cmd.Emit[Msg], model : Model) -> @html.Html {
         } else if ready {
           @settings.text(locale, RuntimeSettings)
         } else {
-          match model.api_provider {
+          match model.host_settings.provider() {
             Deepseek => @settings.text(locale, DeepseekKey)
             Glm => @settings.text(locale, GlmKey)
             OpenRouter => @settings.text(locale, OpenRouterKey)
@@ -1995,7 +1794,7 @@ fn view(
   }
   // The API-setup modal floats above the toasts like the other modals: it
   // owns the screen until the user answers it or a usable endpoint arrives.
-  if model.api_setup_open {
+  if model.host_settings.api_setup_open {
     children.push(api_setup_modal(dispatch, model))
   }
   if model.project_picker is Some(picker) {
@@ -2049,45 +1848,6 @@ fn bridge_lost_overlay(
       ),
       @html.div(class="bridge-lost-body", message),
     ]),
-  ])
-}
-
-///|
-/// The modal that owns the one truly blocking state a fresh install can be
-/// in: SeekMoon is bring-your-own-key and no usable endpoint is configured.
-/// It is the API settings section lifted out of the page — provider, URL,
-/// and key are configured right here — so it opens over the chat, never
-/// over the Settings form (which already shows the same section), and
-/// disappears the moment a usable endpoint arrives. shell_text(model.locale, NotNow) dismisses for
-/// the session; the composer's BYOK notice keeps the reminder — and the way
-/// back here — visible. Clicks inside must not bubble to the backdrop, whose
-/// click dismisses.
-fn api_setup_modal(dispatch : @cmd.Emit[Msg], model : Model) -> @html.Html {
-  let title = match model.api_provider {
-    Deepseek => shell_text(model.locale, SetupDeepSeek)
-    Glm => shell_text(model.locale, SetupGlm)
-    OpenRouter => shell_text(model.locale, SetupOpenRouter)
-    Custom => shell_text(model.locale, SetupEndpoint)
-  }
-  @html.div(class="modal-backdrop", on_click=dispatch(DismissApiSetup), [
-    @html.div(
-      class="modal setup-modal",
-      attrs=@html.Attrs::build().on_click(event => {
-        event.stop_propagation()
-        @cmd.none
-      }),
-      [
-        @html.div(class="modal-title", title),
-        @html.div(class="setup-modal-form", api_settings_rows(dispatch, model)),
-        @html.div(class="modal-actions", [
-          @html.button(
-            class="button secondary",
-            on_click=dispatch(DismissApiSetup),
-            shell_text(model.locale, NotNow),
-          ),
-        ]),
-      ],
-    ),
   ])
 }
 

@@ -1,202 +1,77 @@
-// The host's engine endpoint settings, over the wire: `settings.get` seeds
-// the mirror at bridge time, `settings.set` pushes each edit, and the
-// `settings.changed` broadcast keeps every other client's mirror fresh
-// (projected in bridge.mbt through the same `HostSettings::from_status`). Key
-// material never travels down — only presence flags.
-
 ///|
-/// Project the shared settings status used by both replies and broadcasts.
-fn HostSettings::from_status(
-  payload : @protocol.SettingsStatusPayload,
-) -> HostSettings {
-  {
-    revision: payload.revision,
-    provider: payload.provider,
-    custom_api_url: payload.custom_api_url.unwrap_or(""),
-    has_deepseek_key: payload.has_deepseek_key,
-    has_glm_key: payload.has_glm_key,
-    has_custom_key: payload.has_custom_key,
-    followup_behavior: payload.followup_behavior,
-  }
+fn host_settings_emit(
+  dispatch : @cmd.Emit[Msg],
+  channel : @interop.ChannelId,
+  connection_generation : Int32,
+) -> @cmd.Emit[@host_settings.Msg] {
+  dispatch.map(msg => {
+    FromDevice(
+      channel,
+      HostSettings(msg, connection_generation=Some(connection_generation)),
+    )
+  })
 }
 
 ///|
-/// Seed (or refresh) the mirror from the host. A failed or malformed reply
-/// leaves the current mirror in place — the broadcast channel will correct
-/// it on the next change.
 fn fetch_host_settings(
   dispatch : @cmd.Emit[Msg],
   channel : @interop.ChannelId,
   connection_generation : Int32,
 ) -> @cmd.Cmd {
-  let dispatch = dispatch.map((msg : DeviceMsg) => FromDevice(channel, msg))
-  @cmd.custom_cmd(scheduler => {
-    @js.Promise::from_async(() => {
-      let reply = @interop.bridge_request(
-        channel,
-        @commands.settings_get,
-        @protocol.EmptyPayload::NoPayload,
-      ) catch {
-        _ => return
-      }
-      scheduler.add(
-        dispatch(
-          HostSettingsLoaded(
-            HostSettings::from_status(reply),
-            connection_generation=Some(connection_generation),
-          ),
-        ),
-      )
-    })
-    |> ignore
-  })
-}
-
-///|
-/// Push one settings patch to the host. The reply carries the post-write
-/// state (`HostSettingsApplied` reconciles the mirror once no more writes
-/// are in flight); a failure surfaces as a toast and leaves the host store
-/// unchanged.
-fn push_host_settings(
-  dispatch : @cmd.Emit[Msg],
-  channel : @interop.ChannelId,
-  patch : @protocol.SettingsSetPayload,
-  connection_generation : Int32,
-) -> @cmd.Cmd {
-  let dispatch = dispatch.map((msg : DeviceMsg) => FromDevice(channel, msg))
-  @cmd.custom_cmd(scheduler => {
-    @js.Promise::from_async(() => {
-      let reply = @interop.bridge_request(
-        channel, @commands.settings_set, patch,
-      ) catch {
-        error => {
-          scheduler.add(
-            dispatch(
-              HostSettingsSaveFailed(
-                @interop.bridge_error_text(error),
-                connection_generation~,
-              ),
-            ),
-          )
-          return
-        }
-      }
-      scheduler.add(
-        dispatch(
-          HostSettingsApplied(
-            HostSettings::from_status(reply),
-            connection_generation~,
-          ),
-        ),
-      )
-    })
-    |> ignore
-  })
-}
-
-///|
-fn provider_settings_patch(
-  provider : ApiProvider,
-  custom_api_url : String,
-) -> @protocol.SettingsSetPayload {
-  {
-    provider: Some(
-      if provider is OpenRouter {
-        "custom"
-      } else {
-        provider.wire()
-      },
-    ),
-    custom_api_url: match provider {
-      OpenRouter => Some(OpenRouterChatCompletionsUrl)
-      Custom if custom_api_url == OpenRouterChatCompletionsUrl => Some("")
-      _ => None
-    },
-    deepseek_api_key: None,
-    glm_api_key: None,
-    custom_api_key: None,
-    followup_behavior: None,
-  }
-}
-
-///|
-/// The URL is sent verbatim (not omitted when blank): a present-but-empty
-/// field is the wire's "clear the stored value".
-fn custom_url_settings_patch(url : String) -> @protocol.SettingsSetPayload {
-  {
-    provider: None,
-    custom_api_url: Some(url),
-    deepseek_api_key: None,
-    glm_api_key: None,
-    custom_api_key: None,
-    followup_behavior: None,
-  }
-}
-
-///|
-fn api_key_settings_patch(
-  provider : ApiProvider,
-  key : String,
-) -> @protocol.SettingsSetPayload {
-  {
-    provider: Some(
-      if provider is OpenRouter {
-        "custom"
-      } else {
-        provider.wire()
-      },
-    ),
-    custom_api_url: if provider is OpenRouter {
-      Some(OpenRouterChatCompletionsUrl)
-    } else {
-      None
-    },
-    deepseek_api_key: if provider is Deepseek {
-      Some(key)
-    } else {
-      None
-    },
-    glm_api_key: if provider is Glm {
-      Some(key)
-    } else {
-      None
-    },
-    custom_api_key: if provider is (OpenRouter | Custom) {
-      Some(key)
-    } else {
-      None
-    },
-    followup_behavior: None,
-  }
-}
-
-///|
-test "OpenRouter is an atomic custom-backend preset" {
-  json_inspect(provider_settings_patch(OpenRouter, "").to_json(), content={
-    "provider": "custom",
-    "custom_api_url": "https://openrouter.ai/api/v1/chat/completions",
-  })
-  json_inspect(api_key_settings_patch(OpenRouter, "sk-openrouter").to_json(), content={
-    "provider": "custom",
-    "custom_api_url": "https://openrouter.ai/api/v1/chat/completions",
-    "custom_api_key": "sk-openrouter",
-  })
-  json_inspect(
-    provider_settings_patch(Custom, OpenRouterChatCompletionsUrl).to_json(),
-    content={ "provider": "custom", "custom_api_url": "" },
+  @host_settings.fetch_status(
+    host_settings_emit(dispatch, channel, connection_generation),
+    channel,
   )
 }
 
 ///|
-fn followup_behavior_patch(
-  behavior : FollowupBehavior,
-) -> @protocol.SettingsSetPayload {
+fn Model::host_settings_menu(
+  self : Model,
+  dispatch : @cmd.Emit[Msg],
+) -> @host_settings.Menu {
   {
-    provider: None,
-    custom_api_url: None,
-    deepseek_api_key: None,
-    glm_api_key: None,
-    custom_api_key: None,
-    followup_behavior: Some(behavior.wire()),
+    open: self.select_menu == Some(ApiProviderMenu),
+    toggle: dispatch(ToggleSelectMenu(ApiProviderMenu)),
+    dismiss: dispatch(CloseSelectMenu),
   }
+}
+
+///|
+fn api_settings_rows(
+  dispatch : @cmd.Emit[Msg],
+  model : Model,
+) -> Array[@html.Html] {
+  @host_settings.api_settings_rows(
+    dispatch.map(msg => HostSettings(msg)),
+    model.host_settings,
+    model.locale,
+    is_desktop=model.is_desktop,
+    menu=model.host_settings_menu(dispatch),
+  )
+}
+
+///|
+fn api_setup_modal(dispatch : @cmd.Emit[Msg], model : Model) -> @html.Html {
+  @host_settings.api_setup_modal(
+    dispatch.map(msg => HostSettings(msg)),
+    model.host_settings,
+    model.locale,
+    is_desktop=model.is_desktop,
+    menu=model.host_settings_menu(dispatch),
+  )
+}
+
+///|
+fn Model::host_settings_loaded(self : Model) -> Bool {
+  self.host_settings.loaded()
+}
+
+///|
+fn Model::clear_host_settings(self : Model) -> Model {
+  { ..self, host_settings: self.host_settings.clear(), }
+}
+
+///|
+fn Model::api_ready(self : Model) -> Bool {
+  self.host_settings.api_ready()
 }

@@ -48,11 +48,6 @@ priv enum ShellMessage {
   ScheduleReadOnly
   ViewTask
   DisconnectedLabel
-  SetupDeepSeek
-  SetupGlm
-  SetupOpenRouter
-  SetupEndpoint
-  NotNow
   DismissLabel
   CancelLabel
   DeleteChatQuestion
@@ -356,31 +351,6 @@ fn shell_text(locale : @i18n.Locale, message : ShellMessage) -> String {
     (SimplifiedChinese, DisconnectedLabel) => "已断开连接"
     (TraditionalChinese, DisconnectedLabel) => "已斷開連線"
     (Japanese, DisconnectedLabel) => "切断済み"
-    (English, SetupDeepSeek) => "Set up your DeepSeek API key"
-    (Spanish, SetupDeepSeek) => "Configura tu clave de API de DeepSeek"
-    (SimplifiedChinese, SetupDeepSeek) => "设置 DeepSeek API 密钥"
-    (TraditionalChinese, SetupDeepSeek) => "設定 DeepSeek API 金鑰"
-    (Japanese, SetupDeepSeek) => "DeepSeek API キーを設定"
-    (English, SetupGlm) => "Set up your GLM API key"
-    (Spanish, SetupGlm) => "Configura tu clave de API de GLM"
-    (SimplifiedChinese, SetupGlm) => "设置 GLM API 密钥"
-    (TraditionalChinese, SetupGlm) => "設定 GLM API 金鑰"
-    (Japanese, SetupGlm) => "GLM API キーを設定"
-    (English, SetupOpenRouter) => "Set up OpenRouter"
-    (Spanish, SetupOpenRouter) => "Configura OpenRouter"
-    (SimplifiedChinese, SetupOpenRouter) => "设置 OpenRouter"
-    (TraditionalChinese, SetupOpenRouter) => "設定 OpenRouter"
-    (Japanese, SetupOpenRouter) => "OpenRouter を設定"
-    (English, SetupEndpoint) => "Set your endpoint URL"
-    (Spanish, SetupEndpoint) => "Configura la URL de tu endpoint"
-    (SimplifiedChinese, SetupEndpoint) => "设置端点 URL"
-    (TraditionalChinese, SetupEndpoint) => "設定端點 URL"
-    (Japanese, SetupEndpoint) => "エンドポイント URL を設定"
-    (English, NotNow) => "Not now"
-    (Spanish, NotNow) => "Ahora no"
-    (SimplifiedChinese, NotNow) => "暂不设置"
-    (TraditionalChinese, NotNow) => "暫不設定"
-    (Japanese, NotNow) => "後で設定"
     (English, DismissLabel) => "Dismiss"
     (Spanish, DismissLabel) => "Descartar"
     (SimplifiedChinese, DismissLabel) => "关闭"

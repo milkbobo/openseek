@@ -249,12 +249,7 @@ fn device_msg(
       workspace_settings_changed_msg(channel, payload)
     WorktreeChanged(payload) => worktree_changed_msg(channel, payload)
     SettingsChanged(payload) =>
-      Some(
-        HostSettingsLoaded(
-          HostSettings::from_status(payload),
-          connection_generation=None,
-        ),
-      )
+      Some(HostSettings(Loaded(payload), connection_generation=None))
     // The payload is intentionally empty: the installed library is the
     // source of truth, so every client re-reads it instead of applying a
     // requester-specific install/uninstall guess.

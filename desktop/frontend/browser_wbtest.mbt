@@ -391,11 +391,15 @@ test "full-screen modals hide the native view and closing restores it" {
   // Setup API owns the whole screen too. The browser is a native view above
   // the HTML shell, so opening the modal must hide it; dismissing the modal
   // then re-measures and restores the active Browser tab.
-  let (_, setup) = update(dispatch, ProviderChanged("custom"), restored)
-  assert_true(setup.api_setup_open)
+  let (_, setup) = update(
+    dispatch,
+    HostSettings(ProviderChanged("custom")),
+    restored,
+  )
+  assert_true(setup.host_settings.api_setup_open)
   assert_true(setup.browser_pane.shown is None)
-  let (_, setup_closed) = update(dispatch, DismissApiSetup, setup)
-  assert_false(setup_closed.api_setup_open)
+  let (_, setup_closed) = update(dispatch, HostSettings(DismissApiSetup), setup)
+  assert_false(setup_closed.host_settings.api_setup_open)
   let (_, setup_restored) = update(
     dispatch,
     BrowserPaneMeasured(rect~),

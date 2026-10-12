@@ -24,7 +24,10 @@ test "settings shortcut follows the period character across keyboard layouts" {
         ("Slash", false),
       ] {
       let event = settings_shortcut_event(".", code, shift, false, is_apple)
-      assert_true(app_shortcut_message(event, is_apple) is Some(OpenSetup))
+      assert_true(
+        app_shortcut_message(event, is_apple)
+        is Some(HostSettings(OpenSettings)),
+      )
     }
   }
 }

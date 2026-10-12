@@ -124,7 +124,7 @@ test "the sidebar mode follows the conversation on screen and keeps a manual pic
   let (_, settled) = update(dispatch, ToggleSidebar, browsing)
   assert_true(settled.sidebar_mode is ChatMode)
   // A page without a conversation claims no list.
-  let (_, settings) = update(dispatch, OpenSetup, settled)
+  let (_, settings) = update(dispatch, HostSettings(OpenSettings), settled)
   assert_true(settings.sidebar_activation() is None)
   assert_true(settings.sidebar_mode is ChatMode)
   // A chat coming on screen by any route brings the Chats list with it.

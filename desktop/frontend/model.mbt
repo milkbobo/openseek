@@ -1,4 +1,7 @@
 ///|
+using @host_settings {type ApiProvider, type FollowupBehavior}
+
+///|
 /// Which model a conversation's turns run with. The composer's shared selector
 /// offers the DeepSeek service tiers or the GLM models, following the
 /// configured provider; `Other` retains a wire name this build does not know —
@@ -237,9 +240,6 @@ test "engine models round-trip their wire names" {
 const NarrowBreakpoint : Int32 = 760
 
 ///|
-const DefaultMaxSteps : String = "1000"
-
-///|
 const TranscriptRefreshFailedNotice : String = "Transcript refresh failed repeatedly. New commits are buffered; reopen the conversation or wait for the next update to retry."
 
 ///|
@@ -407,78 +407,10 @@ fn AppFontSize::pixels(self : AppFontSize) -> Double {
 }
 
 ///|
-const OpenRouterChatCompletionsUrl : String = "https://openrouter.ai/api/v1/chat/completions"
-
-///|
-/// Which chat-completions endpoint the engine talks to. SeekMoon runs are
-/// bring-your-own-key only: the hosted proxy is retired. `Deepseek` is the
-/// official endpoint and needs the user's own key; `OpenRouter` is a preset
-/// over the existing custom endpoint; `Custom` accepts any other
-/// OpenAI-compatible endpoint, whose key is optional. The retired hosted
-/// names (`openseek` / `openseek-staging`) parse as `Deepseek` so old
-/// stores and old clients land on the BYOK default instead of wedging.
-/// The setting (and its credentials) live on the host; this mirror is what
-/// `settings.get`/`set` replies and the `settings.changed` broadcast last
-/// reported.
-priv enum ApiProvider {
-  Deepseek
-  Glm
-  OpenRouter
-  Custom
-} derive(Eq)
-
-///|
-priv enum FollowupBehavior {
-  FollowupSteer
-  FollowupQueue
-} derive(Eq)
-
-///|
-fn FollowupBehavior::parse(value : String) -> FollowupBehavior {
-  if value == "queue" {
-    FollowupQueue
-  } else {
-    FollowupSteer
-  }
-}
-
-///|
-fn FollowupBehavior::wire(self : FollowupBehavior) -> String {
-  match self {
-    FollowupSteer => "steer"
-    FollowupQueue => "queue"
-  }
-}
-
-///|
-fn ApiProvider::wire(self : ApiProvider) -> String {
-  match self {
-    Deepseek => "deepseek"
-    Glm => "glm"
-    OpenRouter => "openrouter"
-    Custom => "custom"
-  }
-}
-
-///|
-/// Unknown stored values fall back to the default provider, so a downgrade
-/// (or a corrupted store) degrades to the BYOK default instead of wedging
-/// the app.
-fn ApiProvider::parse(value : String) -> ApiProvider {
-  match value.trim() {
-    "openseek" | "openseek-staging" | "deepseek" => Deepseek
-    "glm" => Glm
-    "openrouter" => OpenRouter
-    "custom" => Custom
-    _ => Deepseek
-  }
-}
-
-///|
 /// The model a fresh conversation starts from when the selected provider and
 /// the page's last model choice belong to different known model families.
-fn ApiProvider::default_model(self : ApiProvider) -> EngineModel {
-  match self {
+fn provider_default_model(provider : ApiProvider) -> EngineModel {
+  match provider {
     Deepseek | OpenRouter | Custom => DsFlash
     Glm => Glm53
   }
@@ -1434,43 +1366,9 @@ priv struct Model {
   // forced-thinking low mode is the useful default for ordinary tasks.
   openseek_reasoning : OpenSeekReasoning
   glm_reasoning : OpenSeekReasoning
-  max_steps : String
-  // Whether the host has a key stored for each keyed provider. The key text
-  // itself never reaches a client — the Settings page only needs presence
-  // (placeholder wording, the ready gate); a new key is staged in
-  // `setup_api_key` until saved through `settings.set`.
-  deepseek_key_saved : Bool
-  glm_key_saved : Bool
-  custom_key_saved : Bool
-  setup_api_key : String
-  // Which endpoint the engine talks to; `custom_api_url` only matters when
-  // the provider is `Custom`. Both mirror the host's settings store and are
-  // edited through `settings.set`.
-  api_provider : ApiProvider
-  custom_api_url : String
-  followup_behavior : FollowupBehavior
-  // Host-settings writes still in flight. While any are, incoming
-  // `settings.changed` broadcasts and `settings.get` replies may predate an
-  // optimistic edit, so the newest revision is deferred until the last write
-  // settles instead of clobbering the form mid-edit.
-  settings_saves : Int32
-  // Host-local monotonic revision attached to every settings status. It
-  // orders concurrent clients' broadcasts and RPC replies; -1 means this
-  // bridge generation has not accepted an authoritative status yet.
-  host_settings_revision : Int32
-  deferred_host_settings : HostSettings?
-  // Whether the API-setup modal is up. Every settled settings snapshot
-  // decides it through `settle_api_setup` — the one place that opens it —
-  // and it closes the moment a usable endpoint arrives.
-  api_setup_open : Bool
+  host_settings : @host_settings.State
   export_dialog : @export_dialog.Model
   workspace_settings_dialog : WorkspaceSettingsDialog?
-  // The user answered "Not now" to the setup modal. Held until a usable
-  // endpoint re-arms the announcement, and deliberately not part of the
-  // host-settings mirror: a reconnect or focus switch clears the mirror but
-  // must not turn a dismissal back into a fresh popup. Session-local — the
-  // next cold start without a key prompts again.
-  api_setup_dismissed : Bool
   // Whether this page is the desktop window (the proton webview) rather than
   // a browser reached through a relay. Probed once at startup. Gates the
   // self-update flow: applying an update swaps the
@@ -1731,27 +1629,13 @@ priv struct ProjectAdoption {
 } derive(Eq)
 
 ///|
-/// One `settings.get`/`settings.set` reply (or `settings.changed`
-/// broadcast), decoded: the host's engine endpoint settings, with key
-/// material reduced to presence.
-priv struct HostSettings {
-  revision : Int32
-  provider : String
-  custom_api_url : String
-  has_deepseek_key : Bool
-  has_glm_key : Bool
-  has_custom_key : Bool
-  followup_behavior : String
-} derive(Eq)
-
-///|
 priv enum Msg {
   Init
   // The browser console's account layer (relay session, device roster),
   // routed through `update_console_msg`.
   Console(ConsoleMsg)
   // UI preferences read back from localStorage at startup. Engine endpoint
-  // settings are the host's (`HostSettingsLoaded`); only page-local looks
+  // settings are the host's (`HostSettings(Loaded(..))`); only page-local looks
   // live here.
   SettingsLoaded(
     notification_corner~ : String?,
@@ -1812,11 +1696,6 @@ priv enum Msg {
   // OpenSeek's fixed `no`/`high`/`max` choice. It shares the composer control
   // with Codex but remains a separate typed value at the request boundary.
   OpenSeekEffortPicked(String)
-  MaxStepsChanged(String)
-  SetupApiKeyChanged(String)
-  ProviderChanged(String)
-  FollowupBehaviorChanged(String)
-  CustomApiUrlChanged(String)
   // The Settings choice of which window corner error toasts pop up in.
   NotificationCornerChanged(String)
   // The Settings choice of where the editor's file tree docks.
@@ -1826,15 +1705,11 @@ priv enum Msg {
   // A toast was clicked: dismiss it now.
   DismissNotification(Int32)
   SelfUpdate(@self_update.Msg)
+  HostSettings(@host_settings.Msg)
   RemoteAccess(@remote_access.Msg)
   // Proton package metadata returned by the native host.
   AppInfoLoaded(version~ : String, console_url~ : String?)
-  OpenSetup
   ReturnToWork
-  // The API-setup modal's "Not now" button and its backdrop click.
-  DismissApiSetup
-  // The composer's BYOK notice reopens the modal a dismissal closed.
-  OpenApiSetup
   // Open the app-server-backed Codex page and refresh its authoritative
   // account, model, and thread catalogs.
   OpenCodex
@@ -1875,7 +1750,6 @@ priv enum Msg {
   // The native window gained or lost OS focus. This is deliberately distinct
   // from the selected device channel stored in `Model.focused`.
   WindowFocusChanged(Bool)
-  SaveApiKey
   OpenSchedules
   SchedulePage(SchedulePageMsg)
   OpenSkills
@@ -2161,12 +2035,8 @@ priv enum DeviceMsg {
   FilePanel(@fileeditor.Msg)
   // The host's settings, from a `settings.get` reply or a peer client's
   // edit broadcast as `settings.changed`. Applied only while no local write
-  // is in flight — see `Model::settings_saves`.
-  HostSettingsLoaded(HostSettings, connection_generation~ : Int32?)
-  // A `settings.set` this client sent came back with the post-write state.
-  HostSettingsApplied(HostSettings, connection_generation~ : Int32)
-  // A `settings.set` this client sent failed; the message pops as a toast.
-  HostSettingsSaveFailed(String, connection_generation~ : Int32)
+  // is in flight inside the host_settings package.
+  HostSettings(@host_settings.Msg, connection_generation~ : Int32?)
   // A `skills.installed` reply is channel-scoped just like the invalidation
   // that prompted it. Only the currently focused host may replace the
   // page's library mirror.
@@ -2652,17 +2522,7 @@ fn initial_model(desktop~ : Bool) -> Model {
     conversation_models: [],
     openseek_reasoning: ReasoningHigh,
     glm_reasoning: ReasoningOff,
-    max_steps: DefaultMaxSteps,
-    deepseek_key_saved: false,
-    glm_key_saved: false,
-    custom_key_saved: false,
-    setup_api_key: "",
-    api_provider: Deepseek,
-    custom_api_url: "",
-    followup_behavior: FollowupSteer,
-    settings_saves: 0,
-    host_settings_revision: -1,
-    deferred_host_settings: None,
+    host_settings: @host_settings.State::empty(),
     is_desktop: desktop,
     window_focused: !desktop || @interop.page_has_focus(),
     app_version: "development",
@@ -2735,10 +2595,8 @@ fn initial_model(desktop~ : Bool) -> Model {
     notification_corner: BottomRight,
     tree_layout: RightSidebar,
     self_update: @self_update.State::empty(),
-    api_setup_open: false,
     export_dialog: @export_dialog.Model(),
     workspace_settings_dialog: None,
-    api_setup_dismissed: false,
     remote_access: @remote_access.State::empty(),
   }
 }
@@ -2839,81 +2697,23 @@ fn Model::skills_input(self : Model) -> @skills.Input {
 }
 
 ///|
-/// Whether the focused host has supplied an authoritative settings snapshot
-/// for the current bridge generation. A negative revision is the loading
-/// sentinel installed on startup, focus changes, and reconnects.
-fn Model::host_settings_loaded(self : Model) -> Bool {
-  self.host_settings_revision >= 0
-}
-
-///|
-/// Forget every value owned by the focused host before fetching another
-/// snapshot. The neutral values are deliberately not actionable while the
-/// revision remains negative; this prevents a failed or delayed `settings.get`
-/// from exposing one device's configuration on another device. The setup
-/// modal closes with the mirror it was rendering — an open modal over the
-/// loading sentinel would show default data with every control disabled —
-/// and the next authoritative snapshot reopens it if still warranted.
-fn Model::clear_host_settings(self : Model) -> Model {
-  {
-    ..self,
-    api_setup_open: false,
-    api_provider: Deepseek,
-    custom_api_url: "",
-    followup_behavior: FollowupSteer,
-    deepseek_key_saved: false,
-    glm_key_saved: false,
-    custom_key_saved: false,
-    setup_api_key: "",
-    settings_saves: 0,
-    host_settings_revision: -1,
-    deferred_host_settings: None,
-  }
-}
-
-///|
-/// Fold one host settings payload into the mirror. Whether the result is
-/// usable — and how loudly to say so when it is not — is the update
-/// handlers' call (the API-setup modal, the Settings guide); this fold only
-/// mirrors the store, so a payload applied from a deferred flush can never
-/// yank the screen around on its own.
-fn Model::apply_host_settings(self : Model, settings : HostSettings) -> Model {
-  let provider = if settings.provider == "custom" &&
-    settings.custom_api_url == OpenRouterChatCompletionsUrl {
-    OpenRouter
-  } else {
-    ApiProvider::parse(settings.provider)
-  }
-  let next = {
-    ..self,
-    host_settings_revision: settings.revision,
-    deferred_host_settings: None,
-    api_provider: provider,
-    custom_api_url: settings.custom_api_url,
-    followup_behavior: FollowupBehavior::parse(settings.followup_behavior),
-    deepseek_key_saved: settings.has_deepseek_key,
-    glm_key_saved: settings.has_glm_key,
-    custom_key_saved: settings.has_custom_key,
-  }
-  next.align_fresh_conversation_with_provider()
-}
-
-///|
 /// Keep a never-started chat aligned with the host endpoint. Stored and
 /// already-running conversations remain pinned: changing their model behind
 /// the user's back would rewrite conversation semantics, while a fresh chat
 /// has no history to preserve and otherwise begins with a known-bad
 /// provider/model mismatch.
 fn Model::align_fresh_conversation_with_provider(self : Model) -> Model {
-  let default_model = if self.default_model.matches_provider(self.api_provider) {
+  let default_model = if self.default_model.matches_provider(
+      self.host_settings.provider(),
+    ) {
     self.default_model
   } else {
-    self.api_provider.default_model()
+    provider_default_model(self.host_settings.provider())
   }
   let next = { ..self, default_model, }
   guard next.composing_new_chat() &&
     next.active_conversation() is Some(conv) &&
-    !conv.engine_model.matches_provider(next.api_provider) else {
+    !conv.engine_model.matches_provider(next.host_settings.provider()) else {
     return next
   }
   next.replace_conversation({ ..conv, engine_model: default_model, })
@@ -2933,41 +2733,10 @@ fn Model::reasoning_for(
 }
 
 ///|
-/// Retain the highest host revision observed while one or more optimistic
-/// writes are outstanding. The body is applied only when the last write
-/// settles, preventing both stale rollback and mid-edit UI clobbering.
-fn Model::defer_host_settings(self : Model, settings : HostSettings) -> Model {
-  if settings.revision < self.host_settings_revision {
-    return self
-  }
-  let deferred = match self.deferred_host_settings {
-    Some(current) if current.revision > settings.revision => current
-    _ => settings
-  }
-  { ..self, deferred_host_settings: Some(deferred), }
-}
-
-///|
-/// Apply the newest deferred status once optimistic writes no longer protect
-/// the form. A lower revision is discarded; equal is deliberately accepted
-/// so a failed optimistic edit can be restored by an authoritative `get`.
-/// The settled mirror then decides the setup modal like any other snapshot —
-/// a deferred first snapshot (an optimistic write races it here) must be
-/// able to open the modal, not just retire it.
-fn Model::flush_host_settings(self : Model) -> Model {
-  let next = match self.deferred_host_settings {
-    Some(settings) if settings.revision >= self.host_settings_revision =>
-      self.apply_host_settings(settings)
-    _ => { ..self, deferred_host_settings: None, }
-  }
-  next.settle_api_setup()
-}
-
-///|
 /// Whether the composer should carry the BYOK reminder — the durable surface
 /// once the setup modal was dismissed, because a greyed Send with no
 /// explanation anywhere in the UI is the state the modal exists to prevent.
-/// Gated on the loaded mirror so a reconnect's loading sentinel cannot flash
+/// Gated on the loaded mirror so a reconnect's unloaded mirror cannot flash
 /// it, and shown regardless of the dismissal: quiet must not mean lost.
 fn Model::api_setup_banner_visible(self : Model) -> Bool {
   self.bridge_state() is Connected &&
@@ -2976,62 +2745,12 @@ fn Model::api_setup_banner_visible(self : Model) -> Bool {
 }
 
 ///|
-/// The one rule for the API-setup modal, applied whenever the settings
-/// mirror settles: a usable endpoint retires the modal and re-arms the
-/// announcement for the next break; an explicit "Not now" holds until then;
-/// the Settings page stays modal-free (its guide already says what is
-/// missing); otherwise an unusable endpoint keeps the modal up — the key is
-/// the one thing SeekMoon cannot run without, so a dismissible toast is not
-/// loud enough.
-fn Model::settle_api_setup(self : Model) -> Model {
-  // The loading sentinel's neutral values are not a verdict on the endpoint;
-  // a flush with nothing applied (a failed save before any snapshot) must
-  // not announce them.
-  guard self.host_settings_loaded() else { return self }
-  // A menu rendered inside the modal cannot outlive that modal. Preserve a
-  // Settings-page menu when no modal is being retired; both surfaces reuse
-  // the same select component and global menu identity.
-  let select_menu = if self.api_setup_open { None } else { self.select_menu }
-  if self.api_ready() {
-    { ..self, api_setup_open: false, api_setup_dismissed: false, select_menu, }
-  } else if self.api_setup_dismissed || self.screen is Settings {
-    { ..self, api_setup_open: false, select_menu, }
-  } else {
-    { ..self, api_setup_open: true, }
-  }
-}
-
-///|
-/// Whether the configured endpoint is usable as it stands: keyed providers
-/// need their own credential, and a custom endpoint needs a plausible URL.
-/// OpenRouter uses the same model selector as the official DeepSeek endpoint.
-/// The credentials themselves live on the host; a start carries none.
-fn Model::api_ready(self : Model) -> Bool {
-  match self.api_provider {
-    Deepseek => self.deepseek_key_saved
-    Glm => self.glm_key_saved
-    OpenRouter => self.custom_key_saved
-    Custom => plausible_endpoint_url(self.custom_api_url)
-  }
-}
-
-///|
-/// Whether a custom endpoint URL is complete enough to try: an http(s)
-/// scheme followed by at least one host character. The URL is pushed to the
-/// host per keystroke, so a prefix the user is still typing must not read
-/// as usable — that would retire the setup modal mid-word and arm Send
-/// against an endpoint every run fails on.
-fn plausible_endpoint_url(url : String) -> Bool {
-  url.trim() =~ re"^https?://[^/]"
-}
-
-///|
 /// The status implied by the settings alone: whether the configured endpoint
 /// is ready to accept a prompt, and what is missing when it is not.
 fn Model::settings_status(self : Model) -> Status {
   if self.api_ready() {
     Ready
-  } else if self.api_provider is (Deepseek | Glm | OpenRouter) {
+  } else if self.host_settings.provider() is (Deepseek | Glm | OpenRouter) {
     ApiKeyRequired
   } else {
     SetupRequired

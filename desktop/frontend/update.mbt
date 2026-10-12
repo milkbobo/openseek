@@ -993,7 +993,7 @@ fn run_slash_command(
             session=conv.session_id,
             model=conv.engine_model,
             reasoning=model.reasoning_for(conv.engine_model),
-            max_steps=model.max_steps,
+            max_steps=model.host_settings.max_steps,
             workspace=conv.project(),
           ),
           {
@@ -1051,7 +1051,7 @@ fn send_goal(
       workspace,
       conv.engine_model,
       model.reasoning_for(conv.engine_model),
-      model.max_steps,
+      model.host_settings.max_steps,
       command,
       text,
     )
@@ -1062,7 +1062,7 @@ fn send_goal(
     session=conv.session_id,
     model=conv.engine_model,
     reasoning=model.reasoning_for(conv.engine_model),
-    max_steps=model.max_steps,
+    max_steps=model.host_settings.max_steps,
     workspace=conv.project(),
     command,
     text,
@@ -1589,7 +1589,7 @@ fn covering_overlay(model : Model) -> Bool {
   model.archive_confirm is Some(_) ||
   model.archived_delete_confirm is Some(_) ||
   model.quick_open.is_open() ||
-  model.api_setup_open ||
+  model.host_settings.api_setup_open ||
   model.self_update is ConfirmingRestart(_) ||
   // Best effort: with the bridge gone the hide op may not deliver.
   model.bridge_state() is BridgeLost(_)
@@ -2275,7 +2275,7 @@ fn update_msg(
       }
       // The localStorage read and the host settings request start together.
       // If the host won that race, reconcile the just-loaded model preference
-      // now; otherwise `HostSettingsLoaded` performs the same fold later.
+      // now; otherwise `HostSettings(Loaded(..))` performs the same fold later.
       let next = if next.host_settings_loaded() {
         next.align_fresh_conversation_with_provider()
       } else {
@@ -2434,7 +2434,7 @@ fn update_msg(
             @composer.WorktreeModeToggled(..) =>
               update_msg(dispatch, ToggleWorktreeMode, model)
             @composer.ApiSetupRequested(..) =>
-              update_msg(dispatch, OpenApiSetup, model)
+              update_msg(dispatch, HostSettings(OpenApiSetup), model)
             @composer.QueuedInputEditRequested(id~, ..) => {
               // The composer is frozen while a large semantic selection is
               // written for a submitted draft; loading a queued message over
@@ -3536,7 +3536,7 @@ fn update_msg(
           // The Codex group's placeholder row: not a model, a doorway.
           // Sign-in and connection state live in the Settings page's Codex
           // group.
-          update_msg(dispatch, OpenSetup, model)
+          update_msg(dispatch, HostSettings(OpenSettings), model)
       }
     }
     CodexEffortPicked(value) => {
@@ -3573,76 +3573,35 @@ fn update_msg(
         )
       }
     }
-    MaxStepsChanged(value) => (@cmd.none, { ..model, max_steps: value, })
-    SetupApiKeyChanged(value) => {
-      guard model.host_settings_loaded() else { return (@cmd.none, model) }
-      (@cmd.none, { ..model, setup_api_key: value, })
-    }
-    ProviderChanged(value) => {
-      guard model.host_settings_loaded() else { return (@cmd.none, model) }
-      let provider = ApiProvider::parse(value)
-      // The update channel no longer derives from the chat provider (only
-      // the hosted chat proxy was retired; self-update and the relay stay
-      // on the SeekMoon origin), so a provider switch leaves the update
-      // answer alone.
-      let push = push_host_settings(
-        dispatch,
-        model.focused,
-        provider_settings_patch(provider, model.custom_api_url),
-        model.focused_connection_generation(),
-      )
-      let next = {
-        ..model,
-        api_provider: provider,
-        custom_api_url: if provider is Custom &&
-          model.custom_api_url == OpenRouterChatCompletionsUrl {
-          ""
-        } else {
-          model.custom_api_url
-        },
-        setup_api_key: "",
-        settings_saves: model.settings_saves + 1,
-        select_menu: None,
-      }.align_fresh_conversation_with_provider()
-      // The switch can move the endpoint between usable and not. Inside the
-      // setup modal the form simply re-renders for the new provider; a
-      // switch that breaks a usable endpoint away from the Settings page
-      // opens the modal — it is the announcement now, not a toast.
-      (push, next.settle_api_setup())
-    }
-    FollowupBehaviorChanged(value) => {
-      guard model.host_settings_loaded() else { return (@cmd.none, model) }
-      let behavior = FollowupBehavior::parse(value)
-      (
-        push_host_settings(
+    HostSettings(msg) => {
+      let (host_settings, command, events) = @host_settings.update(
+        model.host_settings,
+        msg,
+        host_settings_emit(
           dispatch,
           model.focused,
-          followup_behavior_patch(behavior),
           model.focused_connection_generation(),
         ),
-        {
-          ..model,
-          followup_behavior: behavior,
-          settings_saves: model.settings_saves + 1,
-          select_menu: None,
-        },
+        channel=model.focused,
+        on_settings=model.screen is Settings,
+        locale=model.locale,
       )
-    }
-    CustomApiUrlChanged(value) => {
-      guard model.host_settings_loaded() else { return (@cmd.none, model) }
-      (
-        push_host_settings(
-          dispatch,
-          model.focused,
-          custom_url_settings_patch(value),
-          model.focused_connection_generation(),
-        ),
-        {
-          ..model,
-          custom_api_url: value,
-          settings_saves: model.settings_saves + 1,
-        },
-      )
+      let commands = [command]
+      let mut next = { ..model, host_settings, }
+      for event in events {
+        match event {
+          AlignProvider => next = next.align_fresh_conversation_with_provider()
+          CloseMenu => next = { ..next, select_menu: None, }
+          OpenSettings => next = { ..next, screen: Settings, }
+          OpenExternal(url) => commands.push(open_external_link(dispatch, url))
+          Problem(message) => {
+            let (command, notified) = next.notify_error(dispatch, message)
+            commands.push(command)
+            next = notified
+          }
+        }
+      }
+      (@cmd.batch(commands), next)
     }
     NotificationCornerChanged(value) => {
       let corner = NotificationCorner::parse(value)
@@ -3700,11 +3659,6 @@ fn update_msg(
       }
       (@cmd.batch(commands), next)
     }
-    OpenSetup =>
-      (
-        @cmd.none,
-        { ..model, screen: Settings, setup_api_key: "", api_setup_open: false, },
-      )
     ReturnToWork =>
       if model.screen.work_screen() is None {
         (
@@ -3720,18 +3674,6 @@ fn update_msg(
       } else {
         (@cmd.none, model)
       }
-    DismissApiSetup =>
-      (
-        @cmd.none,
-        { ..model, api_setup_open: false, api_setup_dismissed: true, },
-      )
-    OpenApiSetup =>
-      // Reopening cancels the dismissal — otherwise the next settled
-      // snapshot would close the modal the user just asked for.
-      (
-        @cmd.none,
-        { ..model, api_setup_open: true, api_setup_dismissed: false, },
-      )
     OpenCodexConfig =>
       (open_codex_config(locale=model.locale, dispatch, model.focused), model)
     CodexConfigOpenFailed(message) => model.notify_error(dispatch, message)
@@ -3876,44 +3818,6 @@ fn update_msg(
         (cmd, { ..model, narrow, sidebar_open: !narrow, })
       }
     }
-    SaveApiKey => {
-      guard model.host_settings_loaded() else { return (@cmd.none, model) }
-      let api_key = model.setup_api_key.trim().to_owned()
-      if api_key.is_empty() {
-        (@cmd.none, model)
-      } else {
-        match model.api_provider {
-          // The key goes straight to the host's store; the mirror keeps
-          // only its presence. The save never navigates — it lands on
-          // whatever page the form (Settings or the modal over any screen)
-          // was open over. A save that completes the setup retires the
-          // modal optimistically; one that leaves it incomplete (Custom
-          // with no URL yet) keeps the modal up mid-setup. A failed save
-          // comes back as a toast.
-          Deepseek | Glm | OpenRouter | Custom as provider => {
-            let next = {
-              ..model,
-              deepseek_key_saved: model.deepseek_key_saved ||
-              provider is Deepseek,
-              glm_key_saved: model.glm_key_saved || provider is Glm,
-              custom_key_saved: model.custom_key_saved ||
-              provider is (OpenRouter | Custom),
-              setup_api_key: "",
-              settings_saves: model.settings_saves + 1,
-            }
-            (
-              push_host_settings(
-                dispatch,
-                model.focused,
-                api_key_settings_patch(provider, api_key),
-                model.focused_connection_generation(),
-              ),
-              next.settle_api_setup(),
-            )
-          }
-        }
-      }
-    }
     OpenSchedules => open_schedules(dispatch, model)
     SchedulePage(msg) => update_schedules(dispatch, msg, model)
     OpenSkills => {
@@ -3956,9 +3860,9 @@ fn update_msg(
         _ => None
       }
       let followup_behavior = match msg {
-        SendFollowup(@composer.SteerNow) => FollowupSteer
-        SendFollowup(@composer.QueueNext) => FollowupQueue
-        _ => model.followup_behavior
+        SendFollowup(@composer.SteerNow) => @host_settings.FollowupSteer
+        SendFollowup(@composer.QueueNext) => @host_settings.FollowupQueue
+        _ => model.host_settings.followup_behavior
       }
       guard model.active_conversation() is Some(conv) else {
         return (@cmd.none, model)
@@ -4155,7 +4059,7 @@ fn update_msg(
             submission_id,
             conv.engine_model,
             model.reasoning_for(conv.engine_model),
-            model.max_steps,
+            model.host_settings.max_steps,
             conv.session_id,
             workspace,
             images=conv.images.map(image => image.url),
@@ -4168,7 +4072,7 @@ fn update_msg(
             submission_id,
             conv.engine_model,
             model.reasoning_for(conv.engine_model),
-            model.max_steps,
+            model.host_settings.max_steps,
             conv.session_id,
             workspace=conv.project(),
             images=conv.images.map(image => image.url),
@@ -6402,85 +6306,17 @@ fn update_device_msg(
       guard channel == model.focused else { return (@cmd.none, model) }
       update_msg(dispatch, FileEditor(msg), model)
     }
-    HostSettingsLoaded(settings, connection_generation~) => {
-      guard connection_generation is None ||
-        (connection_generation is Some(gen) && gen == dev.connection_generation) else {
+    HostSettings(msg, connection_generation~) => {
+      // Broadcasts arrive from every host; replies carry the generation that
+      // issued the request. Neither may overwrite a different focused host.
+      guard channel == model.focused &&
+        (
+          connection_generation is None ||
+          connection_generation == Some(dev.connection_generation)
+        ) else {
         return (@cmd.none, model)
       }
-      // The settings mirror is the focused host's. A generation-carrying
-      // reply is only ever requested for the focused channel, but the
-      // `settings.changed` broadcast (generation None) arrives from every
-      // connected device — a background device's edit must not clobber the
-      // form. A focus switch refetches, so nothing is lost.
-      guard channel == model.focused else { return (@cmd.none, model) }
-      if settings.revision < model.host_settings_revision {
-        (@cmd.none, model)
-      } else if model.settings_saves > 0 {
-        (@cmd.none, model.defer_host_settings(settings))
-      } else {
-        // The settled mirror decides the modal (`settle_api_setup`); the
-        // dismissal flag — not the mirror, which a reconnect clears — is
-        // what keeps a "Not now" quiet across snapshots.
-        (@cmd.none, model.apply_host_settings(settings).settle_api_setup())
-      }
-    }
-    HostSettingsApplied(settings, connection_generation~) => {
-      guard connection_generation == dev.connection_generation else {
-        return (@cmd.none, model)
-      }
-      // A save issued on the old focus may settle after the user switches
-      // devices. Its revision and localStorage cleanup belong to that old
-      // host and must not alter the newly focused host's mirror.
-      guard channel == model.focused else { return (@cmd.none, model) }
-      let next = {
-        ..model,
-        settings_saves: if model.settings_saves > 0 {
-          model.settings_saves - 1
-        } else {
-          0
-        },
-      }.defer_host_settings(settings)
-      (
-        @cmd.none,
-        if next.settings_saves > 0 {
-          next
-        } else {
-          next.flush_host_settings()
-        },
-      )
-    }
-    HostSettingsSaveFailed(message, connection_generation~) => {
-      guard connection_generation == dev.connection_generation else {
-        return (@cmd.none, model)
-      }
-      guard channel == model.focused else { return (@cmd.none, model) }
-      let next = {
-        ..model,
-        settings_saves: if model.settings_saves > 0 {
-          model.settings_saves - 1
-        } else {
-          0
-        },
-      }
-      let next = if next.settings_saves == 0 {
-        next.flush_host_settings()
-      } else {
-        next
-      }
-      let (notice, notified) = next.notify_error(
-        dispatch,
-        notice_text(model.locale, SaveSettings(message.to_string())),
-      )
-      let commands = [notice]
-      if next.settings_saves == 0 {
-        // No successful reply may follow to correct the optimistic form.
-        // An authoritative get (same-revision statuses are accepted) restores
-        // host truth after a definite or ambiguous write failure.
-        commands.push(
-          fetch_host_settings(dispatch, channel, dev.connection_generation),
-        )
-      }
-      (@cmd.batch(commands), notified)
+      update_msg(dispatch, HostSettings(msg), model)
     }
     SteerUndelivered(session~, submission_id~, text~, run_id~) => {
       // The response path failed and the host may or may not have taken the
@@ -8048,7 +7884,12 @@ fn update_device_msg(
       // chats mid-spawn) must not overwrite a value the user has since
       // changed for the now-active conversation.
       if channel == updated.focused && session == updated.active_session {
-        (@cmd.batch(commands), { ..updated, max_steps: max_steps.to_string(), })
+        let (command, updated) = update_msg(
+          dispatch,
+          HostSettings(MaxStepsChanged(max_steps.to_string())),
+          updated,
+        )
+        (@cmd.batch([..commands, command]), updated)
       } else {
         (@cmd.batch(commands), updated)
       }

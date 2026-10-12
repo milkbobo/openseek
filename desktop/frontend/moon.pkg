@@ -53,6 +53,7 @@ import {
   "openseek_desktop/frontend/resource",
   "openseek_desktop/frontend/select_control",
   "openseek_desktop/frontend/self_update",
+  "openseek_desktop/frontend/host_settings",
   "openseek_desktop/frontend/settings",
   "openseek_desktop/frontend/quick_open",
   "openseek_desktop/frontend/remote_access",

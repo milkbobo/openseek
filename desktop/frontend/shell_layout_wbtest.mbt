@@ -24,7 +24,7 @@ test "the narrow drawer closes when navigation lands elsewhere" {
   let (_, settled) = update(dispatch, OpenSkills, opened)
   assert_false(settled.sidebar_open)
   let (_, wide) = update(dispatch, ViewportResized(width=1280), settled)
-  let (_, back) = update(dispatch, OpenSetup, wide)
+  let (_, back) = update(dispatch, HostSettings(OpenSettings), wide)
   assert_true(back.sidebar_open)
 }
 
@@ -33,7 +33,7 @@ test "the narrow drawer closes when navigation lands elsewhere" {
 /// even while the endpoint is unusable (the composer blocks sending then).
 test "sidebar navigation leaves the settings page" {
   let dispatch = test_dispatch()
-  let model = { ..test_model(), api_provider: Deepseek, screen: Settings, }
+  let model = { ..test_model(), screen: Settings, }
   let (_, next) = update(
     dispatch,
     SessionRotated({ channel: Local, session: "s-fresh", }),

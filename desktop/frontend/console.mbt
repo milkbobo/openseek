@@ -536,22 +536,27 @@ test "a revoked page device is retired without connecting a survivor" {
         @interop.ChannelId::Remote("d_a").test_project(),
       ),
     ),
-    api_provider: Custom,
-    custom_api_url: "https://old.example/chat",
-    deepseek_key_saved: true,
-    custom_key_saved: true,
-    setup_api_key: "old-device-key",
-    settings_saves: 2,
-    host_settings_revision: 7,
-    deferred_host_settings: Some({
-      revision: 8,
-      provider: "deepseek",
-      custom_api_url: "",
-      has_deepseek_key: true,
-      has_glm_key: false,
-      has_custom_key: false,
-      followup_behavior: "steer",
-    }),
+    host_settings: test_host_settings(
+      provider="custom",
+      revision=7,
+      custom_api_url="https://old.example/chat",
+      has_deepseek_key=true,
+      has_custom_key=true,
+      messages=[
+        SetupApiKeyChanged("old-device-key"),
+        CustomApiUrlChanged("https://old.example/chat"),
+        CustomApiUrlChanged("https://old.example/chat"),
+        Loaded({
+          revision: 8,
+          provider: "deepseek",
+          custom_api_url: None,
+          has_deepseek_key: true,
+          has_glm_key: false,
+          has_custom_key: false,
+          followup_behavior: "steer",
+        }),
+      ],
+    ),
     installed_skills: [
       {
         id: "old-host",
@@ -573,14 +578,13 @@ test "a revoked page device is retired without connecting a survivor" {
   assert_true(refreshed.device_state(Remote("d_a")) is None)
   assert_true(refreshed.device_state(Remote("d_b")) is None)
   assert_eq(refreshed.installed_skills.length(), 0)
-  assert_true(refreshed.api_provider is Deepseek)
-  inspect(refreshed.custom_api_url, content="")
-  assert_false(refreshed.deepseek_key_saved)
-  assert_false(refreshed.custom_key_saved)
-  inspect(refreshed.setup_api_key, content="")
-  inspect(refreshed.settings_saves, content="0")
-  inspect(refreshed.host_settings_revision, content="-1")
-  assert_true(refreshed.deferred_host_settings is None)
+  assert_true(refreshed.host_settings.provider() is Deepseek)
+  inspect(refreshed.host_settings.custom_api_url, content="")
+  assert_false(refreshed.host_settings.deepseek_key_saved)
+  assert_false(refreshed.host_settings.custom_key_saved)
+  inspect(refreshed.host_settings.setup_api_key, content="")
+  inspect(refreshed.host_settings.settings_saves, content="0")
+  assert_true(refreshed.host_settings.revision is None)
   inspect(
     refreshed.conversations
     .iter()
@@ -663,16 +667,21 @@ test "an action for another roster device cannot move page focus" {
   assert_true(listed.device_state(Remote("d_b")) is None)
   let seeded = {
     ..listed,
-    api_provider: Custom,
-    custom_api_url: "https://old.example/chat",
-    host_settings_revision: 7,
+    host_settings: test_host_settings(
+      provider="custom",
+      revision=7,
+      custom_api_url="https://old.example/chat",
+    ),
   }
   let (_, opened) = update(dispatch, OpenSession(Remote("d_b"), "s-b"), seeded)
   assert_true(opened.focused == Remote("d_a"))
   assert_true(opened.active_session != "s-b")
-  assert_true(opened.api_provider is Custom)
-  inspect(opened.custom_api_url, content="https://old.example/chat")
-  inspect(opened.host_settings_revision, content="7")
+  assert_true(opened.host_settings.provider() is Custom)
+  inspect(
+    opened.host_settings.custom_api_url,
+    content="https://old.example/chat",
+  )
+  assert_true(opened.host_settings.revision == Some(7))
 }
 
 ///|

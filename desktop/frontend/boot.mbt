@@ -187,7 +187,7 @@ fn app_shortcut_message(keyboard : @dom.KeyboardEvent, is_apple : Bool) -> Msg? 
   match keyboard.key() {
     "+" | "=" => return Some(FontSizeAdjusted(1))
     "-" if !keyboard.shift_key() => return Some(FontSizeAdjusted(-1))
-    "." if !keyboard.repeat() => return Some(OpenSetup)
+    "." if !keyboard.repeat() => return Some(HostSettings(OpenSettings))
     _ => ()
   }
   guard !keyboard.repeat() else { return None }
@@ -406,7 +406,7 @@ fn SidebarDispatcher::actions(self : SidebarDispatcher) -> @sidebar.Actions {
     update: self.emit(SelfUpdate(UpdateClicked)),
     open_schedules: self.emit(OpenSchedules),
     open_skills: self.emit(OpenSkills),
-    open_settings: self.emit(OpenSetup),
+    open_settings: self.emit(HostSettings(OpenSettings)),
     refresh_account: self.emit(Console(RefreshClicked)),
     sign_out: self.emit(Console(SignOutClicked)),
     select_mode: mode => self.emit(SidebarModeSelected(mode)),

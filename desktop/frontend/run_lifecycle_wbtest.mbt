@@ -934,8 +934,8 @@ test "an old empty runs snapshot cannot close a start sent after reconnect" {
   // restores the saved key (the BYOK fixture is a ready app).
   let (_, ready) = update_dev(
     dispatch,
-    HostSettingsLoaded(
-      host_settings(provider="deepseek", has_deepseek_key=true),
+    HostSettings(
+      Loaded(host_settings(provider="deepseek", has_deepseek_key=true)),
       connection_generation=None,
     ),
     bridged,
