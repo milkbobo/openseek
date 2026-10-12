@@ -39,13 +39,6 @@ async fn main {
     Some(executable) => @host.prepared_runtime_dir(executable)
     None => None
   }
-  // Before anything is read from or written to the runtime directory: this
-  // host must be the only one serving from it.
-  let ownership = match runtime_dir {
-    Some(dir) => Some(@host.RuntimeOwnership::take(dir))
-    None => None
-  }
-  defer (if ownership is Some(ownership) { ownership.release() })
   let codex_home = match runtime_dir {
     Some(dir) => @codex.prepared_home(dir)
     None => None
