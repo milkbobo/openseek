@@ -63,7 +63,7 @@ pub async fn start_run(
   manager.workspace_lifecycle_lock.release()
   ensure_run_cwd(config)
   let need_spawn = if slot.live() is Some(live) {
-    live.spec_key != engine_fingerprint(config)
+    engine_fingerprint(live.config) != engine_fingerprint(config)
   } else {
     true
   }
@@ -251,7 +251,7 @@ pub async fn compact_run(
       match live.phase {
         Idle(..) => {
           let config = compact_config(manager, payload)
-          if live.spec_key != engine_fingerprint(config) {
+          if engine_fingerprint(live.config) != engine_fingerprint(config) {
             Some(config)
           } else {
             None
@@ -366,7 +366,7 @@ pub async fn goal_run(
       match live.phase {
         Idle(..) => {
           let config = goal_config(manager, payload)
-          if live.spec_key != engine_fingerprint(config) {
+          if engine_fingerprint(live.config) != engine_fingerprint(config) {
             Some(config)
           } else {
             None
