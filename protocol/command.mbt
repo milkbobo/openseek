@@ -40,6 +40,10 @@ pub(all) enum Command {
   Cancel
   JobsSnapshot(request_id~ : String)
   JobStop(request_id~ : String, generation~ : String, job_id~ : String)
+  /// Ask what the engine holds of its configured MCP servers. Answered by an
+  /// `mcp_snapshot` event carrying the same `request_id`, at any time — it
+  /// reads state and starts nothing.
+  McpSnapshot(request_id~ : String)
   /// `auto` arms autonomous continuation toward the goal. No in-repo client
   /// sends it — the TUI's `/goal` always sets a manual goal — but `serve` is a
   /// protocol, not a private channel, and an external controller drives this.
@@ -84,6 +88,8 @@ pub fn Command::to_json(self : Command) -> Json {
     }
     JobsSnapshot(request_id~) =>
       { "command": "jobs_snapshot", "request_id": request_id }
+    McpSnapshot(request_id~) =>
+      { "command": "mcp_snapshot", "request_id": request_id }
     JobStop(request_id~, generation~, job_id~) =>
       {
         "command": "job_stop",
@@ -179,6 +185,9 @@ pub fn Command::parse(line : Json) -> Result[Command, String] {
       Ok(JobStop(request_id~, generation~, job_id~))
     { "command": "jobs_snapshot" | "job_stop", .. } =>
       Err("invalid background job command")
+    { "command": "mcp_snapshot", "request_id": String(request_id), .. } if !request_id.is_empty() =>
+      Ok(McpSnapshot(request_id~))
+    { "command": "mcp_snapshot", .. } => Err("invalid mcp_snapshot command")
     { "command": "compact", .. } => Ok(Compact)
     { "command": "cancel", .. } => Ok(Cancel)
     // A blank goal decodes: `{"action":"set","text":"  "}` is a well-formed

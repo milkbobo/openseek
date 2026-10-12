@@ -8,6 +8,7 @@ priv enum ServeCommand {
   Cancel
   JobsSnapshot(request_id~ : String)
   JobStop(request_id~ : String, generation~ : String, job_id~ : String)
+  McpSnapshot(request_id~ : String)
   Goal(GoalAction)
   /// The answer to an `approval_requested` event: which question, and whether
   /// it is granted. Both labelled, because a bare positional pair reads as
@@ -149,7 +150,8 @@ priv enum ServeStep {
 
 ///|
 /// Decode one JSONL command line from the controller.
-/// `jobs_snapshot` and `job_stop` are correlated controls handled outside turns.
+/// `jobs_snapshot`, `job_stop`, and `mcp_snapshot` are correlated controls
+/// handled outside turns.
 ///
 /// `prompt` starts a turn, `steer` supplies typed step-boundary input, `compact`
 /// summarizes the current conversation once no work is active, and `cancel`
@@ -196,6 +198,7 @@ fn decode_serve_command(json : Json) -> Result[ServeCommand, String] {
       )
     }
     JobsSnapshot(request_id~) => Ok(JobsSnapshot(request_id~))
+    McpSnapshot(request_id~) => Ok(McpSnapshot(request_id~))
     JobStop(request_id~, generation~, job_id~) =>
       Ok(JobStop(request_id~, generation~, job_id~))
     Compact => Ok(Compact)
