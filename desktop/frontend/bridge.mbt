@@ -20,7 +20,7 @@ fn notification_msg(
       // access). A remote device's auth changes are its host's business,
       // never this page's UI.
       if channel is Local {
-        Some(RemoteStatusLoaded(RemoteAccess::from_status(payload)))
+        Some(RemoteAccess(StatusLoaded(payload)))
       } else {
         None
       }

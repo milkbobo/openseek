@@ -54,6 +54,7 @@ import {
   "openseek_desktop/frontend/select_control",
   "openseek_desktop/frontend/settings",
   "openseek_desktop/frontend/quick_open",
+  "openseek_desktop/frontend/remote_access",
   "openseek_desktop/frontend/right_panel",
   "openseek_desktop/frontend/transcript",
   "openseek_desktop/frontend/transcript/component" @transcript_component,

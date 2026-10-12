@@ -1,0 +1,53 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "openseek_desktop/frontend/remote_access"
+
+import {
+  "moonbit-community/rabbita/cmd",
+  "moonbit-community/rabbita/html",
+  "openseek_desktop/frontend/i18n",
+  "openseek_desktop/protocol",
+}
+
+// Values
+pub fn fetch_status(@cmd.Emit[Msg]) -> @cmd.Cmd
+
+pub fn rows(@i18n.Locale, @cmd.Emit[Msg], State) -> Array[@html.Html]
+
+pub fn update(State, Msg, @cmd.Emit[Msg]) -> (State, @cmd.Cmd)
+
+// Errors
+
+// Types and methods
+pub(all) enum Msg {
+  StatusLoaded(@protocol.AuthStatusPayload)
+  ConnectClicked
+  ConnectFinished(@protocol.AuthStatusPayload)
+  ConnectFailed(String)
+  CancelClicked
+  DisconnectClicked
+  DisconnectFailed(String)
+}
+
+pub struct State {
+  status : Status?
+  connecting : Bool
+  error : String?
+} derive(Eq)
+pub fn State::empty() -> Self
+pub fn State::equal(Self, Self) -> Bool
+pub fn State::not_equal(Self, Self) -> Bool
+
+pub struct Status {
+  server_url : String?
+  connected : Bool
+  managed_by_env : Bool
+  user_login : String?
+  device_name : String?
+  device_url : String?
+} derive(Eq)
+pub fn Status::equal(Self, Self) -> Bool
+pub fn Status::not_equal(Self, Self) -> Bool
+
+// Type aliases
+
+// Traits

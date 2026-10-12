@@ -927,118 +927,13 @@ fn remote_access_rows(
       ),
     )
   }
-  match model.remote_access {
-    None =>
-      rows.push(
-        @settings.row(
-          @settings.text(model.locale, RemoteControl),
-          [],
-          desc=@settings.text(model.locale, CheckingSignIn),
-        ),
-      )
-    Some(status) =>
-      if status.managed_by_env {
-        rows.push(
-          @settings.row(
-            @settings.text(model.locale, RemoteControl),
-            [],
-            desc=@settings.text(model.locale, EnvironmentRelay),
-          ),
-        )
-      } else if status.user_login is Some(login) {
-        let state = if status.connected {
-          @settings.text(model.locale, OnlineRelay)
-        } else {
-          @settings.text(model.locale, ConnectingRelay)
-        }
-        rows.push(
-          @settings.row(
-            @settings.text(model.locale, SignedInAs),
-            [
-              @html.button(
-                class="button secondary",
-                on_click=dispatch(RemoteDisconnectClicked),
-                @settings.text(model.locale, Disconnect),
-              ),
-            ],
-            desc="@\{login} — \{state}",
-          ),
-        )
-        if status.device_url is Some(url) {
-          let name = status.device_name.unwrap_or(
-            @settings.text(model.locale, ThisMachine),
-          )
-          rows.push(
-            @settings.row(
-              @settings.text(model.locale, DevicePage),
-              [
-                // The shared external-link listener keeps the desktop webview
-                // in place and hands this URL to the system browser.
-                @html.a(
-                  class="button secondary setting-link",
-                  href=url,
-                  target=Blank,
-                  rel="noopener noreferrer",
-                  [
-                    icon(icon_link_external),
-                    @html.span(@settings.text(model.locale, Open)),
-                  ],
-                ),
-              ],
-              desc=@settings.text(
-                model.locale,
-                DevicePageDescription(name, url),
-              ),
-            ),
-          )
-        }
-      } else {
-        let target = match status.server_url {
-          Some(server) => @settings.text(model.locale, RegisterServer(server))
-          None => @settings.text(model.locale, RegisterRelay)
-        }
-        let controls : Array[@html.Html] = [
-          // Once the sign-in completes this same slot becomes the Disconnect
-          // button, and rabbita patches the existing element. `disabled~`
-          // would set a DOM property, which its diff cannot clear (`delete`
-          // on a prototype accessor is a no-op), leaving Disconnect dead; the
-          // attribute form is removed correctly.
-          @html.button(
-            class="button primary",
-            attrs=@html.Attrs::build().disabled(model.remote_connecting),
-            on_click=dispatch(RemoteConnectClicked),
-            if model.remote_connecting {
-              @settings.text(model.locale, WaitingBrowser)
-            } else {
-              @settings.text(model.locale, ConnectGitHub)
-            },
-          ),
-        ]
-        // Appended after the stable Connect button, so its appearance
-        // never re-seats that node.
-        if model.remote_connecting {
-          controls.push(
-            @html.button(
-              class="button secondary",
-              on_click=dispatch(RemoteCancelClicked),
-              @settings.text(model.locale, Cancel),
-            ),
-          )
-        }
-        rows.push(
-          @settings.row(
-            @settings.text(model.locale, SignIn),
-            controls,
-            desc=target,
-          ),
-        )
-      }
-  }
-  if model.remote_error is Some(message) {
-    rows.push(
-      @settings.row(@settings.text(model.locale, Problem), [], desc=message),
-    )
-  }
+  rows.append(
+    @remote_access.rows(
+      model.locale,
+      dispatch.map(msg => RemoteAccess(msg)),
+      model.remote_access,
+    ),
+  )
   rows
 }
 

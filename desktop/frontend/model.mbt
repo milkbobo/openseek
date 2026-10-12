@@ -1671,27 +1671,10 @@ priv struct Model {
   // update manifest lives on the SeekMoon origin and no longer derives
   // from the chat provider.
   update_ux : UpdateUx
-  // The host's relay sign-in mirror (`auth.status` reply / `auth.changed`
-  // broadcast), None until the first reply. Desktop-window-only UI.
-  remote_access : RemoteAccess?
-  // An `auth.connect` waiting on the user's browser round-trip.
-  remote_connecting : Bool
-  // The last connect/disconnect failure, shown inside the section.
-  remote_error : String?
-} derive(Eq)
-
-///|
-/// One `auth.status`/`auth.changed` payload, decoded: who this host is
-/// signed in as and whether its relay registration is live. A mirror of
-/// the wire shape (docs/remote-protocol.md `auth.*`) — signed out is
-/// `user_login: None`.
-priv struct RemoteAccess {
-  server_url : String?
-  connected : Bool
-  managed_by_env : Bool
-  user_login : String?
-  device_name : String?
-  device_url : String?
+  // The host's relay sign-in, owned by the `remote_access` package: the
+  // `auth.status` mirror and the Settings section's connect flow.
+  // Desktop-window-only UI.
+  remote_access : @remote_access.State
 } derive(Eq)
 
 ///|
@@ -1846,22 +1829,7 @@ priv enum Msg {
   DismissNotification(Int32)
   // The Settings "Check for updates" button.
   CheckForUpdates
-  // An `auth.status` reply or `auth.changed` broadcast: the host's relay
-  // sign-in state moved.
-  RemoteStatusLoaded(RemoteAccess)
-  // The Remote access Connect button; the flow blocks on a browser
-  // round-trip, so the section shows an in-progress state until a
-  // finished/failed message settles it.
-  RemoteConnectClicked
-  RemoteConnectFinished(RemoteAccess)
-  RemoteConnectFailed(String)
-  // The Cancel beside a waiting Connect: fires `auth.cancel`; the pending
-  // connect settles the section through its own failure reply.
-  RemoteCancelClicked
-  // The Remote access Disconnect button and its failure (success arrives
-  // as `RemoteStatusLoaded` via the op's reply).
-  RemoteDisconnectClicked
-  RemoteDisconnectFailed(String)
+  RemoteAccess(@remote_access.Msg)
   // Proton package metadata returned by the native host.
   AppInfoLoaded(version~ : String, console_url~ : String?)
   // A `check_update` reply (or its failure, folded into `Unreachable`).
@@ -2797,9 +2765,7 @@ fn initial_model(desktop~ : Bool) -> Model {
     export_dialog: @export_dialog.Model(),
     workspace_settings_dialog: None,
     api_setup_dismissed: false,
-    remote_access: None,
-    remote_connecting: false,
-    remote_error: None,
+    remote_access: @remote_access.State::empty(),
   }
 }
 

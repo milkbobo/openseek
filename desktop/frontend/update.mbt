@@ -3669,42 +3669,14 @@ fn update_msg(
         @cmd.none,
         { ..model, notifications: model.notifications.filter(t => t.id != id), },
       )
-    RemoteStatusLoaded(status) =>
-      (@cmd.none, { ..model, remote_access: Some(status), })
-    RemoteConnectClicked =>
-      // The flow blocks on a browser round-trip; a second click while one
-      // is pending would start a second loopback flow just to be refused.
-      if model.remote_connecting {
-        (@cmd.none, model)
-      } else {
-        (
-          connect_remote(dispatch),
-          { ..model, remote_connecting: true, remote_error: None, },
-        )
-      }
-    RemoteConnectFinished(status) =>
-      (
-        @cmd.none,
-        {
-          ..model,
-          remote_access: Some(status),
-          remote_connecting: false,
-          remote_error: None,
-        },
+    RemoteAccess(msg) => {
+      let (remote_access, command) = @remote_access.update(
+        model.remote_access,
+        msg,
+        dispatch.map(msg => RemoteAccess(msg)),
       )
-    RemoteConnectFailed(message) =>
-      (
-        @cmd.none,
-        { ..model, remote_connecting: false, remote_error: Some(message), },
-      )
-    RemoteCancelClicked =>
-      // Fire-and-forget: the connect that is being cancelled reports back
-      // through its own reply, which is what clears the pending state.
-      (cancel_remote(dispatch), model)
-    RemoteDisconnectClicked =>
-      (disconnect_remote(dispatch), { ..model, remote_error: None, })
-    RemoteDisconnectFailed(message) =>
-      (@cmd.none, { ..model, remote_error: Some(message), })
+      (command, { ..model, remote_access, })
+    }
     AppInfoLoaded(version~, console_url~) =>
       (@cmd.none, { ..model, app_version: version, console_url, })
     CheckForUpdates =>
@@ -6449,7 +6421,9 @@ fn update_device_msg(
           commands.push(fetch_system_appearance(dispatch))
           commands.push(model.fetch_app_info(dispatch))
           commands.push(check_for_updates(dispatch, explicit=false))
-          commands.push(fetch_remote_status(dispatch))
+          commands.push(
+            @remote_access.fetch_status(dispatch.map(msg => RemoteAccess(msg))),
+          )
         }
       }
       // Delta streams are not replayable across a connection boundary; keep
