@@ -121,22 +121,22 @@ pub impl FromJson for McpServerStatus with fn from_json(json, path) {
 ///|
 pub impl ToJson for McpServerStatus with fn to_json(self) {
   let fields : Map[String, Json] = {
-    "name": self.name.to_json(),
+    "name": Json(self.name),
     "transport": match self.transport {
       Stdio => "stdio"
       Http => "http"
     },
-    "target": self.target.to_json(),
+    "target": Json(self.target),
   }
   match self.state {
     Connected(tools) => {
       fields["state"] = "connected"
-      fields["tools"] = tools.to_json()
+      fields["tools"] = Json(tools)
     }
     NoTools => fields["state"] = "no_tools"
     Failed(error) => {
       fields["state"] = "failed"
-      fields["error"] = error.to_json()
+      fields["error"] = Json(error)
     }
     Skipped => fields["state"] = "skipped"
   }

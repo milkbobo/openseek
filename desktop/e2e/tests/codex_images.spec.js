@@ -25,12 +25,12 @@ class CodexImagesHarness extends DesktopBrowserHarness {
     await this.goto();
     await this.page.getByRole('button', { name: 'Model', exact: true }).click();
     await this.page.getByRole('option', { name: 'Codex images', exact: true }).click();
-    await expect(this.page.getByRole('button', { name: 'Attach images', exact: true })).toBeVisible();
+    await expect(this.page.getByRole('button', { name: 'Attach files', exact: true })).toBeVisible();
   }
 
   async select(files) {
     const chooser = this.page.waitForEvent('filechooser');
-    await this.page.getByRole('button', { name: 'Attach images', exact: true }).click();
+    await this.page.getByRole('button', { name: 'Attach files', exact: true }).click();
     await (await chooser).setFiles(files);
   }
 
@@ -84,7 +84,7 @@ test('paste and drop preserve image bytes, allow removal and steer a running tas
   ]);
   // The composer is disabled until the turn is accepted, and a disabled
   // composer leaves a paste to the browser.
-  await expect(page.getByRole('button', { name: 'Attach images', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Attach files', exact: true })).toBeVisible();
   expect(await app.transfer('paste')).toBe(true);
   await expect(page.locator('.composer-image')).toHaveCount(1);
   await page.locator('#send').click();
@@ -122,12 +122,12 @@ test('slow file reads disable send and report read errors without losing text', 
     File.prototype.arrayBuffer = () => new Promise((_, reject) => { window.rejectImageRead = reject; });
   });
   await app.select(image);
-  await expect(page.getByText('Reading images…')).toBeVisible();
+  await expect(page.getByText('Reading attachments…')).toBeVisible();
   await expect(page.locator('#send')).toBeDisabled();
   await page.locator('#task').press('Enter');
   expect(app.requests.some(r => r.method === 'codex.turn.start')).toBe(false);
   await page.evaluate(() => window.rejectImageRead(new Error('test read failure')));
-  await expect(page.getByRole('alert')).toContainText('Could not read images');
+  await expect(page.getByRole('alert')).toContainText('Could not read attachments');
   await expect(page.locator('#task')).toHaveValue('Keep this text');
   await expect(page.locator('#send')).toBeEnabled();
   expect(app.pageErrors).toEqual([]);
@@ -163,7 +163,7 @@ test('canceling the file picker removes its input and permits another selection'
   const app = new CodexImagesHarness(page);
   await app.openCodex();
   const chooser = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: 'Attach images', exact: true }).click();
+  await page.getByRole('button', { name: 'Attach files', exact: true }).click();
   const input = (await chooser).element();
   await input.evaluate(element => element.dispatchEvent(new Event('cancel')));
   await expect(page.locator('input[type="file"]')).toHaveCount(0);

@@ -966,6 +966,29 @@
   color: var(--color-danger);
 }
 
+.composer-attachment-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid transparent;
+  background: var(--color-control-surface);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+}
+.composer-attachment-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.composer-attachment-question {
+  color: var(--color-text-muted);
+}
+.composer-attachment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 /* Selected review changes share the draft's mention tray and anchor to the
    complete composer, so neither long paths nor a narrow pane clip the popup. */
 .composer-changes {

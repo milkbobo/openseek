@@ -265,6 +265,50 @@ CDN.
 `viewer_theme.css` supplies the desktop-owned theme variables; the editor's
 reference-shell theme remains development-only.
 
+The file panel imports the pinned `Lampese/office-viewer` Mooncakes package.
+Existing `.docx`, `.xlsx`, and `.pdf` paths open in the file panel and are read
+as bounded binary payloads (up to 20 MiB). DOCX/XLSX use the standalone viewer's
+`office.mbt` reader/layout pipeline. PDFs use its asynchronous PDF.js surface,
+with page navigation, zoom, fit to width, rotation, search, and password prompts.
+The Office/PDF controls and password prompts follow the application's language
+setting. Preview and selection failures show a short message with retry guidance.
+DOCX, XLSX, and PDF previews support trackpad pinch zoom and Ctrl+wheel, with
+the toolbar percentage following the document's zoom. Ordinary two-finger
+scrolling remains available. DOCX/XLSX use the existing 50–200% range and PDFs
+use 25–400%; zooming keeps the document position under the pointer when the
+scroll range permits it. Selecting content continues to work after zooming.
+Selecting text in DOCX/PDF or a cell range in XLSX opens a preview showing its
+content and page or sheet/range. **Add to context** keeps the quotation in the
+active conversation; **Cancel** leaves the draft unchanged. Further selections
+update the pending preview, while separately confirmed quotations accumulate.
+Each quotation chip shows its file, location, and content excerpt, with the
+selected text in its tooltip. PDF quotations retain a complete
+file/hash/parser-bound PDF text-range reference. Image-only pages display
+without OCR or selectable text.
+The composer's **Attach files** action also accepts PDF, DOCX, and XLSX files
+(up to 20 MiB), including clipboard and drop input. A native file already in
+the conversation's workspace becomes a file reference immediately. Otherwise,
+the composer asks before copying the original into
+`.openseek/attachments/<id>/<filename>`; cancelling writes nothing, and the
+source file is retained. Browser and remote attachments upload their bytes
+after the same confirmation. Imported files are present before sending and
+carried into a new task worktree when necessary. Click a file reference to
+preview it and select the content to quote; attaching a document creates no
+extracted-text or JSON sidecar.
+Browser and desktop packages copy the metric-compatible Office fonts and the
+accompanying copyright, license and modification notices from the published
+`Lampese/office-viewer@0.1.3` package into the final web resource tree. The
+browser-ready fonts retain the layout engine's glyphs and metrics and use
+distinct internal names for the modified font programs. No separate font
+checkout or duplicated font assets are needed.
+
+Moon resolves the viewer from the published module declared in `moon.mod`;
+packaging reads its PDF runtime and font assets from the resolved package.
+The runtime and pinned PDF.js engine, worker, stylesheet, CMaps,
+standard fonts, codecs, ICC profiles, and license are packaged in both hosts;
+PDF previews do not fetch runtime resources from a CDN or require a sibling
+Office Viewer checkout.
+
 What still needs preparing, beyond the MoonBit packages:
 
 - The native host links `libproton`, which in turn needs CEF. The Proton

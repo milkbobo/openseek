@@ -2,7 +2,7 @@
 /// The rows of the Settings page's MCP group for `host`: the explanation
 /// with its check button, then what the last check of that host found.
 pub fn rows(
-  locale? : @i18n.Locale = English,
+  locale~ : @i18n.Locale = English,
   host~ : @interop.ChannelId,
   state : State,
   emit : @cmd.Emit[Msg],

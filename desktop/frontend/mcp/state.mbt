@@ -11,7 +11,7 @@ pub(all) enum Msg {
   /// The user asked for a fresh check of the host the panel is showing.
   Refresh(@interop.ChannelId)
   /// The host answered check number `serial`.
-  Checked(serial~ : Int, Result[@protocol.McpStatusReply, String])
+  Checked(serial~ : Int32, Result[@protocol.McpStatusReply, String])
 }
 
 ///|
@@ -39,7 +39,7 @@ pub struct State {
   phase : Phase
   /// Counts checks, so the answer to a superseded one is recognized and
   /// dropped instead of overwriting its successor's.
-  serial : Int
+  serial : Int32
 } derive(Eq)
 
 ///|

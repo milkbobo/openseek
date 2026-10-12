@@ -12,7 +12,7 @@ priv enum UiMessage {
   ConfigRejected(String)
   CheckFailed
   Connected
-  ToolCount(Int)
+  ToolCount(Int32)
   NoTools
   NoToolsReason
   Failed

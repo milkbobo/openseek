@@ -409,6 +409,30 @@ pub let fs_read_file : Command[
 ] = Command("fs.read_file")
 
 ///|
+pub let fs_prepare_attachment : Command[
+  @protocol.PrepareAttachmentPayload,
+  @protocol.PrepareAttachmentReply,
+] = Command("fs.prepare_attachment")
+
+///|
+pub let fs_import_attachment : Command[
+  @protocol.PrepareAttachmentPayload,
+  @protocol.ImportAttachmentReply,
+] = Command("fs.import_attachment")
+
+///|
+pub let host_pick_attachment : Command[
+  @protocol.EmptyPayload,
+  @protocol.PickAttachmentReply,
+] = Command("host.pick_attachment")
+
+///|
+pub let fs_stage_attachments : Command[
+  @protocol.StageAttachmentsPayload,
+  @protocol.EmptyReply,
+] = Command("fs.stage_attachments")
+
+///|
 pub let fs_materialize_semantic_selection : Command[
   @protocol.MaterializeSemanticSelectionPayload,
   @protocol.MaterializeSemanticSelectionReply,

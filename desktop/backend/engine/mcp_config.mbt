@@ -63,7 +63,7 @@ fn mcp_config_fingerprint(config : McpConfig?) -> String {
 /// How long one status check may take. The engine connects the servers one
 /// after another and bounds each on its own, so this only stops a check that
 /// several unresponsive servers would otherwise stretch without limit.
-const McpStatusTimeoutMs : Int = 120_000
+const McpStatusTimeoutMs : Int32 = 120_000
 
 ///|
 /// What the user's MCP configuration yields right now: the servers it lists

@@ -11,7 +11,7 @@
 ///
 /// A handle's identity IS its process: a respawn puts a fresh ServeEngine in
 /// the same session slot, and a same-config successor is indistinguishable
-/// by value (same `session_key`, same `spec_key`). Cleanup paths that may
+/// by value (same `session_key`, same configuration). Cleanup paths that may
 /// run after a replacement — the reader's exit handler, a failed write —
 /// therefore compare with `physical_equal` before clearing the slot, so a
 /// dead engine's teardown can never evict its live successor.
@@ -22,13 +22,13 @@ priv struct ServeEngine {
   // this process was spawned. Workspace detach uses this placement to close
   // idle writers before hiding their store, and to refuse while one is busy.
   session_root : @pathx.Absolute?
-  // Fingerprint of the config this process was spawned with; a prompt whose
-  // config differs cannot reuse it.
-  spec_key : String
+  // Retain the spawn config so queued turns can refresh MCP and replace the
+  // process without changing the other settings of the accepted queue.
+  config : RunConfig
   engine_name : String
   supports_images : Bool
   model : String
-  max_steps : Int
+  max_steps : Int32
   // Owned exclusively by this engine's writer task. No request ever touches
   // it, which is what makes a partial JSONL frame impossible and stdin's
   // close a single-owner event.
@@ -573,6 +573,9 @@ priv struct PendingClaim {
   session_key : String
   op : PendingOp
   mut active : Bool
+  // A queued turn reserves the slot behind an already accepted goal write.
+  // Releasing that write hands ownership directly to the queued start.
+  mut next_start : PendingClaim?
 }
 
 ///|
@@ -627,7 +630,13 @@ fn SessionSlot::claim(
       },
     )
   }
-  let claim : PendingClaim = { epoch, session_key, op, active: true, }
+  let claim : PendingClaim = {
+    epoch,
+    session_key,
+    op,
+    active: true,
+    next_start: None,
+  }
   self.pending = Some(claim)
   claim
 }
@@ -663,7 +672,12 @@ fn PendingClaim::release(self : PendingClaim, manager : EngineManager) -> Unit {
   if self.epoch.get(self.session_key) is Some(slot) &&
     slot.pending is Some(current) &&
     physical_equal(current, self) {
-    slot.pending = None
+    slot.pending = self.next_start
+  } else if self.epoch.get(self.session_key) is Some(slot) &&
+    slot.pending is Some(current) &&
+    current.next_start is Some(next) &&
+    physical_equal(next, self) {
+    current.next_start = None
   }
   manager.prune_slot(self.session_key)
 }
@@ -675,8 +689,8 @@ fn PendingClaim::release(self : PendingClaim, manager : EngineManager) -> Unit {
 /// sets `moving` first, blocking newcomers, then waits for both counts to
 /// reach zero.
 priv struct SessionRecordGuard {
-  mut readers : Int
-  mut active_ops : Int
+  mut readers : Int32
+  mut active_ops : Int32
   mut moving : Bool
 }
 
@@ -723,7 +737,7 @@ struct EngineManager {
   // deliberately process-local: BridgeReady starts a fresh revision epoch
   // after a host restart, while the credential file's v1 format stays
   // unchanged.
-  mut settings_revision : Int
+  mut settings_revision : Int32
   commands : @async.Queue[EngineActorCommand]
   mut pump : PumpState
   // Record arbitration must survive pump replacement: a load started under
@@ -1543,7 +1557,7 @@ async fn[G] start_serve_engine(
   let engine : ServeEngine = {
     session_key: config.session,
     session_root: config.session_root,
-    spec_key: engine_fingerprint(config),
+    config,
     engine_name: config.engine,
     model: config.model,
     supports_images: config.supports_images(),
@@ -1582,7 +1596,7 @@ async fn[G] start_serve_engine(
   // buffer between them for a half-dead pair of tasks to strand.
   engine.consumer = Some(
     group.spawn(no_wait=true, allow_failure=true, () => {
-      engine.run(manager, reader, stderr_task)
+      engine.run(manager, reader, group, stderr_task)
     }),
   )
   startup_committed = true
@@ -1603,13 +1617,14 @@ async fn[G] start_serve_engine(
 /// error the spawn would have swallowed. Malformed JSONL arrives here too: it
 /// is simply an engine this host cannot go on reading, and retirement already
 /// knows how to report a cause for whichever phase the engine is in.
-async fn ServeEngine::run(
+async fn[G] ServeEngine::run(
   self : ServeEngine,
   manager : EngineManager,
   reader : @process.ReadFromProcess,
+  owner_group : @async.TaskGroup[G],
   stderr_task : @async.Task[String],
 ) -> Unit {
-  let code = self.consume(manager, reader) catch {
+  let code = self.consume(manager, reader, owner_group) catch {
     error => {
       @xlog.error() <?
         {
@@ -1634,7 +1649,7 @@ async fn ServeEngine::run(
       self.process.cancel()
       // A wait that errors yields no status; absence stays absent rather
       // than becoming a fabricated exit code downstream.
-      let code : Int? = try self.process.wait() catch {
+      let code : Int32? = try self.process.wait() catch {
         _ => None
       } noraise {
         code => Some(code)
@@ -1707,11 +1722,12 @@ test "model-step and successful-terminal events are durable barriers" {
 /// flips, admission cutoff on a died turn) stay synchronous with the events
 /// that cause them, while retirement belongs to `run`, so a pump that dies
 /// mid-stream still retires exactly once.
-async fn ServeEngine::consume(
+async fn[G] ServeEngine::consume(
   self : ServeEngine,
   manager : EngineManager,
   reader : @process.ReadFromProcess,
-) -> Int {
+  owner_group : @async.TaskGroup[G],
+) -> Int32 {
   let engine = self
   let sink = self.sink
   // The read end belongs to this task for its whole life, so every way out —
@@ -1981,28 +1997,8 @@ async fn ServeEngine::consume(
               engine.settle_turn_commands(
                 "the engine finished its turn before this command was written",
               )
-              if next_queue is Some(next) &&
-                engine.submit(
-                  @protocol.prompt(next.content, submission_id=next.id),
-                  failure_reason="failed to promote queued prompt",
-                ) {
-                ignore(engine.queued_runs.remove(0))
-                engine.phase = Running(run_id=next.run_id, compact_queued=false)
-                engine.steer_runs.begin_run()
-                emit(
-                  sink,
-                  Started({
-                    run_id: next.run_id,
-                    submission_id: Some(next.id),
-                    engine: Some(engine.engine_name),
-                    model: Some(engine.model),
-                    max_steps: Some(engine.max_steps),
-                    session: engine.session_key,
-                    session_root: engine.session_root.map(root => {
-                      root.resource_path()
-                    }),
-                  }),
-                )
+              if next_queue is Some(next) {
+                engine.promote_queued(manager, owner_group, next)
               }
             }
           }
@@ -2038,7 +2034,7 @@ async fn ServeEngine::retire(
   self : ServeEngine,
   manager : EngineManager,
   stderr_task : @async.Task[String],
-  code? : Int,
+  code? : Int32,
 ) -> Unit {
   let engine = self
   let sink = self.sink
@@ -2049,7 +2045,7 @@ async fn ServeEngine::retire(
       "pid": engine.process.pid,
       // Absent when the process handle yielded no status (a forced
       // retirement whose wait failed) — never a fabricated sentinel.
-      "exit_code": code.map_or(Json::null(), c => c.to_json()),
+      "exit_code": code.map_or(Json::null(), c => Json(c)),
       "run_id": engine.phase.latest_run().unwrap_or(""),
     }
   engine.discard_commands("the engine exited")
@@ -2229,12 +2225,12 @@ fn test_serve_engine(
   phase~ : EnginePhase,
   session_root? : @pathx.Absolute,
   follower? : SessionFollower,
-  condemned? : Bool = false,
+  condemned~ : Bool = false,
 ) -> ServeEngine {
   {
     session_key: session,
     session_root,
-    spec_key: "test",
+    config: pump_test_config(session),
     engine_name: "openseek",
     model: "test",
     supports_images: true,
@@ -2291,7 +2287,7 @@ async test "a failed pump closes its open run and retires the slot" {
     slot.engine = Some(engine)
     manager.pump = Serving(sessions~)
     let stderr_task = group.spawn(no_wait=true, () => "")
-    engine.run(manager, reader, stderr_task)
+    engine.run(manager, reader, group, stderr_task)
 
     // `run` returning is retirement: the run was closed as a failure naming
     // the pump, the child was killed, and the slot is clear.
@@ -2352,7 +2348,7 @@ async test "an engine that dies between turns still reports why" {
     slot.engine = Some(engine)
     manager.pump = Serving(sessions~)
     let stderr_task = group.spawn(no_wait=true, () => "")
-    engine.run(manager, reader, stderr_task)
+    engine.run(manager, reader, group, stderr_task)
 
     // No run was open, so nothing is settled — but the cause is out, on the
     // conversation it belongs to.
@@ -2407,7 +2403,7 @@ async test "a failed turn reports its own reason exactly once" {
     slot.engine = Some(engine)
     manager.pump = Serving(sessions~)
     let stderr_task = group.spawn(no_wait=true, () => "")
-    engine.run(manager, reader, stderr_task)
+    engine.run(manager, reader, group, stderr_task)
 
     // The raw event stayed suppressed — one report, not two — and the one
     // report carries the engine's own reason rather than the generic cause.
@@ -2492,7 +2488,7 @@ async test "a failed command leaves settlement to the EOF retirement" {
 
     // EOF retirement settles exactly once, naming the stashed cause.
     let stderr_task = group.spawn(no_wait=true, () => "")
-    engine.run(manager, reader, stderr_task)
+    engine.run(manager, reader, group, stderr_task)
     assert_true(slot.engine is None)
     assert_true(engine.phase is Idle(..))
     let mut finishes = 0

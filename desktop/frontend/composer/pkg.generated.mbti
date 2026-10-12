@@ -23,6 +23,8 @@ pub fn component(@rabbita.Val[@i18n.Locale], @rabbita.Val[Input], @cmd.Emit[Acti
 
 pub fn focus_message_end() -> @cmd.Cmd
 
+pub async fn stage_attachments(@interop.ChannelId, String, String, String, Array[@mention_context.MentionRef]) -> Unit
+
 // Errors
 
 // Types and methods
@@ -108,6 +110,7 @@ pub fn Draft::prompt(Self) -> String
 pub fn Draft::to_repr(Self) -> @debug.Repr
 pub fn Draft::user_item(Self) -> @transcript.ItemKind
 pub fn Draft::with_mention(Self, Mention) -> Self
+pub fn Draft::with_office_selection(Self, String?) -> Self
 pub fn Draft::with_review_changes(Self, @mention_context.ReviewChanges, adding~ : Bool) -> Self
 pub fn Draft::with_semantic_selection(Self, @mention_context.SemanticSearchReference?) -> Self
 
