@@ -655,6 +655,7 @@ fn follower_test_config(
   root : @pathx.Absolute,
 ) -> RunConfig {
   {
+    content: Content([Text("test")]),
     api_key: "test",
     key_env: "DEEPSEEK",
     api_url: None,
@@ -665,7 +666,6 @@ fn follower_test_config(
     cwd: None,
     session,
     session_root: Some(root),
-    mcp_config: None,
   }
 }
 
@@ -916,7 +916,7 @@ async test "a committed terminal does not settle a run the stream never ended" {
       "{\"sequence\":7,\"item\":{\"kind\":\"terminal\",\"payload\":{\"kind\":\"interrupted\",\"message\":\"cancelled\"}}}",
     ])
     let stderr_task = group.spawn(no_wait=true, () => "")
-    engine.run(manager, reader, group, stderr_task)
+    engine.run(manager, reader, stderr_task)
 
     // The commit reaches clients as a transcript event, and the run settles
     // as the death it was — the record's `interrupted` does not become the
@@ -981,7 +981,7 @@ async test "abrupt EOF leaves a failed drain for a later caller to retry" {
     // The record is unreadable at EOF, so the drain this engine's exit runs
     // cannot complete and the actor has to stay behind.
     write_damaged_record(root, session)
-    engine.run(manager, reader, group, stderr_task)
+    engine.run(manager, reader, stderr_task)
 
     // `run` returning is retirement: the dead handle left its slot, and its
     // run was closed without a record position it could not read.

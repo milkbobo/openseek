@@ -118,12 +118,12 @@ async fn[G] Schedules::run_cli(
     })
   }
   let config = serve_config(
+    spec.task,
     self.manager,
     model?=spec.model,
     max_steps=1000,
     session=run.session,
     workspace=run.workspace,
-    mcp_config=resolved_mcp_config(),
   )
   guard config.cwd is Some(cwd) && @fs.kind(cwd.to_string()) is Directory else {
     raise EngineError("The scheduled project's directory is unavailable")
@@ -133,9 +133,9 @@ async fn[G] Schedules::run_cli(
   if config.session_root is Some(root) {
     args.push("--session-root=\{root.to_string()}")
   }
-  // A scheduled task gets the same MCP tools as a conversation would.
-  if config.mcp_config is Some(mcp) {
-    args.push("--mcp-config=\{mcp.path}")
+  // A scheduled run uses the same MCP servers a conversation does.
+  if mcp_config_path() is Some(path) {
+    args.push("--mcp-config=\{path.to_string()}")
   }
   args.append(["--", spec.task])
   if self.stopped.contains(run.id) {

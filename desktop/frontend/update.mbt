@@ -804,7 +804,8 @@ fn apply_session_snapshot(
 /// Whether an event the engine emits while idle (between turns) — the
 /// compaction lifecycle, background-job notices, the failure of an
 /// idle-time durable append, and the MCP failures of an engine that is still
-/// starting — so the routing must match by last run id: the
+/// starting (one reloading its configuration reports them inside a turn) —
+/// so the routing must match by last run id: the
 /// run that owned the id has already cleared `active_run_id` by the time
 /// these arrive.
 fn is_idle_event(event : @transcript.EngineEvent) -> Bool {

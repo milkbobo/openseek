@@ -98,9 +98,10 @@ pub(all) enum EngineEvent {
   // wait on a commit that is never coming, with no word of why.
   SessionAppendFailed(String)
   // The engine could not load the user's MCP configuration, or one server
-  // in it contributed no tools. Reported while the engine starts, before any
-  // turn, and never recorded: without a word here the configured tools are
-  // simply missing from the conversation and nothing says why.
+  // in it contributed no tools. Reported while the engine starts, and again
+  // when a turn finds the file edited, and never recorded: without a word
+  // here the configured tools are simply missing from the conversation and
+  // nothing says why.
   McpConfigRejected(path~ : String, reason~ : String)
   McpServerUnavailable(server~ : String, reason~ : String)
   // A server connected, but the registry's budget for MCP tools ran out

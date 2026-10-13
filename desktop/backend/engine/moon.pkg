@@ -1,7 +1,6 @@
 import {
   "moonbitlang/core/encoding/base64",
   "moonbitlang/x/uuid" @x_uuid,
-  "moonbitlang/x/crypto",
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/async/os_error",
   "moonbitlang/openseek/agent_session",

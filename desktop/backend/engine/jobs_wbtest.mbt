@@ -319,7 +319,7 @@ async test "correlated job replies reach their waiter but never the stream sink"
     )
     let reply : @async.Queue[@wire.Event] = Queue(kind=Unbounded)
     engine.job_requests["private"] = reply
-    ignore(engine.consume(manager, reader, group))
+    ignore(engine.consume(manager, reader))
     assert_eq(reply.get(), snapshot)
     assert_true(emitted.is_empty())
   })

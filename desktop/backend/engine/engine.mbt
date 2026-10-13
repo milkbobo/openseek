@@ -11,7 +11,7 @@
 ///
 /// A handle's identity IS its process: a respawn puts a fresh ServeEngine in
 /// the same session slot, and a same-config successor is indistinguishable
-/// by value (same `session_key`, same configuration). Cleanup paths that may
+/// by value (same `session_key`, same `spec_key`). Cleanup paths that may
 /// run after a replacement — the reader's exit handler, a failed write —
 /// therefore compare with `physical_equal` before clearing the slot, so a
 /// dead engine's teardown can never evict its live successor.
@@ -22,9 +22,9 @@ priv struct ServeEngine {
   // this process was spawned. Workspace detach uses this placement to close
   // idle writers before hiding their store, and to refuse while one is busy.
   session_root : @pathx.Absolute?
-  // Retain the spawn config so queued turns can refresh MCP and replace the
-  // process without changing the other settings of the accepted queue.
-  config : RunConfig
+  // Fingerprint of the config this process was spawned with; a prompt whose
+  // config differs cannot reuse it.
+  spec_key : String
   engine_name : String
   supports_images : Bool
   model : String
@@ -573,9 +573,6 @@ priv struct PendingClaim {
   session_key : String
   op : PendingOp
   mut active : Bool
-  // A queued turn reserves the slot behind an already accepted goal write.
-  // Releasing that write hands ownership directly to the queued start.
-  mut next_start : PendingClaim?
 }
 
 ///|
@@ -630,13 +627,7 @@ fn SessionSlot::claim(
       },
     )
   }
-  let claim : PendingClaim = {
-    epoch,
-    session_key,
-    op,
-    active: true,
-    next_start: None,
-  }
+  let claim : PendingClaim = { epoch, session_key, op, active: true, }
   self.pending = Some(claim)
   claim
 }
@@ -672,12 +663,7 @@ fn PendingClaim::release(self : PendingClaim, manager : EngineManager) -> Unit {
   if self.epoch.get(self.session_key) is Some(slot) &&
     slot.pending is Some(current) &&
     physical_equal(current, self) {
-    slot.pending = self.next_start
-  } else if self.epoch.get(self.session_key) is Some(slot) &&
-    slot.pending is Some(current) &&
-    current.next_start is Some(next) &&
-    physical_equal(next, self) {
-    current.next_start = None
+    slot.pending = None
   }
   manager.prune_slot(self.session_key)
 }
@@ -1440,7 +1426,10 @@ async fn engine_process_env(
 }
 
 ///|
-fn engine_process_args(config : RunConfig) -> Array[String] {
+fn engine_process_args(
+  config : RunConfig,
+  mcp_config? : @pathx.Absolute,
+) -> Array[String] {
   // Desktop engines always run in durable-session mode. Passing placement
   // explicitly keeps it out of the ambient environment inherited by tools.
   // Attach values so a leading `-` remains part of the value.
@@ -1448,10 +1437,13 @@ fn engine_process_args(config : RunConfig) -> Array[String] {
   if config.session_root is Some(root) {
     args.push("--session-root=\{root.to_string()}")
   }
-  args.append(["--dir", ".", "--approval", "ask"])
-  if config.mcp_config is Some(mcp) {
-    args.push("--mcp-config=\{mcp.path}")
+  // The engine follows this file for its whole life — it reads it again
+  // before every turn — so the path is all the host says about MCP, and it
+  // is not part of what decides whether a live engine can be reused.
+  if mcp_config is Some(path) {
+    args.push("--mcp-config=\{path.to_string()}")
   }
+  args.append(["--dir", ".", "--approval", "ask"])
   args
 }
 
@@ -1509,7 +1501,7 @@ async fn[G] start_serve_engine(
   // a controller with a person behind it from a script reading its stdout.
   // Saying so here is what makes the escalation argument exist for this
   // session's model at all.
-  let args = engine_process_args(config)
+  let args = engine_process_args(config, mcp_config?=mcp_config_path())
   let graceful_cancel = @process.graceful_cancel(timeout=1000)
   @xlog.debug() <?
     {
@@ -1557,7 +1549,7 @@ async fn[G] start_serve_engine(
   let engine : ServeEngine = {
     session_key: config.session,
     session_root: config.session_root,
-    config,
+    spec_key: engine_fingerprint(config),
     engine_name: config.engine,
     model: config.model,
     supports_images: config.supports_images(),
@@ -1596,7 +1588,7 @@ async fn[G] start_serve_engine(
   // buffer between them for a half-dead pair of tasks to strand.
   engine.consumer = Some(
     group.spawn(no_wait=true, allow_failure=true, () => {
-      engine.run(manager, reader, group, stderr_task)
+      engine.run(manager, reader, stderr_task)
     }),
   )
   startup_committed = true
@@ -1617,14 +1609,13 @@ async fn[G] start_serve_engine(
 /// error the spawn would have swallowed. Malformed JSONL arrives here too: it
 /// is simply an engine this host cannot go on reading, and retirement already
 /// knows how to report a cause for whichever phase the engine is in.
-async fn[G] ServeEngine::run(
+async fn ServeEngine::run(
   self : ServeEngine,
   manager : EngineManager,
   reader : @process.ReadFromProcess,
-  owner_group : @async.TaskGroup[G],
   stderr_task : @async.Task[String],
 ) -> Unit {
-  let code = self.consume(manager, reader, owner_group) catch {
+  let code = self.consume(manager, reader) catch {
     error => {
       @xlog.error() <?
         {
@@ -1722,11 +1713,10 @@ test "model-step and successful-terminal events are durable barriers" {
 /// flips, admission cutoff on a died turn) stay synchronous with the events
 /// that cause them, while retirement belongs to `run`, so a pump that dies
 /// mid-stream still retires exactly once.
-async fn[G] ServeEngine::consume(
+async fn ServeEngine::consume(
   self : ServeEngine,
   manager : EngineManager,
   reader : @process.ReadFromProcess,
-  owner_group : @async.TaskGroup[G],
 ) -> Int32 {
   let engine = self
   let sink = self.sink
@@ -1997,8 +1987,28 @@ async fn[G] ServeEngine::consume(
               engine.settle_turn_commands(
                 "the engine finished its turn before this command was written",
               )
-              if next_queue is Some(next) {
-                engine.promote_queued(manager, owner_group, next)
+              if next_queue is Some(next) &&
+                engine.submit(
+                  @protocol.prompt(next.content, submission_id=next.id),
+                  failure_reason="failed to promote queued prompt",
+                ) {
+                ignore(engine.queued_runs.remove(0))
+                engine.phase = Running(run_id=next.run_id, compact_queued=false)
+                engine.steer_runs.begin_run()
+                emit(
+                  sink,
+                  Started({
+                    run_id: next.run_id,
+                    submission_id: Some(next.id),
+                    engine: Some(engine.engine_name),
+                    model: Some(engine.model),
+                    max_steps: Some(engine.max_steps),
+                    session: engine.session_key,
+                    session_root: engine.session_root.map(root => {
+                      root.resource_path()
+                    }),
+                  }),
+                )
               }
             }
           }
@@ -2230,7 +2240,7 @@ fn test_serve_engine(
   {
     session_key: session,
     session_root,
-    config: pump_test_config(session),
+    spec_key: "test",
     engine_name: "openseek",
     model: "test",
     supports_images: true,
@@ -2287,7 +2297,7 @@ async test "a failed pump closes its open run and retires the slot" {
     slot.engine = Some(engine)
     manager.pump = Serving(sessions~)
     let stderr_task = group.spawn(no_wait=true, () => "")
-    engine.run(manager, reader, group, stderr_task)
+    engine.run(manager, reader, stderr_task)
 
     // `run` returning is retirement: the run was closed as a failure naming
     // the pump, the child was killed, and the slot is clear.
@@ -2348,7 +2358,7 @@ async test "an engine that dies between turns still reports why" {
     slot.engine = Some(engine)
     manager.pump = Serving(sessions~)
     let stderr_task = group.spawn(no_wait=true, () => "")
-    engine.run(manager, reader, group, stderr_task)
+    engine.run(manager, reader, stderr_task)
 
     // No run was open, so nothing is settled — but the cause is out, on the
     // conversation it belongs to.
@@ -2403,7 +2413,7 @@ async test "a failed turn reports its own reason exactly once" {
     slot.engine = Some(engine)
     manager.pump = Serving(sessions~)
     let stderr_task = group.spawn(no_wait=true, () => "")
-    engine.run(manager, reader, group, stderr_task)
+    engine.run(manager, reader, stderr_task)
 
     // The raw event stayed suppressed — one report, not two — and the one
     // report carries the engine's own reason rather than the generic cause.
@@ -2488,7 +2498,7 @@ async test "a failed command leaves settlement to the EOF retirement" {
 
     // EOF retirement settles exactly once, naming the stashed cause.
     let stderr_task = group.spawn(no_wait=true, () => "")
-    engine.run(manager, reader, group, stderr_task)
+    engine.run(manager, reader, stderr_task)
     assert_true(slot.engine is None)
     assert_true(engine.phase is Idle(..))
     let mut finishes = 0
@@ -2900,6 +2910,7 @@ async test "native engine env has one authoritative bundled moon path" {
   prepare_fake_moonbit_seed(seed, version="0.10.0-test")
   prepare_fake_bundled_moonbit_home(moon_home, version="0.10.0-test")
   let config : RunConfig = {
+    content: Content([Text("t")]),
     api_key: "k",
     key_env: "DEEPSEEK",
     api_url: None,
@@ -2910,7 +2921,6 @@ async test "native engine env has one authoritative bundled moon path" {
     cwd: None,
     session: "s-env",
     session_root: None,
-    mcp_config: None,
   }
   let env = engine_process_env(config, Some(runtime))
   assert_eq(env["OPENSEEK_THINKING"], "high")
@@ -2941,25 +2951,18 @@ async test "native engine env has one authoritative bundled moon path" {
       "ask",
     ],
   )
-  let mcp_path = root.join("mcp.json").resolve()
-  @debug.assert_eq(
-    engine_process_args({
-      ..config,
-      mcp_config: Some({
-        path: mcp_path,
-        revision: McpConfigRevision::of_text("{}"),
-      }),
-    }),
-    [
-      "serve",
-      "--session=s-env",
-      "--dir",
-      ".",
-      "--approval",
-      "ask",
-      "--mcp-config=\{mcp_path}",
-    ],
-  )
+  // The MCP file is named whether or not it exists: the engine reads it
+  // again before every turn, so one written later is picked up.
+  let mcp_config = root.join("mcp.json").resolve()
+  @debug.assert_eq(engine_process_args(config, mcp_config~), [
+    "serve",
+    "--session=s-env",
+    "--mcp-config=\{mcp_config.to_string()}",
+    "--dir",
+    ".",
+    "--approval",
+    "ask",
+  ])
   let moon_bin = moon_home.join("bin").to_string()
   let expected_path = if ambient_path is Some(path) && !path.is_empty() {
     "\{moon_bin}\{@env.path_sep}\{path}"
@@ -3038,6 +3041,7 @@ async test "engine startup rolls back follower on pre-spawn failure" {
   let sink = EventSink(_ => ())
   let slot : SessionSlot = { pending: None, engine: None, }
   let config : RunConfig = {
+    content: Content([Text("test")]),
     api_key: "test",
     key_env: "DEEPSEEK",
     api_url: None,
@@ -3048,7 +3052,6 @@ async test "engine startup rolls back follower on pre-spawn failure" {
     cwd: None,
     session: "s-startup-failure",
     session_root: Some(@pathx.Path(dir + "/root").resolve()),
-    mcp_config: None,
   }
   @async.with_task_group(group => {
     let failed = try {
@@ -3153,6 +3156,7 @@ async test "record move waits for readers across pump replacement" {
 ///|
 fn pump_test_config(session : String) -> RunConfig {
   {
+    content: Content([Text("test")]),
     api_key: "test",
     key_env: "DEEPSEEK",
     api_url: None,
@@ -3163,7 +3167,6 @@ fn pump_test_config(session : String) -> RunConfig {
     cwd: None,
     session,
     session_root: Some(@pathx.Path("/tmp/openseek-pump-test").resolve()),
-    mcp_config: None,
   }
 }
 

@@ -15,10 +15,8 @@ const DefaultMaxSteps = 1000
 const PlaceholderApiKey = "unused"
 
 ///|
-/// What a serve engine is spawned with and pinned to. It carries no prompt:
-/// a process outlives the turn that spawned it and serves every later one,
-/// so a prompt travels beside the config (see `run_prompt`), never in it.
 priv struct RunConfig {
+  content : @wire.Content
   api_key : String
   // The environment variable that carries `api_key` to the engine; see
   // `key_env_for`.
@@ -33,8 +31,6 @@ priv struct RunConfig {
   cwd : @pathx.Path?
   session : String
   session_root : @pathx.Absolute?
-  // The user's MCP server configuration; None when there is no file.
-  mcp_config : McpConfig?
 }
 
 ///|
@@ -151,54 +147,40 @@ fn configured_max_steps(value : Int32?) -> Int32 raise EngineError {
 }
 
 ///|
-/// The prompt a start request carries: its trimmed text and decoded images.
-/// A request with neither has nothing to send.
-fn run_prompt(
+async fn run_config(
+  manager : EngineManager,
   payload : @protocol.StartPayload,
-) -> @wire.Content raise EngineError {
+) -> RunConfig {
   let task = payload.task.trim().to_owned()
   let content = prompt_content(task, payload.images)
   guard !task.is_empty() || !payload.images.is_empty() else {
     raise EngineError("task must not be empty")
   }
-  content
-}
-
-///|
-/// The config a start request's engine runs under. The request's prompt is
-/// validated and built separately by `run_prompt`. `mcp_config` is what the
-/// caller observed of the MCP configuration file: `start_run` resolves the
-/// placement here while holding the global lifecycle lock, and reads the file
-/// before taking it so that lock is never held across that read.
-async fn run_config(
-  manager : EngineManager,
-  payload : @protocol.StartPayload,
-  mcp_config? : McpConfig,
-) -> RunConfig {
   let session = payload.session.trim().to_owned()
   guard !session.is_empty() else {
     raise EngineError("session id must not be empty")
   }
   let config = serve_config(
+    task,
     manager,
     model?=payload.model,
     thinking?=payload.thinking,
     max_steps?=payload.max_steps,
     session~,
     workspace?=payload.workspace,
-    mcp_config~,
   )
   if !payload.images.is_empty() && !config.supports_images() {
     raise EngineError("Images require a DeepSeek image-capable endpoint")
   }
-  config
+  { ..config, content, }
 }
 
 ///|
 /// The config a compaction spawns an engine with when its conversation has
 /// none live (resumed after a restart, or the process died between turns):
-/// the same settings a start carries, pinned to the compacted session.
-/// `compact_run` writes only the compact command, so there is no prompt.
+/// the same settings a start carries, pinned to the compacted session. The
+/// blank task is never sent — `compact_run` writes only the compact command,
+/// and the fingerprint deliberately excludes the task.
 async fn compact_config(
   manager : EngineManager,
   payload : @protocol.CompactPayload,
@@ -244,35 +226,22 @@ async fn session_command_config(
   guard !session.is_empty() else {
     raise EngineError("session id must not be empty")
   }
-  // Compaction and goal updates resolve their config after releasing the
-  // lifecycle lock, so the file can be read here.
-  serve_config(
-    manager,
-    model?,
-    thinking?,
-    max_steps?,
-    session~,
-    workspace?,
-    mcp_config=resolved_mcp_config(),
-  )
+  serve_config("", manager, model?, thinking?, max_steps?, session~, workspace?)
 }
 
 ///|
 /// The validated configuration shared by every op that can spawn a serve
 /// engine. The endpoint (provider, key, URL) comes from the host-owned
 /// settings store, never from the request — a client carries no credentials
-/// (docs/remote-protocol.md). The MCP configuration is the caller's
-/// observation of the file (`resolved_mcp_config`), `None` for no file: this
-/// function can run under the global lifecycle lock, and must not read a
-/// file of unbounded size or kind while that is held.
+/// (docs/remote-protocol.md).
 async fn serve_config(
+  task : String,
   manager : EngineManager,
   model? : String,
   thinking? : @protocol.OpenSeekThinking,
   max_steps? : Int32,
   session~ : String,
   workspace? : String,
-  mcp_config~ : McpConfig?,
 ) -> RunConfig {
   let engine = manager.engine
   let (settings, _) = manager.settings_snapshot()
@@ -315,6 +284,7 @@ async fn serve_config(
       @env.get("OPENSEEK_MODEL").unwrap_or(settings.provider.default_model())
   }
   {
+    content: Content([Text(task)]),
     api_key: endpoint.api_key,
     key_env: key_env_for(settings.provider, model),
     api_url: endpoint.api_url,
@@ -330,14 +300,13 @@ async fn serve_config(
     cwd: Some(@worktree.run_dir(dir, session).to_path()),
     session,
     session_root: Some(@workspaces.store_root(dir)),
-    mcp_config,
   }
 }
 
 ///|
 /// Everything that pins a serve process to a config: a prompt whose
 /// fingerprint differs (model change, new session, …) must replace the
-/// process.
+/// process. The task is deliberately excluded — prompts vary per turn.
 fn engine_fingerprint(config : RunConfig) -> String {
   [
     config.engine,
@@ -352,13 +321,13 @@ fn engine_fingerprint(config : RunConfig) -> String {
     config.cwd.map(cwd => cwd.to_string()).unwrap_or(""),
     config.session,
     config.session_root.map(root => root.to_string()).unwrap_or(""),
-    mcp_config_fingerprint(config.mcp_config),
   ].join("\u{0}")
 }
 
 ///|
 test "a different endpoint cannot reuse a live engine process" {
   let base : RunConfig = {
+    content: Content([Text("t")]),
     api_key: "k",
     key_env: "DEEPSEEK",
     api_url: None,
@@ -369,7 +338,6 @@ test "a different endpoint cannot reuse a live engine process" {
     cwd: None,
     session: "s-fingerprint",
     session_root: None,
-    mcp_config: None,
   }
   let custom = {
     ..base,
@@ -380,60 +348,15 @@ test "a different endpoint cannot reuse a live engine process" {
     engine_fingerprint(base) !=
     engine_fingerprint({ ..base, thinking: ThinkingHigh, }),
   )
+  assert_eq(
+    engine_fingerprint(base),
+    engine_fingerprint({ ..base, content: Content([Text("u")]), }),
+  )
   // cwd is part of the fingerprint: a session bound to a worktree can never
   // reuse a serve process rooted elsewhere (and vice versa).
   assert_true(
     engine_fingerprint(base) !=
     engine_fingerprint({ ..base, cwd: Some(Path("/w/.worktrees/x")), }),
-  )
-  // MCP servers are connected once at engine startup, so an edited
-  // configuration must replace the process to take effect.
-  let mcp : McpConfig = {
-    path: @pathx.Path("/home/.openseek/mcp.json").resolve(),
-    revision: McpConfigRevision::of_text("{\"mcpServers\": {}}"),
-  }
-  let configured = { ..base, mcp_config: Some(mcp), }
-  assert_true(engine_fingerprint(base) != engine_fingerprint(configured))
-  assert_true(
-    engine_fingerprint(configured) !=
-    engine_fingerprint({
-      ..base,
-      mcp_config: Some({
-        ..mcp,
-        revision: McpConfigRevision::of_text("{\"mcpServers\": {\"a\": {}}}"),
-      }),
-    }),
-  )
-}
-
-///|
-test "a start request's prompt needs text or an image" {
-  let payload : @protocol.StartPayload = {
-    images: [],
-    task: "  hello  ",
-    submission_id: None,
-    model: None,
-    thinking: None,
-    max_steps: None,
-    session: "s-prompt",
-    workspace: None,
-  }
-  assert_true(run_prompt(payload) is Content([Text("hello")]))
-  let blank = try {
-    ignore(run_prompt({ ..payload, task: "   ", }))
-    "no error"
-  } catch {
-    EngineError(detail) => detail
-  }
-  assert_eq(blank, "task must not be empty")
-  // An image alone is a prompt.
-  assert_true(
-    run_prompt({
-      ..payload,
-      task: "",
-      images: ["data:image/png;base64,iVBORw0KGgo="],
-    })
-    is Content([Text(""), Image(_)]),
   )
 }
 
@@ -511,60 +434,6 @@ async test "run config ignores OPENSEEK_API_URL in favor of the settings" {
   })
   assert_true(config.api_url is None)
   assert_eq(config.api_key, "sk-official")
-}
-
-///|
-/// Building a start request's config happens under the global lifecycle
-/// lock, so it must take the MCP file's observation from its caller and
-/// never read the file itself.
-async test "run config carries the MCP observation it is given, not the file" {
-  ambient_env_test_lock.acquire()
-  defer ambient_env_test_lock.release()
-  let previous_home = @sys.get_env_var(test_home_env_name())
-  defer restore_home_env(previous_home)
-  let root : @pathx.Path = Path(
-    @fs.realpath(@fs.tmpdir(prefix="openseek-config-mcp-")),
-  )
-  defer @fs.rmdir(root.to_string(), recursive=true)
-  set_test_home(root.join("home").to_string())
-  let workspace = attach_run_workspace(root)
-  let manager = new_engine_manager("openseek", runtime_dir=root)
-  let _ = update_settings(manager, {
-    provider: Some("deepseek"),
-    custom_api_url: None,
-    deepseek_api_key: Some("sk-official"),
-    glm_api_key: None,
-    custom_api_key: None,
-  })
-  guard mcp_config_path() is Some(path) else {
-    fail("a home directory should place the MCP configuration")
-  }
-  @fsx.ensure_dir(path.to_path().dirname())
-  @fsx.write_text(path.to_path(), "{\"mcpServers\": {}}")
-  let payload : @protocol.StartPayload = {
-    images: [],
-    task: "hello",
-    submission_id: None,
-    model: None,
-    thinking: None,
-    max_steps: None,
-    session: "s-mcp",
-    workspace: Some(workspace),
-  }
-  // The file exists, and the config still names none: nothing was read.
-  assert_true(run_config(manager, payload).mcp_config is None)
-  guard resolved_mcp_config() is Some(observed) else {
-    fail("the file should be observable by the caller")
-  }
-  guard run_config(manager, payload, mcp_config=observed).mcp_config
-    is Some(carried) else {
-    fail("the caller's observation should be carried")
-  }
-  assert_true(carried.path == path)
-  assert_eq(
-    mcp_config_fingerprint(Some(carried)),
-    mcp_config_fingerprint(Some(observed)),
-  )
 }
 
 ///|

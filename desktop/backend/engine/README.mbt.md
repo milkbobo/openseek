@@ -80,7 +80,7 @@ flowchart TB
   ops["request tasks\n(start_run, compact_run, ...)"]
 
   subgraph slot["SessionSlot (one per conversation)"]
-    serve["ServeEngine\nsession_key / config / phase"]
+    serve["ServeEngine\nsession_key / spec_key / phase"]
     writer["writer task\ndrains commands → stdin"]
     consumer["consumer task\nstdout → events, run lifecycle"]
     proc["child process task\nopenseek serve"]
@@ -110,7 +110,7 @@ Key lifecycle facts, straight from `engine.mbt`:
 - **A handle's identity is its process.** Cleanup paths compare handles with
   `physical_equal` before clearing a slot, so a dead engine's teardown can
   never evict its live successor.
-- **`config` retains the process configuration.** A prompt whose resolved config
+- **`spec_key` is the config fingerprint.** A prompt whose resolved config
   differs (model, endpoint, credentials, cwd, …) replaces the process instead
   of reusing it — which is how a settings change takes effect on the next
   start.
