@@ -5,7 +5,7 @@
 // The host is the file's only reader. It reads it before each prompt, gives a
 // new engine its own copy of exactly what it read, and keeps a digest of that
 // in the engine fingerprint, so an edit starts a new engine on the next
-// prompt. Because the engine never opens the user's file, what the host
+// prompt. The copy lasts only until the engine has loaded it. Because the engine never opens the user's file, what the host
 // compared and what the engine loaded cannot differ. The host does not
 // interpret the content — the engine connects the servers and reports what it
 // could not use.
@@ -94,9 +94,11 @@ fn mcp_snapshot_path(
 /// Prepare what a new engine for `session` is pointed at. With text in hand
 /// and a runtime directory to keep it in, that is a private copy of the text:
 /// the engine then loads exactly what the fingerprint describes, whatever
-/// happens to the user's file meanwhile. The copy is rewritten for each new
-/// engine of the conversation, which never overlaps the previous one's
-/// startup read. A file the host could not read has nothing to copy, and a
+/// happens to the user's file meanwhile. The engine reads it once, as it
+/// starts, and the caller discards it as soon as the engine says it has —
+/// or when the start fails, or the engine's task ends without having said
+/// so. The copy is rewritten for each new engine of the conversation, which
+/// never overlaps the previous one's startup read. A file the host could not read has nothing to copy, and a
 /// host without a runtime directory has nowhere to copy to; in both cases the
 /// engine is pointed at the user's file and reports what it finds there.
 async fn hand_off_mcp_config(
@@ -128,8 +130,8 @@ async fn hand_off_mcp_config(
 }
 
 ///|
-/// Remove the copy an engine was started with, once that engine is gone. The
-/// user's own file is never touched.
+/// Remove the copy an engine was started with. Removing it again is nothing,
+/// and the user's own file is never touched.
 async fn McpHandoff::discard(self : McpHandoff) -> Unit {
   guard self.given != self.source else { return }
   @fsx.remove_if_exists(Path(self.given)) catch {
@@ -511,4 +513,96 @@ async test "MCP status is the live engine's latest report" {
       mcp_status(manager, { session: "s-other", }).engine is NotRunning,
     )
   })
+}
+
+///|
+/// Test-only: a stand-in engine for `session`, started on `handoff` with its
+/// task running on `group`, whose child process runs `script`.
+#cfg(not(platform="windows"))
+async fn[G] start_stand_in_engine(
+  group : @async.TaskGroup[G],
+  manager : EngineManager,
+  handoff : McpHandoff,
+  session : String,
+  script : String,
+) -> Unit {
+  let (child_stdin, writer) = @process.write_to_process()
+  let (reader, child_stdout) = @process.read_from_process()
+  let process = @process.spawn(
+    group,
+    "/bin/sh",
+    ["-c", script],
+    stdin=child_stdin,
+    stdout=child_stdout,
+    no_wait=true,
+  )
+  let engine : ServeEngine = {
+    ..test_serve_engine(
+      session,
+      writer,
+      process,
+      EventSink(_ => ()),
+      phase=Idle(last_run=None),
+    ),
+    mcp: Some(handoff),
+  }
+  let stderr_task = group.spawn(no_wait=true, () => "")
+  group.spawn_bg(no_wait=true, allow_failure=true, () => {
+    engine.run(manager, reader, stderr_task)
+  })
+}
+
+///|
+#cfg(not(platform="windows"))
+async test "an engine's copy of the MCP configuration lasts until it has been loaded" {
+  let root : @pathx.Path = Path(
+    @fs.realpath(@fs.tmpdir(prefix="openseek-mcp-copy-")),
+  )
+  defer @fs.rmdir(root.to_string(), recursive=true)
+  let manager = new_engine_manager("/bin/sh")
+  let config : McpConfig = {
+    path: root.join("home/.openseek/mcp.json").resolve(),
+    revision: Text("{\"mcpServers\": {}}"),
+  }
+  let runtime = Some(root.join("runtime"))
+  async fn copy_exists(handoff : McpHandoff) -> Bool {
+    @fsx.read_text_if_exists(Path(handoff.given)) is Some(_)
+  }
+
+  // The engine reads the copy once, as it starts, and says so. From then on
+  // nothing needs it, however long the engine goes on running.
+  let loaded = hand_off_mcp_config(config, runtime, "s-loaded")
+  @async.with_task_group(group => {
+    let script =
+      #|printf '{"event":"mcp_tools_registered","servers":0,"tools":0,"names":[]}\n'
+      #|cat >/dev/null
+    start_stand_in_engine(group, manager, loaded, "s-loaded", script)
+    @async.with_timeout(10000, () => {
+      while copy_exists(loaded) {
+        @async.sleep(20)
+      }
+    })
+    group.return_immediately(())
+  })
+  // An engine that never gets that far — the host is shutting down, say, and
+  // cancels the group its task runs in — leaves no copy behind either.
+  let cancelled = hand_off_mcp_config(config, runtime, "s-cancelled")
+  @async.with_task_group(group => {
+    start_stand_in_engine(
+      group, manager, cancelled, "s-cancelled", "cat >/dev/null",
+    )
+    @async.sleep(50)
+    assert_true(copy_exists(cancelled))
+    group.return_immediately(())
+  })
+  assert_false(copy_exists(cancelled))
+  // Not even when the group ends before the engine's task has run at all.
+  let unstarted = hand_off_mcp_config(config, runtime, "s-unstarted")
+  @async.with_task_group(group => {
+    start_stand_in_engine(
+      group, manager, unstarted, "s-unstarted", "cat >/dev/null",
+    )
+    group.return_immediately(())
+  })
+  assert_false(copy_exists(unstarted))
 }
