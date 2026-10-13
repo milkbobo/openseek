@@ -77,37 +77,18 @@ async fn open_lock_file(sidecar : String) -> @fs.File {
   let created = Some(
     @fs.open(sidecar, mode=ReadWrite, create_mode=CreateNew, permission=0o600),
   ) catch {
-    error if @async.is_being_cancelled() => raise error
     _ => None
   }
   if created is Some(file) {
     return file
   }
   let regular = (@fs.kind(sidecar, follow_symlink=false) is Regular) catch {
-    error if @async.is_being_cancelled() => raise error
     _ => false
   }
   guard regular else {
     fail("\{sidecar} is not a regular file; refusing to lock through it")
   }
   @fs.open(sidecar, mode=ReadWrite, create_mode=OpenExisting)
-}
-
-///|
-/// Take the advisory lock guarding `path` if no process holds it, without
-/// waiting: `None` means some process — this one included — holds it now.
-/// For asking whether anyone still owns what the lock guards, where waiting
-/// for the owner would defeat the question.
-pub async fn FileLock::try_acquire(path : @pathx.Path) -> FileLock? {
-  ensure_dir(path.dirname())
-  let file = open_lock_file(lock_file(path).to_string())
-  errdefer file.close()
-  if file.try_lock(Exclusive) {
-    Some({ file, })
-  } else {
-    file.close()
-    None
-  }
 }
 
 ///|

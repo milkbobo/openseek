@@ -31,8 +31,8 @@ priv struct RunConfig {
   cwd : @pathx.Path?
   session : String
   session_root : @pathx.Absolute?
-  // The user's MCP server configuration as the host read it; None when there
-  // is no file. A new engine is given exactly this (see `snapshot_mcp_config`).
+  // The user's MCP server configuration as the host found it; None when
+  // there is no file.
   mcp_config : McpConfig?
 }
 
@@ -381,7 +381,7 @@ test "a different endpoint cannot reuse a live engine process" {
   // appears, disappears, or stops being readable.
   let mcp : McpConfig = {
     path: @pathx.Path("/home/.openseek/mcp.json").resolve(),
-    revision: Text("{\"mcpServers\": {}}"),
+    revision: McpConfigRevision::of_text("{\"mcpServers\": {}}"),
   }
   let configured = { ..base, mcp_config: Some(mcp), }
   assert_true(engine_fingerprint(base) != engine_fingerprint(configured))
@@ -391,7 +391,7 @@ test "a different endpoint cannot reuse a live engine process" {
       ..base,
       mcp_config: Some({
         ..mcp,
-        revision: Text("{\"mcpServers\": {\"a\": {}}}"),
+        revision: McpConfigRevision::of_text("{\"mcpServers\": {\"a\": {}}}"),
       }),
     }),
   )

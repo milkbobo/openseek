@@ -66,10 +66,6 @@ priv struct ServeEngine {
   steer_runs : SteerRunTracker
   job_requests : Map[String, @async.Queue[@wire.Event]]
   queued_runs : Array[QueuedRun]
-  // The MCP configuration this process was started with; `None` when the
-  // user had no file. It is why the engine's reports can be shown with the
-  // user's path, and what is discarded when the process is gone.
-  mcp : McpSnapshot?
   // When this engine last did, or was asked to do, anything: its spawn, a
   // command handed to its writer, an event read from its stdout. The idle
   // reaper (idle.mbt) stops an engine whose stamp is old enough; the reaper's
@@ -1452,10 +1448,7 @@ async fn engine_process_env(
 }
 
 ///|
-fn engine_process_args(
-  config : RunConfig,
-  mcp_config? : String,
-) -> Array[String] {
+fn engine_process_args(config : RunConfig) -> Array[String] {
   // Desktop engines always run in durable-session mode. Passing placement
   // explicitly keeps it out of the ambient environment inherited by tools.
   // Attach values so a leading `-` remains part of the value.
@@ -1463,10 +1456,10 @@ fn engine_process_args(
   if config.session_root is Some(root) {
     args.push("--session-root=\{root.to_string()}")
   }
-  // The engine connects its MCP servers once, from this file, when it
-  // starts. It is the copy `snapshot_mcp_config` prepared, not the user's.
-  if mcp_config is Some(path) {
-    args.push("--mcp-config=\{path}")
+  // The engine reads this file itself and connects its servers once, when
+  // it starts.
+  if config.mcp_config is Some(mcp) {
+    args.push("--mcp-config=\{mcp.path.to_string()}")
   }
   args.append(["--dir", ".", "--approval", "ask"])
   args
@@ -1490,7 +1483,6 @@ async fn[G] start_serve_engine(
   let startup_follower = ensure_follower(sink~, group~, manager~, config~)
   let engine_follower = manager.followers.get(config.session)
   let mut startup_engine : ServeEngine? = None
-  let mut startup_mcp : McpSnapshot? = None
   let mut startup_committed = false
   // Everything through scheduling both stream tasks is one initialization
   // transaction. This synchronous identity-scoped rollback also runs when
@@ -1516,12 +1508,6 @@ async fn[G] start_serve_engine(
     if startup_follower is Some(follower) {
       discard_follower_startup(manager, follower)
     }
-    // No engine came of this start, so nothing will ever read the copy of
-    // the MCP configuration made for it. Last, because it is the one step
-    // here that touches the disk.
-    if startup_mcp is Some(snapshot) {
-      @async.protect_from_cancel(() => snapshot.discard())
-    }
   })
   let (child_stdin, writer) = @process.write_to_process()
   let (reader, child_stdout) = @process.read_from_process()
@@ -1533,27 +1519,11 @@ async fn[G] start_serve_engine(
   // a controller with a person behind it from a script reading its stdout.
   // Saying so here is what makes the escalation argument exist for this
   // session's model at all.
-  // Before this start makes its own copy of the MCP configuration, remove
-  // the ones a killed host left behind. This runs whether or not there is a
-  // configuration now: the file may have been deleted since.
-  if manager.runtime_dir is Some(runtime_dir) {
-    reclaim_mcp_snapshots(runtime_dir)
-  }
-  // Recorded where the rollback above can see it from the moment it exists:
-  // a start that fails from here on must not leave the copy or its lock.
-  startup_mcp = match config.mcp_config {
-    Some(mcp_config) =>
-      Some(snapshot_mcp_config(mcp_config, manager.runtime_dir, config.session))
-    None => None
-  }
   // With no file there is nothing wrong with it any more.
-  if startup_mcp is None {
+  if config.mcp_config is None {
     manager.mcp_error = None
   }
-  let args = engine_process_args(
-    config,
-    mcp_config?=startup_mcp.map(snapshot => snapshot.given()),
-  )
+  let args = engine_process_args(config)
   let graceful_cancel = @process.graceful_cancel(timeout=1000)
   @xlog.debug() <?
     {
@@ -1622,7 +1592,6 @@ async fn[G] start_serve_engine(
     steer_runs: SteerRunTracker(),
     queued_runs: [],
     job_requests: Map([]),
-    mcp: startup_mcp,
     last_activity_ms: engine_clock_ms(),
   }
   startup_engine = Some(engine)
@@ -1669,13 +1638,6 @@ async fn ServeEngine::run(
   reader : @process.ReadFromProcess,
   stderr_task : @async.Task[String],
 ) -> Unit {
-  // An engine that never said it had read its MCP configuration leaves the
-  // copy behind; this task is that engine's whole life, so its end — an
-  // exit, a failure, or the cancellation of the group it runs in, which
-  // skips everything below — is where the copy goes.
-  defer (if self.mcp is Some(snapshot) {
-    @async.protect_from_cancel(() => snapshot.discard())
-  })
   let code = self.consume(manager, reader) catch {
     error => {
       @xlog.error() <?
@@ -1803,34 +1765,17 @@ async fn ServeEngine::consume(
         // appended to the durable record — the follower's low-latency
         // wakeup (its poll only backstops this).
         manager.kick_follower(engine.session_key)
-        let wire_event = match (@wire.parse(json), engine.mcp) {
-          (Some(event), Some(snapshot)) => Some(snapshot.restore_path(event))
-          (event, _) => event
-        }
-        // Each of these is the engine's word that it has read its MCP
-        // configuration, which it does once: the copy has served its purpose
-        // and goes now rather than at the end of the engine's life.
-        if wire_event
-          is Some(
-            McpToolsRegistered(..)
-            | McpConfigUnreadable(..)
-            | McpConfigInvalid(..)
-          ) &&
-          engine.mcp is Some(snapshot) {
-          snapshot.discard()
-        }
+        let wire_event = @wire.parse(json)
         match wire_event {
           // One report per error, not one per conversation.
-          Some(McpConfigUnreadable(error~, ..) | McpConfigInvalid(error~, ..)) if engine.mcp
-            is Some(_) => {
+          Some(McpConfigUnreadable(error~, ..) | McpConfigInvalid(error~, ..)) => {
             if manager.mcp_error == Some(error) {
               continue
             }
             manager.mcp_error = Some(error)
           }
           // A configuration that loaded ends whatever was wrong before it.
-          Some(McpToolsRegistered(..)) if engine.mcp is Some(_) =>
-            manager.mcp_error = None
+          Some(McpToolsRegistered(..)) => manager.mcp_error = None
           Some(PredictionResult(source_sequence~, outcome~)) => {
             if outcome is Completed(..) {
               emit(
@@ -2348,7 +2293,6 @@ fn test_serve_engine(
     steer_runs: SteerRunTracker(),
     queued_runs: [],
     job_requests: Map([]),
-    mcp: None,
     last_activity_ms,
   }
 }
@@ -3045,17 +2989,25 @@ async test "native engine env has one authoritative bundled moon path" {
       "ask",
     ],
   )
-  // A configured engine is pointed at the copy prepared for it.
-  let mcp_config = root.join("runtime/mcp/s-env.json").to_string()
-  @debug.assert_eq(engine_process_args(config, mcp_config~), [
-    "serve",
-    "--session=s-env",
-    "--mcp-config=\{mcp_config}",
-    "--dir",
-    ".",
-    "--approval",
-    "ask",
-  ])
+  // A configured engine is pointed at the user's file, readable or not.
+  let mcp_path = root.join("mcp.json").resolve()
+  for revision in [McpConfigRevision::of_text("{}"), ReadFailed("denied")] {
+    @debug.assert_eq(
+      engine_process_args({
+        ..config,
+        mcp_config: Some({ path: mcp_path, revision, }),
+      }),
+      [
+        "serve",
+        "--session=s-env",
+        "--mcp-config=\{mcp_path.to_string()}",
+        "--dir",
+        ".",
+        "--approval",
+        "ask",
+      ],
+    )
+  }
   let moon_bin = moon_home.join("bin").to_string()
   let expected_path = if ambient_path is Some(path) && !path.is_empty() {
     "\{moon_bin}\{@env.path_sep}\{path}"
