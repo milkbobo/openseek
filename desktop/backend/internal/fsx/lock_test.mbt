@@ -127,3 +127,26 @@ async test "a lock can be retaken after release" {
   }
   assert_eq(@fsx.read_text(file), "held")
 }
+
+///|
+async test "try_acquire answers whether anyone holds the lock, without waiting" {
+  let root : @pathx.Path = Path(@fs.tmpdir(prefix="openseek-fsx-try-lock-"))
+  defer @fs.rmdir(root.to_string(), recursive=true)
+  let file = root.join("state/registry.json")
+  // Nobody holds it: it is taken, and from then on it is held.
+  guard @fsx.FileLock::try_acquire(file) is Some(first) else {
+    fail("a free lock should be taken")
+  }
+  // Held, here by this same process through another handle — as another
+  // process holding it would look. The answer is immediate, not a wait.
+  assert_true(@fsx.FileLock::try_acquire(file) is None)
+  first.release()
+  // Released: free again. A blocking holder shows up the same way.
+  let held = @fsx.FileLock::acquire(file)
+  assert_true(@fsx.FileLock::try_acquire(file) is None)
+  held.release()
+  guard @fsx.FileLock::try_acquire(file) is Some(again) else {
+    fail("a released lock should be free")
+  }
+  again.release()
+}

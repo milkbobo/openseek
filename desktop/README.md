@@ -168,18 +168,20 @@ from the launching environment still applies.
 
 The host is the file's only reader. It reads it before each prompt and hands
 a new engine its own copy of exactly what it read
-(`<runtime_dir>/mcp/<session>.<nonce>.json`, one per engine, readable by the
-user alone, removed as soon as the engine has loaded it); the engine never
-opens the user's file. A copy left behind by a host that was killed in those
-few seconds is removed by a later engine start once it is ten minutes old,
-whichever host process that start belongs to. An engine connects its servers once, when it starts —
-one set of server processes per conversation — so a digest of the content is
-part of what pins an engine to its configuration, like the model and the
-endpoint: an edit starts a new engine, and with it every server, on that
-conversation's next prompt, with no desktop restart. A prompt already queued
-behind a running turn runs on the engine it was queued for. A scheduled run is
-a single process that reads the file once, so it is pointed at the file
-directly.
+(`<runtime_dir>/mcp/<session>.json`, readable by the user alone, removed as
+soon as the engine has loaded it); the engine never opens the user's file.
+The runtime directory is shared by every host process on the machine, so the
+copy is kept under the lock beside it (`<session>.json.lock`, which stays):
+another host starting the same conversation waits until this one's engine
+has loaded its copy, and a copy whose lock nobody holds — its host was killed
+before removing it — is removed by the next engine start in any host. An
+engine connects its servers once, when it starts — one set of server
+processes per conversation — so a digest of the content is part of what pins
+an engine to its configuration, like the model and the endpoint: an edit
+starts a new engine, and with it every server, on that conversation's next
+prompt, with no desktop restart. A prompt already queued behind a running turn
+runs on the engine it was queued for. A scheduled run is a single process that
+reads the file once, so it is pointed at the file directly.
 
 A configuration the engine cannot load, and a server that fails to start, to
 list its tools, or to fit under the tool limit, raise an error toast naming

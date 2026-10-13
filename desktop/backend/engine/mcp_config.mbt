@@ -73,12 +73,22 @@ fn mcp_config_fingerprint(config : McpConfig?) -> String {
 /// What one engine was started on.
 priv enum McpSnapshot {
   /// A private copy, at `copy`, of the user's file `source`. The engine reads
-  /// the copy and names it in what it reports; the host removes it.
-  Copy(copy~ : String, source~ : String)
+  /// the copy and names it in what it reports; the host removes it, and
+  /// until then `hold` is what says the copy is in use.
+  Copy(copy~ : String, source~ : String, hold~ : McpCopyHold)
   /// The user's file itself: there was nothing to copy, or nowhere to keep a
   /// copy. There is nothing to remove, and the engine already names the path
   /// a person should be shown.
   Original(String)
+}
+
+///|
+/// A host's claim on a conversation's copy: the cross-process lock beside it,
+/// held from before the copy is written until it has been removed. `None`
+/// once it has been given up. A host that dies gives it up by dying, which
+/// is how a later start can tell a copy nobody needs any more.
+priv struct McpCopyHold {
+  mut lock : @fsx.FileLock?
 }
 
 ///|
@@ -91,22 +101,18 @@ fn McpSnapshot::given(self : McpSnapshot) -> String {
 }
 
 ///|
-/// Where one engine finds its copy of the MCP configuration. The session id
-/// becomes part of a file name here, so one that could name anything else —
-/// a path separator, a dot segment — is refused before any path exists to
-/// write to. `nonce` makes the name this engine's alone: the runtime
-/// directory is shared by every host process on the machine, and two of them
-/// starting the same conversation must not write, or remove, each other's
-/// copy.
+/// Where a conversation's engine finds its copy of the MCP configuration. The
+/// session id becomes a file name here, so one that could name anything else
+/// — a path separator, a dot segment — is refused before any path exists to
+/// write to.
 fn mcp_snapshot_path(
   runtime_dir : @pathx.Path,
   session : String,
-  nonce : String,
 ) -> @pathx.Path raise EngineError {
   guard @session_store.safe_session_id(session) else {
     raise EngineError("invalid session id")
   }
-  runtime_dir.join("mcp").join("\{session}.\{nonce}.json")
+  runtime_dir.join("mcp").join("\{session}.json")
 }
 
 ///|
@@ -116,11 +122,17 @@ fn mcp_snapshot_path(
 /// happens to the user's file meanwhile. The engine reads it once, as it
 /// starts, and the caller discards it as soon as the engine says it has —
 /// or when the start fails, or the engine's task ends without having said
-/// so. Every engine gets a copy of its own, so no other engine's start —
-/// this host's or another's — can replace or remove it. A file the host
-/// could not read has nothing to copy, and a host without a runtime
-/// directory has nowhere to copy to; in both cases the engine is pointed at
-/// the user's file and reports what it finds there.
+/// so.
+///
+/// The runtime directory is shared by every host process on the machine, so
+/// the copy is written and kept under the lock beside it. Another host
+/// starting the same conversation waits here until this one's engine has
+/// loaded its copy, and only then writes its own; it can neither replace a
+/// copy an engine has yet to read nor have its own removed under it.
+///
+/// A file the host could not read has nothing to copy, and a host without a
+/// runtime directory has nowhere to copy to; in both cases the engine is
+/// pointed at the user's file and reports what it finds there.
 async fn snapshot_mcp_config(
   config : McpConfig,
   runtime_dir : @pathx.Path?,
@@ -130,7 +142,7 @@ async fn snapshot_mcp_config(
   guard (config.revision, runtime_dir) is (Text(text), Some(runtime_dir)) else {
     return Original(source)
   }
-  let copy = mcp_snapshot_path(runtime_dir, session, @uuid.mint())
+  let copy = mcp_snapshot_path(runtime_dir, session)
   // The configuration is where tokens live: the directory and the file are
   // the user's alone.
   @fs.mkdir(
@@ -139,11 +151,13 @@ async fn snapshot_mcp_config(
     recursive=true,
     allow_exist=true,
   )
-  // Until this function returns, nobody else knows the file exists. If
-  // making it is cut short — a full disk, the host shutting down between
-  // creating the file and filling it — there is no record to remove it by,
-  // so it is removed here.
-  let snapshot : McpSnapshot = Copy(copy=copy.to_string(), source~)
+  let lock = @fsx.FileLock::acquire(copy)
+  let snapshot : McpSnapshot = Copy(copy=copy.to_string(), source~, hold={
+    lock: Some(lock),
+  })
+  // Until this function returns, nobody else has the record to remove the
+  // file by. If writing it is cut short — a full disk, the host shutting
+  // down in the middle — it is removed, and the lock given up, here.
   let mut written = false
   defer (if !written { @async.protect_from_cancel(() => snapshot.discard()) })
   @fs.write_file(
@@ -157,27 +171,18 @@ async fn snapshot_mcp_config(
 }
 
 ///|
-/// How old a copy must be before a later start may remove it. A copy is
-/// needed for the seconds an engine takes to start, and its own host removes
-/// it then; one this much older belongs to no start still under way — its
-/// host was killed, or the machine lost power, before it could. The margin is
-/// what makes this safe in a directory other host processes also write to:
-/// nothing here can tell whose a copy is, only that nobody can still need it.
-const McpSnapshotOrphanAgeMs : Int64 = 600000
-
-///|
-/// Remove the copies in `runtime_dir` that outlived the host that made them,
-/// judged by their age at `now_ms` (wall-clock milliseconds). Run before
+/// Remove the copies in `runtime_dir` whose host is gone: it was killed, or
+/// the machine lost power, after writing one and before removing it. A copy
+/// is one nobody owns exactly when the lock beside it can be taken, since a
+/// live host holds that lock for as long as its copy exists — so this never
+/// touches a copy another host, or this one, is still using. Run before
 /// every engine start, with or without a configuration: the copies hold
 /// whatever tokens the configuration held when they were made, and deleting
 /// or rotating `mcp.json` must not leave an old one behind for good. A copy
 /// that cannot be examined or removed is reported in the log, not skipped in
 /// silence, and tried again at the next start.
-async fn reclaim_mcp_snapshots(
-  runtime_dir : @pathx.Path,
-  now_ms : Int64,
-) -> Unit {
-  let directory = runtime_dir.join("mcp").to_string()
+async fn reclaim_mcp_snapshots(runtime_dir : @pathx.Path) -> Unit {
+  let directory = runtime_dir.join("mcp")
   fn not_reclaimed(path : String, error : Error) -> Unit {
     @xlog.warn() <?
       {
@@ -187,41 +192,48 @@ async fn reclaim_mcp_snapshots(
       }
   }
 
-  let names = @fs.readdir(directory) catch {
+  let names = @fs.readdir(directory.to_string()) catch {
     // No directory: no host here has made a copy yet.
     @os_error.OSError(_) as error if error.is_ENOENT() => return
     error => {
-      not_reclaimed(directory, error)
+      not_reclaimed(directory.to_string(), error)
       return
     }
   }
   for name in names {
+    // The locks sit in the same directory; only the copies are candidates.
     guard name.has_suffix(".json") else { continue }
-    let path = "\{directory}/\{name}"
-    let (seconds, _) = @fs.mtime(path) catch {
-      // Its own host removed it between the listing and now.
-      @os_error.OSError(_) as error if error.is_ENOENT() => continue
+    let copy = directory.join(name)
+    let lock = @fsx.FileLock::try_acquire(copy) catch {
       error => {
-        not_reclaimed(path, error)
+        not_reclaimed(copy.to_string(), error)
         continue
       }
     }
-    guard now_ms - seconds * 1000 >= McpSnapshotOrphanAgeMs else { continue }
-    @fs.remove(path) catch {
-      @os_error.OSError(_) as error if error.is_ENOENT() => ()
-      error => not_reclaimed(path, error)
+    // Held: a live host still owns this copy.
+    guard lock is Some(lock) else { continue }
+    defer lock.release()
+    @fsx.remove_if_exists(copy) catch {
+      error => not_reclaimed(copy.to_string(), error)
     }
   }
 }
 
 ///|
-/// Remove the copy an engine was started on; an engine started on the user's
-/// own file has none. Removing a copy that is already gone is nothing. One
-/// that cannot be removed is still there, tokens included, so that is said
-/// in the log where it can be found rather than passed off as gone — and the
-/// engine's task tries once more when it ends.
+/// Remove the copy an engine was started on and give up the claim on it; an
+/// engine started on the user's own file has neither. Doing it again is
+/// nothing. A copy that cannot be removed is still there, tokens included,
+/// so that is said in the log where it can be found rather than passed off
+/// as gone — and with the claim given up, the next engine start in any host
+/// finds it unowned and tries again.
 async fn McpSnapshot::discard(self : McpSnapshot) -> Unit {
-  guard self is Copy(copy~, ..) else { return }
+  guard self is Copy(copy~, hold~, ..) else { return }
+  guard hold.lock is Some(lock) else { return }
+  // Give the claim up on the way out whatever happens to the removal.
+  defer {
+    hold.lock = None
+    lock.release()
+  }
   @fsx.remove_if_exists(Path(copy)) catch {
     error =>
       @xlog.warn() <?
@@ -241,7 +253,7 @@ fn McpSnapshot::restore_path(
   event : @wire.Event,
 ) -> @wire.Event {
   // An engine started on the user's own file already names it.
-  guard self is Copy(copy~, source~) else { return event }
+  guard self is Copy(copy~, source~, ..) else { return event }
   fn shown(path : String) -> String {
     if path == copy {
       source
@@ -339,45 +351,47 @@ async test "a new engine is handed its own copy of the MCP configuration" {
   let config : McpConfig = { path, revision: Text("{\"mcpServers\": {}}"), }
   let runtime = root.join("runtime")
   let snapshot = snapshot_mcp_config(config, Some(runtime), "s-1")
-  // The copy holds exactly what the host read — which is what the
-  // fingerprint describes — in a file named for the conversation.
-  guard snapshot is Copy(copy=first, source~) else {
+  // The copy is per conversation, and holds exactly what the host read —
+  // which is what the fingerprint describes.
+  guard snapshot is Copy(copy~, source~, ..) else {
     fail("text and a runtime directory should make a copy")
   }
-  let directory = runtime.join("mcp").to_string()
-  assert_true(
-    first.has_prefix("\{directory}/s-1.") && first.has_suffix(".json"),
-  )
+  assert_eq(copy, runtime.join("mcp/s-1.json").to_string())
   assert_eq(source, path.to_string())
-  assert_eq(snapshot.given(), first)
-  assert_eq(@fsx.read_text(Path(first)), "{\"mcpServers\": {}}")
-  // Another engine for the same conversation — this host's next one, or
-  // another host's started at the same moment — gets a copy of its own, and
-  // the first is neither rewritten nor removed by it.
+  assert_eq(snapshot.given(), copy)
+  assert_eq(@fsx.read_text(Path(copy)), "{\"mcpServers\": {}}")
+  // While this engine may still have to read it, the copy is claimed: a
+  // start of the same conversation anywhere else would wait rather than
+  // write over it.
+  assert_true(@fsx.FileLock::try_acquire(Path(copy)) is None)
+  // A person is shown their own file, never the copy.
+  @debug.assert_eq(
+    snapshot.restore_path(McpConfigInvalid(path=copy, error="bad")),
+    McpConfigInvalid(path=path.to_string(), error="bad"),
+  )
+  @debug.assert_eq(
+    snapshot.restore_path(McpConnectFailed(server="a", error="x")),
+    McpConnectFailed(server="a", error="x"),
+  )
+  // Once the engine has loaded it, the copy goes and so does the claim.
+  snapshot.discard()
+  assert_true(@fsx.read_text_if_exists(Path(copy)) is None)
+  guard @fsx.FileLock::try_acquire(Path(copy)) is Some(free) else {
+    fail("a discarded copy should leave its lock free")
+  }
+  free.release()
+  // Discarding again is nothing.
+  snapshot.discard()
+  // The conversation's next engine gets the same place, with what the host
+  // read then.
   let edited = snapshot_mcp_config(
     { ..config, revision: Text("{\"mcpServers\": {\"a\": {}}}"), },
     Some(runtime),
     "s-1",
   )
-  let copy = edited.given()
-  assert_true(copy != first)
+  assert_eq(edited.given(), copy)
   assert_eq(@fsx.read_text(Path(copy)), "{\"mcpServers\": {\"a\": {}}}")
-  assert_eq(@fsx.read_text(Path(first)), "{\"mcpServers\": {}}")
-  snapshot.discard()
-  assert_true(@fsx.read_text_if_exists(Path(first)) is None)
-  assert_eq(@fsx.read_text(Path(copy)), "{\"mcpServers\": {\"a\": {}}}")
-  // A person is shown their own file, never the copy.
-  @debug.assert_eq(
-    edited.restore_path(McpConfigInvalid(path=copy, error="bad")),
-    McpConfigInvalid(path=path.to_string(), error="bad"),
-  )
-  @debug.assert_eq(
-    edited.restore_path(McpConnectFailed(server="a", error="x")),
-    McpConnectFailed(server="a", error="x"),
-  )
-  // When the engine is gone, so is its copy.
   edited.discard()
-  assert_true(@fsx.read_text_if_exists(Path(copy)) is None)
   // Without a runtime directory there is nowhere to keep a copy, and what
   // the engine reports about the user's own file needs no translating.
   let direct = snapshot_mcp_config(config, None, "s-1")
@@ -447,7 +461,12 @@ async test "a broken MCP configuration is reported once, under the user's path" 
           sink,
           phase=Idle(last_run=None),
         ),
-        mcp: Some(Copy(copy="/runtime/mcp/\{session}.json", source~)),
+        // A copy this test never wrote, so there is no claim on it to hold.
+        mcp: Some(
+          Copy(copy="/runtime/mcp/\{session}.json", source~, hold={
+            lock: None,
+          }),
+        ),
       }
       group.spawn_bg(no_wait=true, allow_failure=true, () => {
         ignore(engine.consume(manager, reader))
@@ -583,18 +602,11 @@ async test "a snapshot whose making is interrupted leaves nothing behind" {
   let runtime = root.join("runtime")
   // Where the cancellation lands is up to the scheduler: before the file is
   // written, in which case no record of it was ever returned, or after, in
-  // which case the caller holds one. Neither may leave the file.
-  let directory = runtime.join("mcp").to_string()
-  async fn copies() -> Array[String] {
-    if @fs.exists(directory) {
-      @fs.readdir(directory)
-    } else {
-      []
-    }
-  }
-
+  // which case the caller holds one. Neither may leave the file, or a claim
+  // on it that would make the conversation's next start wait for nobody.
   for attempt in 0..<20 {
     let session = "s-\{attempt}"
+    let copy = mcp_snapshot_path(runtime, session)
     @async.with_task_group(group => {
       group.spawn_bg(no_wait=true, () => {
         // As the spawn path holds it: once there is a record, abandoning the
@@ -607,13 +619,17 @@ async test "a snapshot whose making is interrupted leaves nothing behind" {
         @async.sleep(10000)
       })
       @async.with_timeout(10000, () => {
-        while copies().is_empty() {
+        while !@fs.exists(copy.to_string()) {
           @async.sleep(1)
         }
       })
       group.return_immediately(())
     })
-    @debug.assert_eq(copies(), [])
+    assert_false(@fs.exists(copy.to_string()))
+    guard @fsx.FileLock::try_acquire(copy) is Some(free) else {
+      fail("an interrupted start should not keep its claim")
+    }
+    free.release()
   }
 }
 
@@ -648,31 +664,37 @@ async test "a session id that is not a file name gets no snapshot" {
 }
 
 ///|
-async test "a copy left by a host that was killed is reclaimed once nobody can need it" {
+async test "a copy left by a host that was killed is reclaimed, and a live host's is not" {
   let root : @pathx.Path = Path(
     @fs.realpath(@fs.tmpdir(prefix="openseek-mcp-reclaim-")),
   )
   defer @fs.rmdir(root.to_string(), recursive=true)
   let runtime = root.join("runtime")
   // Before any host has made a copy there is no directory, and nothing to do.
-  reclaim_mcp_snapshots(runtime, engine_clock_ms())
+  reclaim_mcp_snapshots(runtime)
   let config : McpConfig = {
     path: root.join("home/.openseek/mcp.json").resolve(),
     revision: Text("{\"mcpServers\": {}}"),
   }
-  // A host makes a copy and is killed before removing it.
-  let orphan = snapshot_mcp_config(config, Some(runtime), "s-1").given()
+  let live = snapshot_mcp_config(config, Some(runtime), "s-live")
+  let killed = snapshot_mcp_config(config, Some(runtime), "s-killed")
   let unrelated = runtime.join("mcp").join("notes.txt")
   @fsx.write_text(unrelated, "keep")
-  let now = engine_clock_ms()
-  // While a start that made it could still be under way — this host's or
-  // another's — it is left alone.
-  reclaim_mcp_snapshots(runtime, now)
-  reclaim_mcp_snapshots(runtime, now + McpSnapshotOrphanAgeMs - 60000)
-  assert_true(@fs.exists(orphan))
-  // Past that, no start can still need it, and a later start removes it.
-  reclaim_mcp_snapshots(runtime, now + McpSnapshotOrphanAgeMs + 60000)
-  assert_false(@fs.exists(orphan))
+  // Both hosts are alive and their engines may yet read their copies: a
+  // start elsewhere leaves both alone, however long ago they were written.
+  reclaim_mcp_snapshots(runtime)
+  assert_true(@fs.exists(live.given()) && @fs.exists(killed.given()))
+  // One host dies without removing its copy. Dying is what gives its claim
+  // up; here that is done by hand.
+  guard killed is Copy(hold~, ..) && hold.lock is Some(lock) else {
+    fail("a copy should be held by the host that made it")
+  }
+  lock.release()
+  hold.lock = None
+  reclaim_mcp_snapshots(runtime)
+  assert_false(@fs.exists(killed.given()))
+  assert_true(@fs.exists(live.given()))
   // Only copies are touched.
   assert_eq(@fsx.read_text(unrelated), "keep")
+  live.discard()
 }
