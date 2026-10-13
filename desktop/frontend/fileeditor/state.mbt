@@ -609,14 +609,19 @@ pub(all) struct State {
   watch_error : String?
   // The file tree's keyboard entry, independent of the editor's DOM focus.
   tree_focus : @pathx.Relative?
-  // Follow editor changes once, then leave manual folding/scrolling alone.
+  // Follow editor changes or directory links once, then leave manual scrolling alone.
   tree_reveal : TreeReveal
   // Directory paths the user has expanded, and those with a `read_directory`
   // in flight; plain arrays since a workspace tree is small.
   expanded : Array[@pathx.Relative]
   loading : Array[@pathx.Relative]
+  // In-flight reads invalidated by a newer parent listing; drain their replies
+  // before allowing another read for the same path. Cached listings never mark these.
+  removed_directory_reads : Map[@pathx.Relative, RemovedDirectoryRead]
   // Listed directories' entries, keyed by the directory's relative path.
   children : Map[@pathx.Relative, Array[FileEntry]]
+  // Parallel directory replies clear only their own failures.
+  directory_errors : Map[@pathx.Relative, String]
   // Each open document, keyed by device-bound absolute URI. The key set
   // mirrors the dock strip's file tabs (`Ctx.open_files`): the root update
   // adds an entry when it opens a tab and drops it when the tab closes.
@@ -638,7 +643,7 @@ pub(all) struct State {
   highlighted : @pathx.Relative?
   // The workspace-wide file snapshot used by completion consumers.
   index : FileIndex
-  // The last directory/file failure, surfaced in the panel header;
+  // The last file operation failure, surfaced in the panel header;
   // `None` while nothing has failed.
   error : String?
 } derive(Eq)
@@ -648,7 +653,7 @@ pub fn State::empty() -> State {
   {
     owner: None,
     placement: PlacementUnknown,
-    tree_open: true,
+    tree_open: false,
     office_zoom: 100,
     office_query: "",
     office_prefer_system_fonts: false,
@@ -710,7 +715,9 @@ pub fn State::empty() -> State {
     tree_reveal: TreeRevealInactive,
     expanded: [],
     loading: [],
+    removed_directory_reads: Map([]),
     children: Map([]),
+    directory_errors: Map([]),
     docs: Map([]),
     mbti_view_modes: Map([]),
     moon_mod_view_modes: Map([]),
@@ -970,6 +977,9 @@ pub(all) enum Msg {
   ChangeFiltersCleared
   ChangePathFilterChanged(String)
   TreeFocused(@pathx.Relative)
+  // Focus a transcript-linked directory once its expanded ancestors render.
+  RevealTreeDirectory(@pathx.Relative)
+  DirExpand(@pathx.Relative)
   DirToggle(@pathx.Relative)
   // Ensure the current workspace's file snapshot exists. Loading and ready
   // states make this idempotent; a failed first request is retryable.
@@ -1422,3 +1432,14 @@ fn Ctx::relative(self : Ctx, file : @common.Uri) -> @pathx.Relative? {
 fn Ctx::resource(self : Ctx, path : @pathx.Relative) -> @common.Uri? {
   self.root().map(root => @resource.join_relative(root, path))
 }
+
+///|
+/// A parent listing invalidated a pending read. Explicit opens coalesce one
+/// retry after its stale reply drains, keeping replies unambiguous per path.
+enum RemovedDirectoryRead {
+  DiscardReply
+  RetryAfterReply
+} derive(Eq)
+
+///|
+pub extend RemovedDirectoryRead with Eq::{equal, not_equal}

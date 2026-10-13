@@ -64,6 +64,7 @@ priv struct Tab {
   status : TabStatus
   /// `None` for an ordinary shell tab.
   command : TabCommand?
+  input : InputQueue
 } derive(Eq)
 
 ///|
@@ -91,6 +92,9 @@ struct State {
   /// Root-owned input snapshot used to retire dead channels. Keeping it
   /// beside the tabs makes input reconciliation a normal state transition.
   live_channels : Array[@interop.ChannelId]
+  /// A lost connection had terminals. Warn until new input acknowledges
+  /// that recovery creates a fresh shell, without replaying old input.
+  interrupted_channels : Array[@interop.ChannelId]
 } derive(Eq)
 
 ///|
@@ -103,6 +107,7 @@ pub fn State::empty() -> State {
     exited_before_open: [],
     synced_dark_mode: None,
     live_channels: [],
+    interrupted_channels: [],
   }
 }
 
@@ -259,10 +264,15 @@ pub(all) enum Msg {
   /// xterm's `onBinary` payload, encoded as base64 so each JS character code
   /// reaches the PTY as exactly one byte instead of being UTF-8 re-encoded.
   BinaryInput(key~ : String, data~ : String)
-  /// `terminal_input` failed for the tab: the keystrokes were lost. The
-  /// main package surfaces the message as an error toast (the panel has no
-  /// toast rail of its own); the tab's status is untouched — a lost
-  /// keystroke does not make the session failed.
+  /// One write settled. The batch and PTY identity fence stale replies.
+  InputSettled(
+    key~ : String,
+    id~ : String,
+    token~ : String,
+    result~ : Result[Unit, InputWriteFailure]
+  )
+  /// The panel has paused input and discarded the unsent tail; the main
+  /// frontend displays the reason. Output and explicit close remain available.
   InputFailed(message~ : String)
   /// One tab's emulator re-fit to a new grid size.
   ViewportResized(key~ : String, cols~ : Int32, rows~ : Int32)

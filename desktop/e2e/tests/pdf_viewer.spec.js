@@ -17,21 +17,25 @@ async function openFile(app, name) {
   await app.page.getByRole('option', { name: new RegExp(name.replaceAll('.', '\\.')) }).click();
 }
 
-async function setup(page) {
+async function setup(page, { openTree = true } = {}) {
   const app = new DesktopBrowserHarness(page);
   app.officeFiles['docs/broken.pdf'] = {
     data_base64: Buffer.from('invalid PDF data').toString('base64'),
     media_type: 'application/pdf', sig: 'pdf:broken',
   };
   app.searchFiles = ['docs/report.pdf', 'docs/encrypted.pdf', 'docs/broken.pdf', 'docs/report.docx'];
+  app.officeFiles['docs/extensionless'] = app.officeFiles['docs/report.pdf'];
+  app.searchFiles.push('docs/extensionless');
   app.directoryEntries['/workspace'] = [{ name: 'docs', is_dir: true }];
   app.directoryEntries['/workspace/docs'] = app.searchFiles.map(path => ({ name: path.split('/').at(-1), is_dir: false }));
   await app.install();
   await app.goto();
   await app.openSession();
   await page.getByRole('button', { name: 'Hide sidebar', exact: true }).click();
-  await app.openReview({ waitForHistory: false });
-  await page.getByRole('tab', { name: 'Files', exact: true }).click();
+  if (openTree) {
+    await app.openReview({ waitForHistory: false });
+    await page.getByRole('tab', { name: 'Files', exact: true }).click();
+  }
   return app;
 }
 
@@ -42,6 +46,103 @@ async function expectPdf(page) {
   await expect(page.locator('.viewer-notice')).toHaveClass(/hidden/);
   await expect(page.getByRole('dialog', { name: 'Unlock PDF', exact: true })).toBeHidden();
 }
+
+test('opening a PDF defaults to a hidden tree and preserves manual reopening across files', async ({ page }) => {
+  const app = await setup(page, { openTree: false });
+  await expect(page.locator('.file-tree-pane')).toBeHidden();
+  app.rpcDelays.set('fs.read_file', 1200);
+  await page.evaluate(() => {
+    window.pdfTreeFrames = [];
+    window.recordPdfTree = true;
+    const record = () => {
+      if (!window.recordPdfTree) return;
+      const active = document.querySelector('.editor-tab.active .tab-name');
+      if (active?.textContent === 'report.pdf') {
+        const tree = document.querySelector('.file-tree-pane');
+        window.pdfTreeFrames.push({
+          visible: tree.getClientRects().length > 0 && getComputedStyle(tree).visibility !== 'hidden',
+          animations: tree.getAnimations().length,
+        });
+      }
+      requestAnimationFrame(record);
+    };
+    requestAnimationFrame(record);
+  });
+  await openFile(app, 'report.pdf');
+  await expectPdf(page);
+  const frames = await page.evaluate(() => {
+    window.recordPdfTree = false;
+    return window.pdfTreeFrames;
+  });
+  expect(frames.length).toBeGreaterThan(0);
+  expect(frames.every(frame => !frame.visible && frame.animations === 0)).toBe(true);
+  app.rpcDelays.delete('fs.read_file');
+  await expect(page.locator('.file-tree-pane')).toBeHidden();
+  await page.getByTitle('Show file tree', { exact: true }).click();
+  await expect(page.locator('.file-tree-pane')).toBeVisible();
+  await page.getByRole('button', { name: 'Next page', exact: true }).click();
+  await expect(page.getByRole('spinbutton', { name: 'PDF page number', exact: true })).toHaveValue('2');
+  await expect(page.locator('.file-tree-pane')).toBeVisible();
+  await openFile(app, 'report.docx');
+  await expect(page.locator('.word-page').first()).toBeVisible();
+  await expect(page.locator('.file-tree-pane')).toBeVisible();
+  await openFile(app, 'report.pdf');
+  await expectPdf(page);
+  await expect(page.locator('.file-tree-pane')).toBeVisible();
+  await page.locator('.editor-tab').filter({ hasText: 'report.docx' }).click();
+  await expect(page.locator('.word-page').first()).toBeVisible();
+  await page.locator('.editor-tab').filter({ hasText: 'report.pdf' }).click();
+  await expectPdf(page);
+  await expect(page.locator('.file-tree-pane')).toBeVisible();
+  expect(app.pageErrors).toEqual([]);
+});
+
+for (const filename of ['report.pdf', 'extensionless']) {
+  test(`a tree manually reopened while ${filename} loads stays open`, async ({ page }) => {
+    const app = await setup(page, { openTree: false });
+    app.rpcDelays.set('fs.read_file', 2000);
+    await openFile(app, filename);
+    await expect(page.locator('#openseek-office-surface')).not.toHaveAttribute('data-pdf-painted', 'true');
+    await page.getByTitle('Show file tree', { exact: true }).click();
+    await expect(page.locator('.file-tree-pane')).toBeVisible();
+    await expectPdf(page);
+    await expect(page.locator('.file-tree-pane')).toBeVisible();
+    expect(app.pageErrors).toEqual([]);
+  });
+}
+
+test('opening an extensionless PDF from a hidden panel keeps the default tree closed', async ({ page }) => {
+  const app = await setup(page, { openTree: false });
+  await openFile(app, 'report.docx');
+  await expect(page.locator('.word-page').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Hide panel', exact: true }).click();
+  await expect(page.locator('.file-tree-pane')).toBeHidden();
+  app.rpcDelays.set('fs.read_file', 1200);
+  await page.evaluate(() => {
+    window.extensionlessTreeFrames = [];
+    window.recordExtensionlessTree = true;
+    const record = () => {
+      if (!window.recordExtensionlessTree) return;
+      if (document.querySelector('.editor-tab.active .tab-name')?.textContent === 'extensionless') {
+        const tree = document.querySelector('.file-tree-pane');
+        window.extensionlessTreeFrames.push(
+          (tree.getClientRects().length === 0 || getComputedStyle(tree).visibility === 'hidden') && tree.getAnimations().length === 0,
+        );
+      }
+      requestAnimationFrame(record);
+    };
+    requestAnimationFrame(record);
+  });
+  await openFile(app, 'extensionless');
+  await expectPdf(page);
+  const frames = await page.evaluate(() => {
+    window.recordExtensionlessTree = false;
+    return window.extensionlessTreeFrames;
+  });
+  expect(frames.length).toBeGreaterThan(0);
+  expect(frames.every(hidden => hidden)).toBe(true);
+  expect(app.pageErrors).toEqual([]);
+});
 
 test('PDF controls and confirmed text selections retain structured context', async ({ page }) => {
   const app = await setup(page);

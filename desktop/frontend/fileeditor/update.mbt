@@ -510,9 +510,9 @@ pub fn open_document(
     let state = state.record_pdf_generation(doc)
     let docs = state.docs.copy()
     docs[path] = doc
-    // Gaining the first active tab reveals the breadcrumb row, and the
-    // narrow drill-down closing the tree reveals a viewer that was last
-    // measured while hidden — both need a remeasure alongside the show.
+    // Gaining the first active tab reveals the breadcrumb row. Closing the
+    // tree for a narrow drill-down also changes the viewer's space;
+    // both need a remeasure alongside the show.
     let cmd = if !had_active ||
       (state.tree_open && ctx.narrow) ||
       doc.review is Some(_) {
@@ -1165,8 +1165,7 @@ pub fn activate(
   let state = state.record_pdf_generation(doc)
   let docs = state.docs.copy()
   docs[path] = doc
-  // The narrow drill-down closing the tree reveals a viewer that was last
-  // measured while hidden; it must remeasure with the show.
+  // Closing the tree changes the space available to the activated viewer.
   let cmd = if state.tree_open && ctx.narrow {
     @cmd.batch([show, request_viewer_remeasure()])
   } else {
@@ -1187,8 +1186,8 @@ pub fn activate(
 ///|
 /// Drop `path`'s document after its dock tab closed. `next`, when the closed
 /// tab owned the screen, is the file the dock promoted (`None` when the
-/// strip emptied — the viewer falls back to the placeholder, and the tree is
-/// forced open so the panel is never a dead pane). The closed document's
+/// strip emptied — the view shows the file picker without changing the
+/// manual tree preference). The closed document's
 /// parked scroll is forgotten after the neighbor's show re-parks the
 /// outgoing document.
 pub fn close_document(
@@ -1212,15 +1211,7 @@ pub fn close_document(
   // promoting its neighbor must not address the missing checkout. Recovery's
   // sync pass restores whichever surviving tab the dock made active.
   if !ctx.placement_ready() {
-    let state = {
-      ..state,
-      docs,
-      tree_open: if was_active && next is None {
-        true
-      } else {
-        state.tree_open
-      },
-    }
+    let state = { ..state, docs, }
     let cmd = if was_active && next is None {
       @cmd.batch([
         clear_document(),
@@ -1254,9 +1245,9 @@ pub fn close_document(
       } else {
         (forget_view_state(path), { ..state, docs, })
       }
-    // The last tab: fall back to the placeholder and force the tree open so
-    // the panel is never a dead pane. Losing the active tab also hides the
-    // breadcrumb row, so the viewer must remeasure.
+    // The last tab falls back to the picker. Its tree is derived by the view;
+    // keep the manual preference for the next document. Losing the active tab
+    // also hides the breadcrumb row, so the viewer must remeasure.
     None =>
       (
         @cmd.batch([
@@ -1264,7 +1255,7 @@ pub fn close_document(
           forget_view_state(path),
           request_viewer_remeasure(),
         ]),
-        { ..state, docs, tree_open: true, },
+        { ..state, docs, },
       )
   }
 }
@@ -2202,7 +2193,9 @@ pub fn sync(
       ..state,
       docs,
       children: Map([]),
+      directory_errors: Map([]),
       loading: [],
+      removed_directory_reads: Map([]),
       index: IndexEmpty,
       error: None,
       search: state.search.park(),
@@ -2665,6 +2658,8 @@ fn update_inner(
         },
       )
     TreeFocused(path) => (@cmd.none, { ..state, tree_focus: Some(path), })
+    RevealTreeDirectory(path) =>
+      (@cmd.none, { ..state, tree_reveal: TreeRevealDirectoryPending(path), })
     RefreshExternalFiles =>
       (
         stat_files(
@@ -3088,7 +3083,11 @@ fn update_inner(
         (@cmd.none, { ..state, highlighted: None, })
       } else {
         let selected = { ..state, highlighted: Some(path), }
-        if state.children.contains(path) {
+        if state.removed_directory_reads.contains(path) {
+          let removed_directory_reads = state.removed_directory_reads.copy()
+          removed_directory_reads[path] = RetryAfterReply
+          (@cmd.none, { ..selected, removed_directory_reads, })
+        } else if state.children.contains(path) {
           (focus_breadcrumb_entry_after_render(0), selected)
         } else if state.loading.contains(path) {
           (@cmd.none, selected)
@@ -3113,37 +3112,44 @@ fn update_inner(
       } else {
         (@cmd.none, state)
       }
-    DirToggle(path) =>
-      if state.expanded.contains(path) {
-        (
-          @cmd.none,
-          {
-            ..state,
-            expanded: state.expanded.filter(entry => entry != path),
-            tree_reveal: state.tree_reveal.settle(),
-          },
-        )
-      } else {
-        let expanded = state.expanded.copy()
+    DirToggle(path) if state.expanded.contains(path) =>
+      (
+        @cmd.none,
+        {
+          ..state,
+          expanded: state.expanded.filter(entry => entry != path),
+          tree_reveal: state.tree_reveal.settle(),
+        },
+      )
+    DirToggle(path) | DirExpand(path) => {
+      let expanded = state.expanded.copy()
+      if !expanded.contains(path) {
         expanded.push(path)
-        // A directory listed once stays cached, so re-expanding is instant.
-        if state.children.contains(path) || state.loading.contains(path) {
-          (@cmd.none, { ..state, expanded, })
-        } else {
-          let loading = state.loading.copy()
-          loading.push(path)
-          (
-            read_directory(
-              dispatch,
-              ctx.owner,
-              ctx.request_epoch,
-              path,
-              root=ctx.root(),
-            ),
-            { ..state, expanded, loading, },
-          )
-        }
       }
+      if state.removed_directory_reads.contains(path) {
+        let removed_directory_reads = state.removed_directory_reads.copy()
+        removed_directory_reads[path] = RetryAfterReply
+        return (@cmd.none, { ..state, expanded, removed_directory_reads, })
+      }
+      // Explicit expansion retries a failed read; cached and in-flight reads
+      // stay idempotent even when the directory is already expanded.
+      if state.children.contains(path) || state.loading.contains(path) {
+        (@cmd.none, { ..state, expanded, })
+      } else {
+        let loading = state.loading.copy()
+        loading.push(path)
+        (
+          read_directory(
+            dispatch,
+            ctx.owner,
+            ctx.request_epoch,
+            path,
+            root=ctx.root(),
+          ),
+          { ..state, expanded, loading, },
+        )
+      }
+    }
     EnsureFileIndex =>
       if state.owner != Some(ctx.owner) ||
         state.placement.is_parked() ||
@@ -3173,6 +3179,31 @@ fn update_inner(
       } else {
         (@cmd.none, state)
       }
+    DirLoaded(owner~, epoch~, path~, ..)
+    | DirFailed(owner~, epoch~, path~, ..) if state.owner == Some(owner) &&
+      state.request_epoch == epoch &&
+      state.removed_directory_reads.contains(path) => {
+      let retry = state.removed_directory_reads.get(path)
+        is Some(RetryAfterReply)
+      let removed_directory_reads = state.removed_directory_reads.copy()
+      removed_directory_reads.remove(path)
+      (
+        if retry {
+          read_directory(dispatch, owner, epoch, path, root=ctx.root())
+        } else {
+          @cmd.none
+        },
+        {
+          ..state,
+          loading: if retry {
+            state.loading
+          } else {
+            state.loading.filter(entry => entry != path)
+          },
+          removed_directory_reads,
+        },
+      )
+    }
     DirLoaded(owner~, epoch~, path~, entries~) =>
       // Drop a reply whose conversation is no longer the panel's.
       if state.owner != Some(owner) || state.request_epoch != epoch {
@@ -3180,6 +3211,21 @@ fn update_inner(
       } else {
         let children = state.children.copy()
         children[path] = entries
+        let removed_directory_reads = state.removed_directory_reads.copy()
+        for pending in state.loading {
+          if directory_listing_excludes(path, entries, pending) &&
+            !removed_directory_reads.contains(pending) {
+            removed_directory_reads[pending] = DiscardReply
+          }
+        }
+        let directory_errors = state.directory_errors.copy()
+        for failed, _ in state.directory_errors {
+          // A successful parent listing also confirms deleted/renamed child
+          // directories, whose old paths can no longer be retried.
+          if failed == path || directory_listing_excludes(path, entries, failed) {
+            directory_errors.remove(failed)
+          }
+        }
         let breadcrumb_cmd = if state.highlighted is Some(highlighted) &&
           highlighted == path {
           focus_breadcrumb_entry_after_render(0)
@@ -3191,8 +3237,9 @@ fn update_inner(
           {
             ..state,
             children,
+            removed_directory_reads,
             loading: state.loading.filter(entry => entry != path),
-            error: None,
+            directory_errors,
           },
         )
       }
@@ -3200,15 +3247,20 @@ fn update_inner(
       if state.owner != Some(owner) || state.request_epoch != epoch {
         (@cmd.none, state)
       } else {
+        let directory_errors = state.directory_errors.copy()
+        directory_errors[path] = message
         (
           @cmd.none,
           {
             ..state,
             loading: state.loading.filter(entry => entry != path),
-            error: Some(message),
+            directory_errors,
             tree_reveal: match state.tree_reveal {
               TreeRevealPending(target) if path.is_root() ||
                 target.0.has_prefix(path.0 + "/") => TreeRevealSettled(target)
+              TreeRevealDirectoryPending(target) if path.is_root() ||
+                target.0.has_prefix(path.0 + "/") =>
+                TreeRevealDirectorySettled(target)
               _ => state.tree_reveal
             },
           },
@@ -5614,7 +5666,7 @@ test "activate without a document entry is a no-op" {
 }
 
 ///|
-test "close_document drops the entry and forces the tree open on the last one" {
+test "close_document preserves the manual tree preference on the last one" {
   let emit = test_emit()
   let docs : Map[@common.Uri, Doc] = Map([])
   docs[test_file("a.mbt")] = loaded_doc("a.mbt")
@@ -5633,8 +5685,7 @@ test "close_document drops the entry and forces the tree open on the last one" {
   assert_false(one.docs.contains(test_file("a.mbt")))
   assert_true(one.docs.contains(test_file("b.mbt")))
   assert_false(one.tree_open)
-  // Closing the last document: the viewer falls back to the placeholder and
-  // the tree is forced open so the panel is never a dead pane.
+  // Closing the last document shows the picker without changing preference.
   let (_, last) = close_document(
     emit,
     one,
@@ -5644,7 +5695,7 @@ test "close_document drops the entry and forces the tree open on the last one" {
     was_active=true,
   )
   assert_true(last.docs.is_empty())
-  assert_true(last.tree_open)
+  assert_false(last.tree_open)
 }
 
 ///|
@@ -6668,7 +6719,7 @@ test "RevealDirectory opens the breadcrumb picker without moving the explorer" {
   let (_, closed) = update(
     emit,
     ToggleTree,
-    { ..owned_state(), explorer_mode: ExplorerChanges, },
+    { ..owned_state(), explorer_mode: ExplorerChanges, tree_open: true, },
     test_ctx(),
   )
   assert_false(closed.tree_open)
@@ -9640,4 +9691,19 @@ test "same-root conversation switch fences every old watcher push" {
   let (_, second) = update(emit, current_failure, ready, next_ctx)
   assert_eq(first.watch_error, Some("current watcher stopped"))
   assert_true(first.watch_error == second.watch_error)
+}
+
+///|
+/// Only a fresh successful listing may invalidate concurrent descendant reads.
+fn directory_listing_excludes(
+  parent : @pathx.Relative,
+  entries : Array[FileEntry],
+  descendant : @pathx.Relative,
+) -> Bool {
+  descendant != parent &&
+  (parent.is_root() || descendant.0.has_prefix(parent.0 + "/")) &&
+  !entries.any(entry => {
+    entry.is_dir &&
+    (descendant == entry.path || descendant.0.has_prefix(entry.path.0 + "/"))
+  })
 }
