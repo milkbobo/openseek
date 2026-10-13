@@ -50,8 +50,10 @@ pub fn rows(
       rows.push(note(text(locale, EngineNotRunning(config_path))))
     { engine: Connecting, .. } =>
       rows.push(note(text(locale, EngineConnecting)))
-    { config_path, engine: Running(NotConfigured), } =>
-      rows.push(note(text(locale, NotConfigured(config_path))))
+    { engine: Running(NotConfigured), .. } =>
+      rows.push(note(text(locale, NotConfigured)))
+    { engine: Running(ConfigAbsent(path~)), .. } =>
+      rows.push(note(text(locale, NoConfigFile(path))))
     { engine: Running(ConfigRejected(path~, reason~)), .. } =>
       rows.push(problem(text(locale, ConfigRejected(path)), reason))
     { engine: Running(Configured(path~, servers=[])), .. } =>

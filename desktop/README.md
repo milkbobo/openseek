@@ -162,9 +162,10 @@ Uninstall button.
 The agent can use tools from [MCP](https://modelcontextprotocol.io) servers
 listed in `~/.openseek/mcp.json`, the `{"mcpServers": {...}}` shape described
 in the repository README. The file is created and edited by hand. The host
-points every engine it spawns at the file with `--mcp-config`; when no file
-exists it passes nothing, so an `OPENSEEK_MCP_CONFIG` inherited from the
-launching environment still applies.
+points every engine it spawns at that path with `--mcp-config`, whether or not
+the file exists yet, and does nothing else with it; an `OPENSEEK_MCP_CONFIG`
+inherited from the launching environment is therefore not what a desktop
+engine uses.
 
 **Settings → MCP** shows what the current conversation's engine holds of
 those servers: connected with its tools, disconnected since it connected, no
@@ -179,11 +180,13 @@ whose engine is not running — before its first message, or after a restart —
 is shown as that; its servers connect when its next message starts one. One
 whose engine has started and not reported yet is shown as still connecting.
 
-An engine connects its servers once, when it starts — one set of server
-processes per conversation. The file's content is therefore part of what pins
-an engine to its configuration, like the model and the endpoint: an edit
-retires a conversation's engine on its next prompt, with no desktop restart.
-A configuration the engine cannot load, and a server that fails to start, to
+Each conversation's engine has its own set of server processes and follows
+the file itself: it reads it again before every turn, so writing or editing
+the file takes effect on that conversation's next message, with no desktop
+restart and no new engine. Only the servers an edit touched are restarted —
+one defined as before keeps its connection and its state — and a server that
+failed or exited is tried again the next time the file changes. A
+configuration the engine cannot load, and a server that fails to start, to
 list its tools, or to fit under the tool limit, raise an error toast naming
 the cause; the conversation continues without those tools. MCP tool calls are
 not gated by the approval prompt, which only covers the built-in tools'

@@ -276,6 +276,7 @@ pub impl @json.FromJson for McpServerStatus
 
 pub(all) enum McpStatus {
   NotConfigured
+  ConfigAbsent(path~ : String)
   ConfigRejected(path~ : String, reason~ : String)
   Configured(path~ : String, servers~ : Array[McpServerStatus])
 } derive(Eq, @debug.Debug)

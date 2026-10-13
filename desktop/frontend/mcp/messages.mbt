@@ -9,7 +9,8 @@ priv enum UiMessage {
   NoConversation
   EngineNotRunning(String)
   EngineConnecting
-  NotConfigured(String)
+  NotConfigured
+  NoConfigFile(String)
   NoServers(String)
   ConfigRejected(String)
   CheckFailed
@@ -82,16 +83,26 @@ fn text(locale : @i18n.Locale, message : UiMessage) -> String {
       "此對話的引擎正在啟動，尚未完成伺服器連線。"
     (Japanese, EngineConnecting) =>
       "この会話のエンジンは起動中で、サーバーへの接続がまだ完了していません。"
-    (English, NotConfigured(path)) =>
-      "This conversation's engine started without an MCP configuration. Servers in \{path} connect from its next message."
-    (Spanish, NotConfigured(path)) =>
-      "El motor de esta conversación se inició sin configuración de MCP. Los servidores de \{path} se conectan a partir de su siguiente mensaje."
-    (SimplifiedChinese, NotConfigured(path)) =>
-      "此对话的引擎启动时没有 MCP 配置。\{path} 中的服务器会从它的下一条消息起连接。"
-    (TraditionalChinese, NotConfigured(path)) =>
-      "此對話的引擎啟動時沒有 MCP 設定。\{path} 中的伺服器會從它的下一則訊息起連線。"
-    (Japanese, NotConfigured(path)) =>
-      "この会話のエンジンは MCP 設定なしで起動しました。\{path} のサーバーには次のメッセージから接続します。"
+    (English, NotConfigured) =>
+      "This conversation's engine was started without an MCP configuration."
+    (Spanish, NotConfigured) =>
+      "El motor de esta conversación se inició sin configuración de MCP."
+    (SimplifiedChinese, NotConfigured) =>
+      "此对话的引擎启动时没有 MCP 配置。"
+    (TraditionalChinese, NotConfigured) =>
+      "此對話的引擎啟動時沒有 MCP 設定。"
+    (Japanese, NotConfigured) =>
+      "この会話のエンジンは MCP 設定なしで起動しました。"
+    (English, NoConfigFile(path)) =>
+      "There is no \{path} yet. Create it and its servers connect on this conversation's next message."
+    (Spanish, NoConfigFile(path)) =>
+      "Aún no existe \{path}. Créalo y sus servidores se conectarán con el siguiente mensaje de esta conversación."
+    (SimplifiedChinese, NoConfigFile(path)) =>
+      "\{path} 尚不存在。创建后，其中的服务器会在此对话的下一条消息时连接。"
+    (TraditionalChinese, NoConfigFile(path)) =>
+      "\{path} 尚不存在。建立後，其中的伺服器會在此對話的下一則訊息時連線。"
+    (Japanese, NoConfigFile(path)) =>
+      "\{path} はまだありません。作成すると、この会話の次のメッセージでサーバーに接続します。"
     (English, NoServers(path)) => "\{path} lists no servers."
     (Spanish, NoServers(path)) => "\{path} no contiene ningún servidor."
     (SimplifiedChinese, NoServers(path)) =>

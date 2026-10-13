@@ -284,6 +284,10 @@ struct Tools {
   program_trace : Ref[Json?]
   program_output : Ref[@bgjobs.ImageOutput?]
   image_input_supported : Ref[Bool]
+  /// What the builder does to a tool it did not write before registering it,
+  /// applied again by `replace` so a tool that arrives later is treated like
+  /// the ones the registry started with.
+  admit : (AgentToolDefinition) -> AgentToolDefinition
 }
 
 ///|
@@ -291,12 +295,16 @@ struct Tools {
 /// definitions share a name — duplicates are treated as a programming bug,
 /// since the model dispatches by name and a silent override would mask one
 /// of the tools.
+///
+/// `admit` is applied to tools registered later through `replace`, never to
+/// `definitions`: the builder has already treated those as it saw fit.
 pub fn Tools::Tools(
   definitions : Array[AgentToolDefinition],
   background_jobs? : @bgjobs.BgJobRuntime,
   program_trace~ : Ref[Json?] = Ref(None),
   program_output~ : Ref[@bgjobs.ImageOutput?] = Ref(None),
   image_input_supported~ : Ref[Bool] = Ref(false),
+  admit~ : (AgentToolDefinition) -> AgentToolDefinition = tool => tool,
 ) -> Tools raise {
   let by_name : Map[String, AgentToolDefinition] = Map([])
   for definition in definitions {
@@ -311,6 +319,42 @@ pub fn Tools::Tools(
     program_trace,
     program_output,
     image_input_supported,
+    admit,
+  }
+}
+
+///|
+/// Swap one set of tools for another between turns: the ones named `removed`
+/// leave the registry and `added` join it, in that order, so a tool may be
+/// replaced under its own name. Raises, changing nothing, when an added name
+/// is already taken by a tool that stays.
+///
+/// This reaches the model through `function_tools` and dispatch through
+/// `find`, both read per request. It does not reach a program registry
+/// derived earlier with `program_tools`, so it is for tools a program cannot
+/// call.
+pub fn Tools::replace(
+  self : Tools,
+  removed~ : Array[String],
+  added~ : Array[AgentToolDefinition],
+) -> Unit raise {
+  let leaving : Set[String] = Set(removed)
+  let joining : Set[String] = Set([])
+  for definition in added {
+    if joining.contains(definition.name) ||
+      (
+        self.by_name.contains(definition.name) &&
+        !leaving.contains(definition.name)
+      ) {
+      fail("duplicate tool name: \{definition.name}")
+    }
+    joining.add(definition.name)
+  }
+  for name in removed {
+    self.by_name.remove(name)
+  }
+  for definition in added {
+    self.by_name[definition.name] = (self.admit)(definition)
   }
 }
 
@@ -513,4 +557,48 @@ async test "direct and program dispatch share image capability and reject before
     }
   }
   assert_eq(calls.val, 2)
+}
+
+///|
+test "Tools::replace swaps a set of tools and admits the newcomers" {
+  fn tool(name : String, description : String) -> AgentToolDefinition {
+    AgentToolDefinition(
+      name~,
+      description~,
+      schema=JsonSchema({ "type": "object" }),
+      execute=Sync(_ => respond("ok")),
+    )
+  }
+
+  let tools = Tools([tool("read", "built in"), tool("mcp__a__ping", "old")], admit=definition => {
+    ..definition,
+    description: "admitted: \{definition.description}",
+  })
+  // A tool may be replaced under its own name; the newcomer goes through
+  // `admit`, the ones the registry was built with did not.
+  tools.replace(removed=["mcp__a__ping"], added=[
+    tool("mcp__a__ping", "new"),
+    tool("mcp__b__pong", "new"),
+  ])
+  assert_eq([ for definition in tools.function_tools() => definition.name ], [
+    "read", "mcp__a__ping", "mcp__b__pong",
+  ])
+  assert_true(tools.find("read") is Some({ description: "built in", .. }))
+  assert_true(
+    tools.find("mcp__a__ping") is Some({ description: "admitted: new", .. }),
+  )
+  // A name a remaining tool holds is refused, and nothing is changed.
+  let refused = try {
+    tools.replace(removed=["mcp__b__pong"], added=[tool("read", "clash")])
+    false
+  } catch {
+    _ => true
+  }
+  assert_true(refused)
+  assert_true(tools.find("mcp__b__pong") is Some(_))
+  assert_true(tools.find("read") is Some({ description: "built in", .. }))
+  tools.replace(removed=["mcp__a__ping", "mcp__b__pong"], added=[])
+  assert_eq([ for definition in tools.function_tools() => definition.name ], [
+    "read",
+  ])
 }

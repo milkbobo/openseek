@@ -100,9 +100,10 @@ test('MCP status says when there is no engine to ask, and asks again on reopen a
   await expect(group.getByText('configuration is missing an `mcpServers` object')).toBeVisible();
   expect(statusRequests(app)).toHaveLength(2);
 
-  app.mcpStatus = running({ config: 'none' });
+  // The engine is pointed at a file nobody has written yet: not an error.
+  app.mcpStatus = running({ config: 'absent', path: configPath });
   await group.getByRole('button', { name: 'Refresh', exact: true }).click();
-  await expect(group.getByText('started without an MCP configuration', { exact: false })).toBeVisible();
+  await expect(group.getByText(`There is no ${configPath} yet.`, { exact: false })).toBeVisible();
   expect(statusRequests(app)).toHaveLength(3);
 
   // A question the host could not answer is reported as that, not as an
