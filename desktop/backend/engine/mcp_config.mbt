@@ -1,17 +1,169 @@
-// The MCP server configuration every engine is pointed at: one user-level
-// file beside the global session store, in the de-facto
-// `{"mcpServers": {...}}` shape the engine's `--mcp-config` decodes. The host
-// only names the file. The engine reads it — again before every turn, so an
-// edit needs no new process — connects the servers, and reports what it could
-// not use.
+// The MCP server configuration a conversation's engine runs with: one
+// user-level file beside the global session store, in the de-facto
+// `{"mcpServers": {...}}` shape the engine's `--mcp-config` decodes.
+//
+// The host is the file's only reader. It reads it before each prompt, gives a
+// new engine its own copy of exactly what it read, and keeps a digest of that
+// in the engine fingerprint, so an edit starts a new engine on the next
+// prompt. Because the engine never opens the user's file, what the host
+// compared and what the engine loaded cannot differ. The host does not
+// interpret the content — the engine connects the servers and reports what it
+// could not use.
 
 ///|
 /// Where the desktop looks for the user's MCP server configuration, or
 /// `None` when the host has no home directory to look in. The user writes
-/// the file by hand; whether it exists yet is the engine's to find out.
+/// the file by hand; the host only reads it.
 fn mcp_config_path() -> @pathx.Absolute? {
   guard @workspaces.global_store_root() is Some(root) else { return None }
   Some(root.join("mcp.json"))
+}
+
+///|
+/// What the host found in the configuration file. A file that exists but
+/// cannot be read is its own observation, not an absent one: the engine is
+/// still pointed at it and reports the failure.
+priv enum McpConfigRevision {
+  /// The file's text. It travels with the run config to the spawn, where it
+  /// becomes the engine's copy; a live engine keeps only its digest.
+  Text(String)
+  ReadFailed(String)
+}
+
+///|
+/// The user's MCP configuration as the host read it for one run.
+priv struct McpConfig {
+  path : @pathx.Absolute
+  revision : McpConfigRevision
+}
+
+///|
+/// Read the user's MCP configuration. An absent file is the ordinary
+/// unconfigured state and names nothing, which leaves an
+/// `OPENSEEK_MCP_CONFIG` inherited from the launching shell in effect exactly
+/// as it is for the CLI. Called before the workspace lifecycle lock is taken,
+/// never under it.
+async fn resolved_mcp_config() -> McpConfig? {
+  guard mcp_config_path() is Some(path) else { return None }
+  let text = @fsx.read_text_if_exists(path.to_path()) catch {
+    error if @async.is_being_cancelled() => raise error
+    error => return Some({ path, revision: ReadFailed("\{error}"), })
+  }
+  guard text is Some(text) else { return None }
+  Some({ path, revision: Text(text), })
+}
+
+///|
+/// The fingerprint component for a run's MCP configuration: what a live
+/// engine keeps of it. The tags keep a read failure from ever colliding with
+/// a digest of the same text.
+fn mcp_config_fingerprint(config : McpConfig?) -> String {
+  guard config is Some({ path, revision, }) else { return "none" }
+  match revision {
+    Text(text) => {
+      let digest = @crypto.bytes_to_hex_string(
+        @crypto.sha256(@utf8.encode(text)),
+      )
+      "sha256\u{1}\{path}\u{1}\{digest}"
+    }
+    ReadFailed(error) => "unreadable\u{1}\{path}\u{1}\{error}"
+  }
+}
+
+///|
+/// What one engine was started with.
+priv struct McpHandoff {
+  /// The path on the engine's command line, which is the path it reports.
+  given : String
+  /// The user's file, which is the path a person should be shown.
+  source : String
+  /// The fingerprint component of what was handed over.
+  revision : String
+}
+
+///|
+/// Where a conversation's engine finds its copy of the MCP configuration.
+fn mcp_snapshot_path(
+  runtime_dir : @pathx.Path,
+  session : String,
+) -> @pathx.Path {
+  runtime_dir.join("mcp").join("\{session}.json")
+}
+
+///|
+/// Prepare what a new engine for `session` is pointed at. With text in hand
+/// and a runtime directory to keep it in, that is a private copy of the text:
+/// the engine then loads exactly what the fingerprint describes, whatever
+/// happens to the user's file meanwhile. The copy is rewritten for each new
+/// engine of the conversation, which never overlaps the previous one's
+/// startup read. A file the host could not read has nothing to copy, and a
+/// host without a runtime directory has nowhere to copy to; in both cases the
+/// engine is pointed at the user's file and reports what it finds there.
+async fn hand_off_mcp_config(
+  config : McpConfig,
+  runtime_dir : @pathx.Path?,
+  session : String,
+) -> McpHandoff {
+  let source = config.path.to_string()
+  let revision = mcp_config_fingerprint(Some(config))
+  guard (config.revision, runtime_dir) is (Text(text), Some(runtime_dir)) else {
+    return { given: source, source, revision, }
+  }
+  let snapshot = mcp_snapshot_path(runtime_dir, session)
+  // The configuration is where tokens live: the directory and the file are
+  // the user's alone.
+  @fs.mkdir(
+    snapshot.dirname().to_string(),
+    permission=0o700,
+    recursive=true,
+    allow_exist=true,
+  )
+  @fs.write_file(
+    snapshot.to_string(),
+    text,
+    create_mode=CreateOrTruncate,
+    permission=0o600,
+  )
+  { given: snapshot.to_string(), source, revision, }
+}
+
+///|
+/// Remove the copy an engine was started with, once that engine is gone. The
+/// user's own file is never touched.
+async fn McpHandoff::discard(self : McpHandoff) -> Unit {
+  guard self.given != self.source else { return }
+  @fsx.remove_if_exists(Path(self.given)) catch {
+    error if @async.is_being_cancelled() => raise error
+    _ => ()
+  }
+}
+
+///|
+/// The event as a person should read it: an engine started with a copy names
+/// the copy, and the user's file is the one they can open and fix.
+fn McpHandoff::restore_path(
+  self : McpHandoff,
+  event : @wire.Event,
+) -> @wire.Event {
+  fn shown(path : String) -> String {
+    if path == self.given {
+      self.source
+    } else {
+      path
+    }
+  }
+
+  match event {
+    McpConfigUnreadable(path~, error~) =>
+      McpConfigUnreadable(path=shown(path), error~)
+    McpConfigInvalid(path~, error~) =>
+      McpConfigInvalid(path=shown(path), error~)
+    McpStatus(status=ConfigRejected(path~, reason~)) =>
+      McpStatus(status=ConfigRejected(path=shown(path), reason~))
+    McpStatus(status=Configured(path~, servers~)) =>
+      McpStatus(status=Configured(path=shown(path), servers~))
+    other => other
+  }
 }
 
 ///|
@@ -37,14 +189,14 @@ pub fn mcp_status(
     slot.live() is Some(engine) else {
     return { config_path, engine: NotRunning, }
   }
-  match engine.mcp {
+  match engine.mcp_status {
     Some(status) => { config_path, engine: Running(status), }
     None => { config_path, engine: Connecting, }
   }
 }
 
 ///|
-async test "the MCP configuration sits beside the global session store" {
+async test "an absent MCP configuration names nothing; a present one is read" {
   ambient_env_test_lock.acquire()
   defer ambient_env_test_lock.release()
   let previous_home = @sys.get_env_var(test_home_env_name())
@@ -54,11 +206,193 @@ async test "the MCP configuration sits beside the global session store" {
   )
   defer @fs.rmdir(root.to_string(), recursive=true)
   set_test_home(root.to_string())
-  // The file does not have to exist for the host to name it.
+  assert_true(resolved_mcp_config() is None)
   guard mcp_config_path() is Some(path) else {
     fail("a home directory should place the MCP configuration")
   }
   assert_eq(path.to_string(), root.join(".openseek/mcp.json").to_string())
+  @fsx.ensure_dir(path.to_path().dirname())
+  @fsx.write_text(path.to_path(), "{\"mcpServers\": {}}")
+  guard resolved_mcp_config() is Some(empty) else {
+    fail("a present file should be resolved")
+  }
+  assert_eq(empty.path, path)
+  assert_true(empty.revision is Text("{\"mcpServers\": {}}"))
+  // Only the content decides: reading the same file twice is one revision,
+  // and any edit is another.
+  assert_eq(
+    mcp_config_fingerprint(Some(empty)),
+    mcp_config_fingerprint(resolved_mcp_config()),
+  )
+  @fsx.write_text(path.to_path(), "{\"mcpServers\": {\"a\": {}}}")
+  let edited = resolved_mcp_config()
+  assert_true(
+    mcp_config_fingerprint(Some(empty)) != mcp_config_fingerprint(edited),
+  )
+  assert_true(mcp_config_fingerprint(None) != mcp_config_fingerprint(edited))
+  // The fingerprint is a digest, not the text: it does not grow with the
+  // file, and it is what a live engine keeps.
+  assert_false(mcp_config_fingerprint(edited).contains("mcpServers"))
+}
+
+///|
+async test "an unreadable MCP configuration is carried, not treated as absent" {
+  ambient_env_test_lock.acquire()
+  defer ambient_env_test_lock.release()
+  let previous_home = @sys.get_env_var(test_home_env_name())
+  defer restore_home_env(previous_home)
+  let root : @pathx.Path = Path(
+    @fs.realpath(@fs.tmpdir(prefix="openseek-mcp-config-unreadable-")),
+  )
+  defer @fs.rmdir(root.to_string(), recursive=true)
+  set_test_home(root.to_string())
+  // A directory where the file belongs exists but can never be read as one,
+  // on every platform and regardless of the user's permissions.
+  @fsx.ensure_dir(root.join(".openseek/mcp.json"))
+  guard resolved_mcp_config() is Some(config) else {
+    fail("a configuration that exists but cannot be read must not be dropped")
+  }
+  assert_true(config.revision is ReadFailed(_))
+  assert_true(
+    mcp_config_fingerprint(Some(config)) !=
+    mcp_config_fingerprint(Some({ ..config, revision: Text(""), })),
+  )
+  // There is nothing to copy, so the engine is pointed at the file itself.
+  let handoff = hand_off_mcp_config(config, Some(root.join("runtime")), "s-1")
+  assert_eq(handoff.given, config.path.to_string())
+  assert_eq(handoff.source, handoff.given)
+  // Discarding that hand-off must leave the user's path alone.
+  handoff.discard()
+  assert_true(@fs.kind(config.path.to_string()) is Directory)
+}
+
+///|
+async test "a new engine is handed its own copy of the MCP configuration" {
+  let root : @pathx.Path = Path(
+    @fs.realpath(@fs.tmpdir(prefix="openseek-mcp-handoff-")),
+  )
+  defer @fs.rmdir(root.to_string(), recursive=true)
+  let path = root.join("home/.openseek/mcp.json").resolve()
+  let config : McpConfig = { path, revision: Text("{\"mcpServers\": {}}"), }
+  let runtime = root.join("runtime")
+  let handoff = hand_off_mcp_config(config, Some(runtime), "s-1")
+  // The copy is per conversation, and holds exactly what the host read —
+  // which is what the fingerprint describes.
+  assert_eq(handoff.given, runtime.join("mcp/s-1.json").to_string())
+  assert_eq(handoff.source, path.to_string())
+  assert_eq(handoff.revision, mcp_config_fingerprint(Some(config)))
+  assert_eq(@fsx.read_text(Path(handoff.given)), "{\"mcpServers\": {}}")
+  // The conversation's next engine replaces the copy.
+  let edited = hand_off_mcp_config(
+    { ..config, revision: Text("{\"mcpServers\": {\"a\": {}}}"), },
+    Some(runtime),
+    "s-1",
+  )
+  assert_eq(edited.given, handoff.given)
+  assert_true(edited.revision != handoff.revision)
+  assert_eq(@fsx.read_text(Path(edited.given)), "{\"mcpServers\": {\"a\": {}}}")
+  // A person is shown their own file, never the copy.
+  @debug.assert_eq(
+    edited.restore_path(McpConfigInvalid(path=edited.given, error="bad")),
+    McpConfigInvalid(path=path.to_string(), error="bad"),
+  )
+  @debug.assert_eq(
+    edited.restore_path(
+      McpStatus(status=ConfigRejected(path=edited.given, reason="bad")),
+    ),
+    McpStatus(status=ConfigRejected(path=path.to_string(), reason="bad")),
+  )
+  @debug.assert_eq(
+    edited.restore_path(
+      McpStatus(status=Configured(path=edited.given, servers=[])),
+    ),
+    McpStatus(status=Configured(path=path.to_string(), servers=[])),
+  )
+  @debug.assert_eq(
+    edited.restore_path(McpConnectFailed(server="a", error="x")),
+    McpConnectFailed(server="a", error="x"),
+  )
+  // When the engine is gone, so is its copy.
+  edited.discard()
+  assert_true(@fsx.read_text_if_exists(Path(edited.given)) is None)
+  // Without a runtime directory there is nowhere to keep a copy.
+  let direct = hand_off_mcp_config(config, None, "s-1")
+  assert_eq(direct.given, path.to_string())
+}
+
+///|
+#cfg(not(platform="windows"))
+async test "a broken MCP configuration is reported once, under the user's path" {
+  let manager = new_engine_manager("/bin/sh")
+  let emitted : Array[EngineEvent] = []
+  let sink = EventSink(event => emitted.push(event))
+  let source = "/home/.openseek/mcp.json"
+  // What reached pages: each rejection's path, and each engine's last word.
+  fn rejections() -> Array[String] {
+    let paths : Array[String] = []
+    for event in emitted {
+      if event is StreamEvent({ event: McpConfigInvalid(path~, ..), .. }) {
+        paths.push(path)
+      }
+    }
+    paths
+  }
+
+  fn finished(session : String) -> Bool {
+    emitted.any(event => {
+      event is StreamEvent({ event: McpConnectFailed(server~, ..), .. }) &&
+      server == session
+    })
+  }
+
+  @async.with_task_group(group => {
+    // Stands in for a serve engine that could not decode the copy it was
+    // started with: it says so, naming the copy, then says one more thing.
+    async fn start(session : String, revision : String) -> Unit {
+      let script =
+        #|printf '{"event":"mcp_config_invalid","path":"/runtime/mcp/%s.json","error":"bad"}\n' "$1"
+        #|printf '{"event":"mcp_connect_failed","server":"%s","error":"marker"}\n' "$1"
+        #|cat >/dev/null
+      let (child_stdin, writer) = @process.write_to_process()
+      let (reader, child_stdout) = @process.read_from_process()
+      let process = @process.spawn(
+        group,
+        "/bin/sh",
+        ["-c", script, "sh", session],
+        stdin=child_stdin,
+        stdout=child_stdout,
+        no_wait=true,
+      )
+      let engine : ServeEngine = {
+        ..test_serve_engine(
+          session,
+          writer,
+          process,
+          sink,
+          phase=Idle(last_run=None),
+        ),
+        mcp: Some({ given: "/runtime/mcp/\{session}.json", source, revision, }),
+      }
+      group.spawn_bg(no_wait=true, allow_failure=true, () => {
+        ignore(engine.consume(manager, reader))
+      })
+      @async.with_timeout(10000, () => {
+        while !finished(session) {
+          @async.sleep(20)
+        }
+      })
+    }
+
+    // Two conversations start engines on the same broken file. A person
+    // hears it once, and is pointed at the file they can fix.
+    start("s-1", "rev-a")
+    @debug.assert_eq(rejections(), [source])
+    start("s-2", "rev-a")
+    @debug.assert_eq(rejections(), [source])
+    // A different broken file is a new thing to say.
+    start("s-3", "rev-b")
+    @debug.assert_eq(rejections(), [source, source])
+  })
 }
 
 ///|
@@ -113,13 +447,22 @@ async test "MCP status is the live engine's latest report" {
       stdout=child_stdout,
       no_wait=true,
     )
-    let engine = test_serve_engine(
-      "s-live",
-      writer,
-      process,
-      sink,
-      phase=Idle(last_run=None),
-    )
+    // The engine was started with a copy of the configuration, and names
+    // that copy in what it reports.
+    let engine : ServeEngine = {
+      ..test_serve_engine(
+        "s-live",
+        writer,
+        process,
+        sink,
+        phase=Idle(last_run=None),
+      ),
+      mcp: Some({
+        given: "/p/mcp.json",
+        source: "/home/.openseek/mcp.json",
+        revision: "rev",
+      }),
+    }
     let sessions : Map[String, SessionSlot] = Map([])
     slot_for(sessions, "s-live").engine = Some(engine)
     manager.pump = Serving(sessions~)
@@ -134,7 +477,8 @@ async test "MCP status is the live engine's latest report" {
     })
     fn server_state() -> @wire.McpServerState? raise EngineError {
       match mcp_status(manager, { session: "s-live", }).engine {
-        Running(Configured(path="/p/mcp.json", servers=[server])) =>
+        // What the host keeps names the user's file, not the copy.
+        Running(Configured(path="/home/.openseek/mcp.json", servers=[server])) =>
           Some(server.state)
         _ => None
       }
