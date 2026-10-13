@@ -170,7 +170,9 @@ The host is the file's only reader. It reads it before each prompt and hands
 a new engine its own copy of exactly what it read
 (`<runtime_dir>/mcp/<session>.<nonce>.json`, one per engine, readable by the
 user alone, removed as soon as the engine has loaded it); the engine never
-opens the user's file. An engine connects its servers once, when it starts —
+opens the user's file. A copy left behind by a host that was killed in those
+few seconds is removed by a later engine start once it is ten minutes old,
+whichever host process that start belongs to. An engine connects its servers once, when it starts —
 one set of server processes per conversation — so a digest of the content is
 part of what pins an engine to its configuration, like the model and the
 endpoint: an edit starts a new engine, and with it every server, on that

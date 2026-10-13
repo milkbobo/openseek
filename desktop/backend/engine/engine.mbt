@@ -1533,6 +1533,12 @@ async fn[G] start_serve_engine(
   // a controller with a person behind it from a script reading its stdout.
   // Saying so here is what makes the escalation argument exist for this
   // session's model at all.
+  // Before this start makes its own copy of the MCP configuration, remove
+  // the ones a killed host left behind. This runs whether or not there is a
+  // configuration now: the file may have been deleted since.
+  if manager.runtime_dir is Some(runtime_dir) {
+    reclaim_mcp_snapshots(runtime_dir, engine_clock_ms())
+  }
   let mcp = match config.mcp_config {
     Some(mcp_config) =>
       Some(snapshot_mcp_config(mcp_config, manager.runtime_dir, config.session))
