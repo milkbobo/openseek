@@ -119,12 +119,25 @@ async fn snapshot_mcp_config(
     recursive=true,
     allow_exist=true,
   )
+  // Until this function returns, nobody else knows the file exists. If
+  // making it is cut short — a full disk, the host shutting down between
+  // creating the file and filling it — there is no record to remove it by,
+  // so it is removed here.
+  let mut written = false
+  defer (if !written {
+    @async.protect_from_cancel(() => {
+      @fsx.remove_if_exists(copy) catch {
+        _ => ()
+      }
+    })
+  })
   @fs.write_file(
     copy.to_string(),
     text,
     create_mode=CreateOrTruncate,
     permission=0o600,
   )
+  written = true
   { given: copy.to_string(), source, revision, }
 }
 
@@ -603,4 +616,43 @@ async test "an engine's copy of the MCP configuration lasts until it has been lo
     group.return_immediately(())
   })
   assert_false(copy_exists(unstarted))
+}
+
+///|
+async test "a snapshot whose making is interrupted leaves nothing behind" {
+  let root : @pathx.Path = Path(
+    @fs.realpath(@fs.tmpdir(prefix="openseek-mcp-partial-")),
+  )
+  defer @fs.rmdir(root.to_string(), recursive=true)
+  let config : McpConfig = {
+    path: root.join("home/.openseek/mcp.json").resolve(),
+    revision: Text("x".repeat(1024 * 1024)),
+  }
+  let runtime = root.join("runtime")
+  // Where the cancellation lands is up to the scheduler: before the file is
+  // written, in which case no record of it was ever returned, or after, in
+  // which case the caller holds one. Neither may leave the file.
+  for attempt in 0..<20 {
+    let session = "s-\{attempt}"
+    let copy = mcp_snapshot_path(runtime, session).to_string()
+    @async.with_task_group(group => {
+      group.spawn_bg(no_wait=true, () => {
+        // As the spawn path holds it: once there is a record, abandoning the
+        // start discards what it names.
+        let mut made : McpSnapshot? = None
+        defer (if made is Some(snapshot) {
+          @async.protect_from_cancel(() => snapshot.discard())
+        })
+        made = Some(snapshot_mcp_config(config, Some(runtime), session))
+        @async.sleep(10000)
+      })
+      @async.with_timeout(10000, () => {
+        while !@fs.exists(copy) {
+          @async.sleep(1)
+        }
+      })
+      group.return_immediately(())
+    })
+    assert_false(@fs.exists(copy))
+  }
 }
