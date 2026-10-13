@@ -486,6 +486,16 @@ $ env DEEPSEEK=test-key openseek.exe serve </dev/null 2>/dev/null | grep '"event
 {"event":"mcp_status","status":{"config":"none"}}
 ```
 
+`serve` reads its MCP configuration again before every turn, so the file may be
+written, edited, or removed while the engine runs. A path with no file at it is
+therefore not an error: the engine has no servers yet, says so as `absent`, and
+raises no `mcp_config_unreadable`.
+
+```mooncram
+$ env DEEPSEEK=test-key openseek.exe serve --mcp-config not-written-yet.json </dev/null 2>/dev/null | grep -o '"event":"mcp_[a-z_]*".*'
+"event":"mcp_status","status":{"config":"absent","path":"not-written-yet.json"}}
+```
+
 A server that cannot start is listed with its failure rather than left out
 (the `grep -o` stops before the error text, which is the operating system's):
 

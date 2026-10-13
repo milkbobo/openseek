@@ -13,6 +13,7 @@ import {
   "moonbitlang/openseek/cli",
   "moonbitlang/async/stdio",
   "moonbitlang/async/fs",
+  "moonbitlang/async/os_error",
   "moonbitlang/openseek/agent_subrun/host",
   "moonbitlang/core/json",
   "moonbitlang/openseek/mcp/config" @mcpconfig,

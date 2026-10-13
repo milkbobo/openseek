@@ -70,6 +70,7 @@ test "an mcp_status survives the wire with every server state" {
 test "an engine without a usable MCP configuration says which way" {
   let statuses : Array[@openseek_protocol.McpStatus] = [
     NotConfigured,
+    ConfigAbsent(path="/home/.openseek/mcp.json"),
     ConfigRejected(
       path="/home/.openseek/mcp.json",
       reason="configuration is missing an `mcpServers` object",
@@ -85,6 +86,11 @@ test "an engine without a usable MCP configuration says which way" {
   json_inspect(@openseek_protocol.McpStatus::NotConfigured.to_json(), content={
     "config": "none",
   })
+  // A path with no file is neither of the above: nothing was rejected.
+  json_inspect(
+    @openseek_protocol.McpStatus::ConfigAbsent(path="/p/mcp.json").to_json(),
+    content={ "config": "absent", "path": "/p/mcp.json" },
+  )
 }
 
 ///|

@@ -27,7 +27,7 @@
 ///   producers: stdin reader ──────────── Wire(command)
 ///              turn/compact completions ─ TurnDone(finished~) │ CompactDone
 ///              background-job exits ───── BackgroundNotice
-///              MCP connection closes ──── McpConnectionClosed
+///              MCP closes and reloads ─── McpChanged
 ///   pump: for ;; match step
 ///     ├─ Wire(Prompt)          ── active? queue pending : start turn
 ///     ├─ Wire(Steer(Prompt))   ── turn running │ prompt queued? queue steer : reject
@@ -37,7 +37,7 @@
 ///     ├─ Wire(Goal)            ── durable marker; auto=true arms auto-continue
 ///     ├─ Wire(Approval)        ── release a tool blocked INSIDE the active turn
 ///     ├─ BackgroundNotice      ── idle? drain queued context to the log
-///     ├─ McpConnectionClosed   ── emit `mcp_status` if it changed
+///     ├─ McpChanged            ── emit `mcp_status` if it differs
 ///     ├─ TurnDone              ── drain context ── start next pending work
 ///     │                           └─ armed goal(auto) unmet ⇒ auto-continue
 ///     ├─ CompactDone           ── adopt compacted session ── start next pending
@@ -176,14 +176,18 @@ async fn run_serve(
       api_url?,
     )
     // What this engine holds of its MCP servers goes out unasked: once now
-    // that connecting is over, and again whenever it changes. The close
-    // handler runs inside a connection's own teardown, so it only wakes the
-    // loop and the loop reports — which also means nothing is sent once the
+    // that connecting is over, and again whenever it changes — a connection
+    // closing, or a turn finding the configuration file edited. Neither
+    // reports by itself: the close handler runs inside a connection's own
+    // teardown and the reload inside a turn's task, so both only wake the
+    // loop and the loop reports. That also means nothing is sent once the
     // loop has stopped and the group is closing every connection on the way
     // out. Installed before the first read, so no close falls between them.
-    mcp.on_connection_closed(() => {
-      ignore(steps.try_put(McpConnectionClosed) catch { _ => false })
-    })
+    fn mcp_changed() {
+      ignore(steps.try_put(McpChanged) catch { _ => false })
+    }
+
+    mcp.on_connection_closed(mcp_changed)
     let mut reported_mcp = mcp.status()
     @emit.emit(McpStatus(status=reported_mcp))
     fn report_mcp_status() {
@@ -471,6 +475,20 @@ async fn run_serve(
           @emit.emit(AgentAborted(reason="interrupted"))
           ignore(steps.try_put(TurnDone(finished=false)) catch { _ => false })
         }
+        // The MCP configuration is read again before every turn, so an edit
+        // takes effect on the next message without a new engine: only the
+        // servers the edit touched are restarted, and the rest keep their
+        // connections and whatever state lives behind them. It runs here, in
+        // the turn's own task, so a slow server start can be cancelled like
+        // the rest of the turn; no other turn is running to call the tools
+        // it swaps. The loop is told to look whatever came of it: a reload
+        // cut short has already let connections go.
+        {
+          defer mcp_changed()
+          if mcp.reload(scope, workspace_root~) is Some(change) {
+            tools.replace(removed=change.removed, added=change.added)
+          }
+        }
         let _ = @agent.run_turn_in_scope(
           runtime~,
           scope~,
@@ -643,7 +661,7 @@ async fn run_serve(
                 runtime.queue_steer(Notice(text))
               }
           }
-        McpConnectionClosed => report_mcp_status()
+        McpChanged => report_mcp_status()
         Wire(JobsSnapshot(request_id~)) => {
           let jobs = match tools.background_job_runtime() {
             Some(runtime) => runtime.records()

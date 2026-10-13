@@ -50,7 +50,13 @@ pub struct ExtraTools {
 
 type McpRegistry
 pub fn McpRegistry::on_connection_closed(Self, () -> Unit) -> Unit
+pub async fn[X] McpRegistry::reload(Self, @agent_runtime.AgentTaskScope[X], workspace_root~ : String) -> McpToolsChange?
 pub fn McpRegistry::status(Self) -> @openseek_protocol.McpStatus
+
+pub struct McpToolsChange {
+  removed : Array[String]
+  added : Array[@agent_tool.AgentToolDefinition]
+}
 
 // Type aliases
 
