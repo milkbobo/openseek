@@ -54,9 +54,7 @@ fn background_notice_text(snapshot : @bgjobs.BgJobSnapshot) -> String {
 /// `extra_tools` are appended to the registry after the built-ins — the seam for
 /// dynamically discovered tools (e.g. MCP servers' tools, namespaced so they do
 /// not collide with the built-ins). The caller builds them (keeping this package
-/// free of MCP dependencies); `Tools` still raises on any duplicate name. A
-/// caller whose extra tools change later swaps them with `Tools::replace`,
-/// which treats the newcomers as this function treated these.
+/// free of MCP dependencies); `Tools` still raises on any duplicate name.
 pub async fn[X] build_tools(
   runtime : @agent_runtime.AgentRuntime,
   scope : @agent_runtime.AgentTaskScope[X],
@@ -192,18 +190,13 @@ pub async fn[X] build_tools(
       approval?=runtime.approval_channel(),
     ),
   )
-  // A tool this function did not build takes the file gate unless it has
-  // declared itself safe to overlap. The same goes for one that replaces an
-  // extra tool later (`Tools::replace`).
-  fn admit(tool : @agent_tool.AgentToolDefinition) {
+  let extras = extra_tools.map(tool => {
     if tool.is_concurrent_safe() {
       tool
     } else {
       file_state.serialize(tool)
     }
-  }
-
-  let extras = extra_tools.map(admit)
+  })
   let program_tools = @agent_tool.Tools(
     file_tools + extras,
     image_input_supported~,
@@ -254,7 +247,6 @@ pub async fn[X] build_tools(
     program_trace~,
     program_output~,
     image_input_supported~,
-    admit~,
   )
 }
 
