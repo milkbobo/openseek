@@ -293,6 +293,8 @@ pub(all) enum Msg {
   ChangeFiltersCleared
   ChangePathFilterChanged(String)
   TreeFocused(@pathx.Relative)
+  RevealTreeDirectory(@pathx.Relative)
+  DirExpand(@pathx.Relative)
   DirToggle(@pathx.Relative)
   EnsureFileIndex
   DirLoaded(owner~ : @interop.ConversationKey, epoch~ : Int, path~ : @pathx.Relative, entries~ : Array[FileEntry])
@@ -412,6 +414,10 @@ pub fn ReconciledPlacement::identity(Self) -> @interop.CheckoutPlacement?
 pub fn ReconciledPlacement::is_parked(Self) -> Bool
 pub fn ReconciledPlacement::not_equal(Self, Self) -> Bool
 pub fn ReconciledPlacement::reconcile(Self, @interop.CheckoutPlacement?) -> Self
+
+type RemovedDirectoryRead derive(Eq)
+pub fn RemovedDirectoryRead::equal(Self, Self) -> Bool
+pub fn RemovedDirectoryRead::not_equal(Self, Self) -> Bool
 
 pub(all) struct ReviewActiveHunk {
   // private fields
@@ -568,7 +574,9 @@ pub(all) struct State {
   tree_reveal : TreeReveal
   expanded : Array[@pathx.Relative]
   loading : Array[@pathx.Relative]
+  removed_directory_reads : Map[@pathx.Relative, RemovedDirectoryRead]
   children : Map[@pathx.Relative, Array[FileEntry]]
+  directory_errors : Map[@pathx.Relative, String]
   docs : Map[@common.Uri, Doc]
   mbti_view_modes : Map[@common.Uri, MbtiViewMode]
   moon_mod_view_modes : Map[@common.Uri, MoonModViewMode]

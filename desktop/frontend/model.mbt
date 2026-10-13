@@ -1741,6 +1741,8 @@ priv struct ProjectAdoption {
   picked : @common.Uri
   known : Array[@common.Uri]
   resolved : @common.Uri?
+  // Retarget only the unsent Codex draft that initiated this add.
+  codex_draft : String?
 } derive(Eq)
 
 ///|
@@ -1821,7 +1823,7 @@ priv enum Msg {
   // model; on a composing conversation a cross-agent pick hands the fresh
   // chat to the other agent instead. Either way the pick becomes the default
   // agent and model for new conversations.
-  ModelPicked(String)
+  ModelPicked(String, draft~ : @composer.Draft)
   // The Codex-only reasoning chip applies to the next ordinary turn. It is a
   // separate setting because the catalog exposes model and effort as two
   // independent fields.
@@ -3524,18 +3526,44 @@ fn Model::composing_new_chat(self : Model) -> Bool {
 }
 
 ///|
-/// The title switcher exists only while the visible OpenSeek draft still
+fn Model::codex_project_adoption_pending(self : Model) -> Bool {
+  self.codex_work_selected() &&
+  self.pending_project_adoption is Some(pending) &&
+  pending.channel == self.focused &&
+  pending.codex_draft is Some(id) &&
+  self.codex.active_id() == Some(id)
+}
+
+///|
+/// The title switcher exists only while the visible draft still
 /// belongs to a registered project. Keeping this predicate at the root lets
 /// rendering, event admission, and post-update menu cleanup share one rule.
 fn Model::can_choose_new_chat_project(self : Model) -> Bool {
-  guard self.screen is Chat &&
-    self.composing_new_chat() &&
-    self.active_conversation() is Some(conv) &&
+  if self.screen is Codex && self.codex.is_busy() {
+    return false
+  }
+  // The add reply and registry broadcast together own the next project.
+  // Keep this draft from starting another retarget before both have landed.
+  if self.screen is Codex && self.codex_project_adoption_pending() {
+    return false
+  }
+  guard self.new_chat_project() is Ok(Some(project)) &&
     self.focused_device() is Some(dev) else {
     return false
   }
-  dev.projects.contains(conv.project()) &&
-  !dev.is_chat_workspace(conv.project())
+  dev.projects.contains(project) && !dev.is_chat_workspace(project)
+}
+
+///|
+/// The visible unsent draft's project, independent of its execution engine.
+fn Model::new_chat_project(self : Model) -> Result[@common.Uri?, String] {
+  match self.screen {
+    Chat if self.composing_new_chat() =>
+      Ok(self.active_conversation().map(conv => conv.project()))
+    Codex if self.codex.composing_draft() =>
+      self.codex.draft_project(self.focused)
+    _ => Ok(None)
+  }
 }
 
 ///|

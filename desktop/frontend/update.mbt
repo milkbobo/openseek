@@ -155,7 +155,7 @@ fn focus_channel(
       // Codex is host-owned just like the other focused mirrors. Clear the
       // previous device's account and conversation list before its replies
       // can be mistaken for this device's sidebar section.
-      codex: @codex.State(loading=true),
+      codex: model.codex.reset_for_channel(),
       // The old HostConnection is already parked. Preserve the remaining
       // owner/root state until the post-dispatch sync retires its file-index
       // cache and re-roots against the newly focused host.
@@ -421,6 +421,34 @@ fn request_archived_refresh(
 }
 
 ///|
+/// Finish an add without rotating the draft that requested it.
+fn focus_added_project(
+  dispatch : @cmd.Emit[Msg],
+  channel : @interop.ChannelId,
+  project : @common.Uri,
+  codex_draft : String?,
+  model : Model,
+) -> (@cmd.Cmd, Model) {
+  if codex_draft is Some(id) {
+    // The add belongs to the captured draft, not to whichever conversation
+    // the user selects later. A superseded owner must not create a new chat.
+    guard channel == model.focused &&
+      model.codex_work_selected() &&
+      model.codex.active_id() == Some(id) &&
+      model.codex.composing_draft() &&
+      @resource.path_for(project, channel) is Some(cwd) else {
+      return (@cmd.none, model)
+    }
+    return update(
+      dispatch,
+      Codex(channel~, @codex.Msg::change_draft_project(cwd)),
+      model.with_active_project(Some(project)),
+    )
+  }
+  update(dispatch, NewChatIn(channel, Some(project)), model)
+}
+
+///|
 /// Adopt one canonical workspace registry snapshot. Conversations from a
 /// detached workspace leave this page with its sidebar section: their durable
 /// records stay on disk and return when the directory is attached again. If
@@ -452,7 +480,10 @@ fn adopt_projects(
     Some(pending) if pending.channel == channel &&
       pending.resolved is Some(target) &&
       paths.contains(target) =>
-      (Some(target), { ..model, pending_project_adoption: None, })
+      (
+        Some((target, pending.codex_draft)),
+        { ..model, pending_project_adoption: None, },
+      )
     _ => (None, model)
   }
   let selected_detached = channel == model.focused &&
@@ -529,30 +560,28 @@ fn adopt_projects(
   })
   commands.push(refresh_cmd)
   if selected_detached {
-    if focus_target is Some(project) {
-      // This snapshot both removed the active conversation's project and
-      // carries the row the user just added: the explicit add-and-focus
-      // wins over fallback selection. NewChatIn rotates the fresh chat; the
-      // dead session identity clears now so no render can address it while
-      // the rotation is in flight (same rule as the fallback below).
-      let (focus_cmd, focused) = update(
-        dispatch,
-        NewChatIn(channel, Some(project)),
-        next,
+    // The detached OpenSeek selection may be hidden behind a Codex draft.
+    // Clear that stale selection without changing the visible engine.
+    let next = {
+      ..next,
+      active_session: "",
+      selected_conversation: None,
+      conversation_load_failure: None,
+      loading_conversation: None,
+    }
+    if focus_target is Some((project, codex_draft)) {
+      let (focus_cmd, focused) = focus_added_project(
+        dispatch, channel, project, codex_draft, next,
       )
       commands.push(focus_cmd)
       commands.push(reveal_active_project())
-      return (
-        @cmd.batch(commands),
-        {
-          ..focused,
-          active_session: "",
-          selected_conversation: None,
-          conversation_load_failure: None,
-          loading_conversation: None,
-          screen: Chat,
-        },
-      )
+      return (@cmd.batch(commands), focused)
+    }
+    if (next.screen is Codex && next.codex.has_active()) ||
+      next.codex_project_adoption_pending() {
+      // A broadcast can precede the add reply. Keep its captured draft
+      // alive until the reply identifies the project to adopt.
+      return (@cmd.batch(commands), next)
     }
     if sessions.get(0) is Some(fallback) {
       // The retained list is newest-first. Activate its first entry before
@@ -608,14 +637,11 @@ fn adopt_projects(
       },
     )
   }
-  if focus_target is Some(project) {
-    // The confirmed add just committed: focus its project the way the
-    // row's own ＋ does — activate it and start a fresh chat inside — and
-    // scroll the newly active row into a long sidebar's view.
-    let (focus_cmd, focused) = update(
-      dispatch,
-      NewChatIn(channel, Some(project)),
-      next,
+  if focus_target is Some((project, codex_draft)) {
+    // The confirmed add just committed: retarget its Codex draft or start a
+    // fresh chat, then reveal the active project in a long sidebar.
+    let (focus_cmd, focused) = focus_added_project(
+      dispatch, channel, project, codex_draft, next,
     )
     commands.push(focus_cmd)
     commands.push(reveal_active_project())
@@ -624,8 +650,12 @@ fn adopt_projects(
   // Nothing is on screen and this device now has somewhere to put a chat:
   // the app's own startup rotation lands here, because it is issued before
   // the registry has answered and has no project to place until it does.
+  // A selected Codex task already occupies the screen even though it has no
+  // OpenSeek conversation; a registry broadcast must not rotate it away.
   if channel == next.focused &&
     next.active_conversation() is None &&
+    !(next.screen is Codex && next.codex.has_active()) &&
+    !next.codex_project_adoption_pending() &&
     !paths.is_empty() {
     commands.push(rotate_session(dispatch, channel))
   }
@@ -884,10 +914,6 @@ fn open_explorer(
     dock: @dock.open_picker(model.dock),
     right_panel_open: true,
     right_panel_menu_open: false,
-    // Invoking any Explorer inventory is an explicit request to keep it next
-    // to the selected file on wide layouts. Narrow file opens still perform
-    // the normal drill-down and close this tree.
-    file_panel: { ..model.file_panel, tree_open: true, },
   }
   let (cmd, file_panel) = @fileeditor.update(
     dispatch.map(msg => FileEditor(msg)),
@@ -901,48 +927,41 @@ fn open_explorer(
 }
 
 ///|
-/// Reveal a transcript-linked directory in the editor's Files tree. Keep an
-/// active file visible beside the tree; otherwise activate the picker body so
-/// the reveal has a visible home. `RevealDirectory` expands the ancestors;
-/// transcript navigation additionally expands the target itself, without
-/// toggling an already-open row closed.
+/// Reveal a transcript-linked directory in the file picker. Retain existing
+/// document tabs without turning the picker's temporary tree into a preference.
+/// Expand and load the target and each ancestor, without collapsing open rows.
 fn reveal_local_directory(
   dispatch : @cmd.Emit[Msg],
   model : Model,
   path : @pathx.Relative,
 ) -> (@cmd.Cmd, Model) {
-  let dock = match model.dock.active {
-    Some(File(_)) | Some(FilePicker) => model.dock
-    None
-    | Some(Browser(_))
-    | Some(GitDiff(_))
-    | Some(Workflows)
-    | Some(Jobs)
-    | Some(Github) => @dock.open_picker(model.dock)
+  let (open_cmd, opened) = open_explorer(dispatch, model, ExplorerFiles)
+  let mut model = opened
+  let commands = [open_cmd]
+  let segments : Array[String] = []
+  for segment in path.0.split("/") {
+    if segment.is_empty() {
+      continue
+    }
+    segments.push(segment.to_owned())
+    let directory = @pathx.Relative(segments.join("/"))
+    let (command, file_panel) = @fileeditor.update(
+      dispatch.map(msg => FileEditor(msg)),
+      @fileeditor.DirExpand(directory),
+      model.file_panel,
+      file_ctx(model),
+    )
+    commands.push(command)
+    model = { ..model, file_panel, }
   }
-  let model = {
-    ..model,
-    dock,
-    right_panel_open: true,
-    right_panel_menu_open: false,
-  }
-  let (cmd, panel) = @fileeditor.update(
+  let (reveal_cmd, file_panel) = @fileeditor.update(
     dispatch.map(msg => FileEditor(msg)),
-    @fileeditor.RevealDirectory(path),
+    @fileeditor.RevealTreeDirectory(path),
     model.file_panel,
     file_ctx(model),
   )
-  let model = { ..model, file_panel: panel, }
-  if path.is_root() || panel.expanded.contains(path) {
-    return (cmd, model)
-  }
-  let (expand_cmd, panel) = @fileeditor.update(
-    dispatch.map(msg => FileEditor(msg)),
-    @fileeditor.DirToggle(path),
-    panel,
-    file_ctx(model),
-  )
-  (@cmd.batch([cmd, expand_cmd]), { ..model, file_panel: panel, })
+  commands.push(reveal_cmd)
+  (@cmd.batch(commands), { ..model, file_panel, })
 }
 
 ///|
@@ -2317,6 +2336,10 @@ fn update_msg(
     // apply it once the last write settles.
     CodexComposerAction(action) =>
       match action {
+        @composer.DraftSubmitted(..) if model.codex_project_adoption_pending() =>
+          // The new project owns this draft as soon as Add is confirmed.
+          // Do not start a thread in its old cwd while the registry settles.
+          (@cmd.none, model)
         @composer.ModelMenuToggled(identity~) => {
           guard model.screen is Codex &&
             model.codex.accepts_composer_identity(identity, model.focused) else {
@@ -2338,12 +2361,12 @@ fn update_msg(
           }
           update_msg(dispatch, CloseSelectMenu, model)
         }
-        @composer.ModelSelected(identity~, value~) => {
+        @composer.ModelSelected(identity~, value~, draft~) => {
           guard model.screen is Codex &&
             model.codex.accepts_composer_identity(identity, model.focused) else {
             return (@cmd.none, model)
           }
-          update_msg(dispatch, ModelPicked(value), model)
+          update_msg(dispatch, ModelPicked(value, draft~), model)
         }
         @composer.ReasoningSelected(identity~, value~) => {
           guard model.screen is Codex &&
@@ -2411,6 +2434,7 @@ fn update_msg(
         | @composer.ModelSelected(..)
         | @composer.ReasoningSelected(..)
         | @composer.ApprovalAnswered(..)
+        | @composer.CodexRequestToggled(..)
         | @composer.CodexRequestAnswerChanged(..)
         | @composer.CodexRequestResponded(..)
         | @composer.PermissionMenuToggled(..)
@@ -2443,8 +2467,8 @@ fn update_msg(
               )
             @composer.SelectMenuDismissed(..) =>
               update_msg(dispatch, CloseSelectMenu, model)
-            @composer.ModelSelected(value~, ..) =>
-              update_msg(dispatch, ModelPicked(value), model)
+            @composer.ModelSelected(value~, draft~, ..) =>
+              update_msg(dispatch, ModelPicked(value, draft~), model)
             @composer.ReasoningSelected(value~, ..) =>
               update_msg(dispatch, OpenSeekEffortPicked(value), model)
             @composer.ApprovalAnswered(allow~, ..) =>
@@ -2560,6 +2584,7 @@ fn update_msg(
             @composer.PermissionMenuToggled(..)
             | @composer.PermissionMenuDismissed(..)
             | @composer.PermissionSelected(..)
+            | @composer.CodexRequestToggled(..)
             | @composer.CodexRequestAnswerChanged(..)
             | @composer.CodexRequestResponded(..) => (@cmd.none, model)
             _ => (@cmd.none, model)
@@ -3428,8 +3453,7 @@ fn update_msg(
       (@cmd.none, { ..model, select_menu: None, project_menu_query: "", })
     ProjectMenuQueryChanged(query) =>
       if model.select_menu is Some(ProjectMenu) &&
-        model.screen is Chat &&
-        model.composing_new_chat() {
+        model.can_choose_new_chat_project() {
         (@cmd.none, { ..model, project_menu_query: query, })
       } else {
         (@cmd.none, model)
@@ -3442,18 +3466,37 @@ fn update_msg(
         @resource.belongs_to(workspace, model.focused) &&
         model.focused_device() is Some(dev) &&
         dev.projects.contains(workspace) &&
-        model.active_conversation() is Some(active) else {
+        model.new_chat_project() is Ok(Some(current)) else {
         return (@cmd.none, closed)
       }
       // The selected row is still actionable so keyboard and pointer behavior
       // are uniform, but choosing it must not rotate a second empty session.
-      if active.project() == workspace {
+      if current == workspace &&
+        (
+          model.screen != Codex ||
+          model.codex.active_placement(model.focused) is Some(_)
+        ) {
         (@cmd.none, closed)
+      } else if model.screen is Codex {
+        guard !model.codex.is_busy() &&
+          @resource.path_for(workspace, model.focused) is Some(cwd) else {
+          return (@cmd.none, closed)
+        }
+        update_msg(
+          dispatch,
+          Codex(channel=model.focused, @codex.Msg::change_draft_project(cwd)),
+          closed.with_active_project(Some(workspace)),
+        )
       } else {
         update_msg(dispatch, NewChatIn(model.focused, Some(workspace)), closed)
       }
     }
-    ModelPicked(value) => {
+    ModelPicked(value, draft~) => {
+      // Project adoption still owns this draft. Transferring it to another
+      // engine would leave the pending add pointing at an abandoned owner.
+      guard !(model.screen is Codex && model.codex_project_adoption_pending()) else {
+        return (@cmd.none, model)
+      }
       guard ModelChoice::parse(value) is Some(choice) else {
         return (@cmd.none, model)
       }
@@ -3461,15 +3504,15 @@ fn update_msg(
       match choice {
         OpenSeekModel(engine_model) =>
           if model.screen is Codex {
-            // Only a composing draft's chip offers the OpenSeek group; the
-            // pick hands the fresh conversation back to OpenSeek. The draft
-            // is abandoned and a fresh OpenSeek chat rotates into the
-            // draft's project (or whatever project is active when the draft
-            // never resolved one).
-            guard model.codex.composing_draft() else {
+            // Transfer the same unsent conversation, including the component's
+            // current draft. No id rotation or second sidebar row is needed.
+            guard model.codex.composing_draft() &&
+              model.codex.active_id() is Some(session) &&
+              @resource.of_path(model.focused, model.codex.new_thread_cwd())
+              is Some(workspace) else {
               return (@cmd.none, model)
             }
-            let root = model.codex.new_thread_cwd()
+            let worktree_mode = model.codex.draft_worktree_mode()
             let (abandon_cmd, codex) = @codex.update(
               locale=model.locale,
               dispatch.map(msg => Codex(channel=model.focused, msg)),
@@ -3478,27 +3521,36 @@ fn update_msg(
               model.focused,
               url => open_external_link(dispatch, url),
             )
-            let next = {
-              ..model,
-              codex,
-              default_model: engine_model,
-              default_agent: OpenSeekAgent,
-              loading_conversation: None,
+            let conv = {
+              ..empty_conversation(
+                model.focused,
+                session,
+                workspace,
+                model=engine_model,
+              ),
+              task: draft.task,
+              mentions: draft.mentions,
+              images: draft.images,
+              composer_draft_present: !draft.is_empty(),
+              worktree_mode,
             }
-            let next = if !root.is_empty() &&
-              @resource.of_path(model.focused, root) is Some(workspace) {
-              next.with_active_project(Some(workspace))
-            } else {
-              next
-            }
+            let next = { ..model, codex, }
+              .replace_conversation(conv)
+              .activate(model.focused, session, workspace)
+              .with_active_project(Some(workspace))
             (
               @cmd.batch([
                 abandon_cmd,
                 save_default_model(engine_model),
                 save_default_agent(OpenSeekAgent),
-                rotate_session(dispatch, next.focused),
               ]),
-              next,
+              {
+                ..next,
+                screen: Chat,
+                default_model: engine_model,
+                default_agent: OpenSeekAgent,
+                loading_conversation: None,
+              },
             )
           } else {
             // The selector changes the conversation on screen. The tier is
@@ -3548,35 +3600,43 @@ fn update_msg(
             // uses it, on the draft and stored-thread surfaces alike.
             (persist, { ..model, codex, default_agent: CodexAgent, })
           } else {
-            // Only a composing OpenSeek chat's chip offers the Codex group;
-            // the pick hands the fresh conversation to Codex. One composing
-            // row at a time: an empty husk that was only ever the "New chat"
-            // placeholder is deactivated so its row vanishes with the
-            // switch; a husk holding typed writing keeps its row (and the
-            // text survives a switch back).
             guard model.composing_new_chat() &&
-              model.active_conversation() is Some(conv) else {
+              model.active_conversation() is Some(conv) &&
+              conv.goal_edit is None &&
+              conv.goal_pending is None &&
+              conv.pending_semantic_submission is None &&
+              @resource.path_for(conv.project(), model.focused) is Some(cwd) else {
               return (@cmd.none, model)
             }
-            let cwd = @resource.path_for(conv.project(), model.focused).unwrap_or(
-              "",
+            let (start_cmd, codex) = @codex.update(
+              locale=model.locale,
+              dispatch.map(msg => Codex(channel=model.focused, msg)),
+              @codex.Msg::start_draft(
+                conv.session_id,
+                cwd,
+                draft~,
+                worktree=conv.worktree_mode,
+              ),
+              codex,
+              model.focused,
+              url => open_external_link(dispatch, url),
             )
-            let active_session = if conv.worth_keeping() {
-              model.active_session
-            } else {
-              ""
-            }
             (
-              @cmd.batch([
-                persist,
-                CodexDraftRotation::{ cwd, }.rotate(dispatch),
-              ]),
+              @cmd.batch([persist, start_cmd]),
               {
                 ..model,
                 codex,
                 default_agent: CodexAgent,
                 screen: Codex,
-                active_session,
+                selected_conversation: None,
+                conversations: model.conversations.filter(item => {
+                  item.device != conv.device ||
+                  item.session_id != conv.session_id
+                }),
+                composer_entry_retirements: [
+                  ..model.composer_entry_retirements,
+                  { channel: conv.device, session: conv.session_id, },
+                ],
                 sidebar_open: model.sidebar_open && !model.narrow,
               },
             )
@@ -4099,6 +4159,9 @@ fn update_msg(
       if channel != model.focused {
         return (@cmd.none, model)
       }
+      if model.codex_project_adoption_pending() && msg.is_account_action() {
+        return (@cmd.none, model)
+      }
       let (cmd, codex) = @codex.update(
         locale=model.locale,
         dispatch.map(next => Codex(channel~, next)),
@@ -4125,7 +4188,17 @@ fn update_msg(
       // Permission questions remain actionable until answered and therefore
       // continue to contribute to the independently derived badge count.
       let model = { ..model, window_focused: focused, }
-      (@cmd.none, model.mark_visible_conversation_read())
+      let cmd = if focused &&
+        desired_browser_view(model) is Some(id) &&
+        model.browser_pane.shown == Some(id) {
+        // Reassert visibility when focus returns from the native page. On
+        // Windows the host also restores its stacking above the main browser,
+        // without taking keyboard focus away from the composer.
+        browser_set_visible(dispatch, id, true)
+      } else {
+        @cmd.none
+      }
+      (cmd, model.mark_visible_conversation_read())
     }
     ViewportResized(width~) => {
       let narrow = width <= NarrowBreakpoint
@@ -4779,7 +4852,8 @@ fn update_msg(
     PickProject(channel) => {
       // Focus moves for the surrounding UI, while the picker itself keeps
       // `channel` as its owner through every later navigation and confirm.
-      guard model.device_state(channel) is Some(_) else {
+      guard model.device_state(channel) is Some(_) &&
+        model.can_pick_project(channel) else {
         return (@cmd.none, model)
       }
       let (focus_cmd, model) = focus_channel(dispatch, model, channel)
@@ -7218,9 +7292,11 @@ fn update_device_msg(
         // The commit broadcast beat this reply and the row already exists:
         // focus it now, the way the row's own ＋ does.
         let cleared = { ..model, pending_project_adoption: None, }
-        let (focus_cmd, focused) = update(
+        let (focus_cmd, focused) = focus_added_project(
           dispatch,
-          NewChatIn(channel, Some(target)),
+          channel,
+          target,
+          pending.codex_draft,
           cleared,
         )
         (@cmd.batch([focus_cmd, reveal_active_project()]), focused)
@@ -14440,7 +14516,11 @@ test "the model selector switches one conversation, not the app" {
   )
   let (_, flash) = update(
     dispatch,
-    ModelPicked("openseek:deepseek-v4-flash"),
+    ModelPicked("openseek:deepseek-v4-flash", draft={
+      task: "",
+      mentions: [],
+      images: [],
+    }),
     model,
   )
   assert_true(flash.active().engine_model is DsFlash)
@@ -14448,7 +14528,11 @@ test "the model selector switches one conversation, not the app" {
   // the same selected/default/stored model state.
   let (_, flash_again) = update(
     dispatch,
-    ModelPicked("openseek:deepseek-v4-flash"),
+    ModelPicked("openseek:deepseek-v4-flash", draft={
+      task: "",
+      mentions: [],
+      images: [],
+    }),
     model,
   )
   @debug.assert_eq(
@@ -14477,7 +14561,11 @@ test "the model selector switches one conversation, not the app" {
   )
   let (_, pro) = update(
     dispatch,
-    ModelPicked("openseek:deepseek-v4-pro"),
+    ModelPicked("openseek:deepseek-v4-pro", draft={
+      task: "",
+      mentions: [],
+      images: [],
+    }),
     flash,
   )
   assert_true(pro.active().engine_model is DsPro)
@@ -14492,7 +14580,11 @@ test "a start never overrides the tier picked for the next turn" {
   // client began, which says nothing about what this user means to send.
   let (_, queued) = update(
     dispatch,
-    ModelPicked("openseek:deepseek-v4-flash"),
+    ModelPicked("openseek:deepseek-v4-flash", draft={
+      task: "",
+      mentions: [],
+      images: [],
+    }),
     test_model(),
   )
   assert_true(queued.active().engine_model is DsFlash)
@@ -14519,7 +14611,11 @@ test "reopening a conversation recovers its own tier, not the last pick" {
   // must not follow the first conversation home.
   let (_, flash) = update(
     dispatch,
-    ModelPicked("openseek:deepseek-v4-flash"),
+    ModelPicked("openseek:deepseek-v4-flash", draft={
+      task: "",
+      mentions: [],
+      images: [],
+    }),
     test_model(),
   )
   let other = flash.activate(
@@ -14530,7 +14626,11 @@ test "reopening a conversation recovers its own tier, not the last pick" {
   assert_true(other.active().engine_model is DsFlash)
   let (_, pro) = update(
     dispatch,
-    ModelPicked("openseek:deepseek-v4-pro"),
+    ModelPicked("openseek:deepseek-v4-pro", draft={
+      task: "",
+      mentions: [],
+      images: [],
+    }),
     other,
   )
   assert_true(pro.default_model is DsPro)
@@ -14574,7 +14674,11 @@ test "a run pins an inherited tier the user never clicked for" {
   )
   let (_, moved) = update(
     dispatch,
-    ModelPicked("openseek:deepseek-v4-flash"),
+    ModelPicked("openseek:deepseek-v4-flash", draft={
+      task: "",
+      mentions: [],
+      images: [],
+    }),
     elsewhere,
   )
   assert_true(moved.default_model is DsFlash)
@@ -14588,30 +14692,223 @@ test "a run pins an inherited tier the user never clicked for" {
 }
 
 ///|
-test "a Codex pick hands a fresh chat to Codex" {
+test "model switches transfer one draft and retire the old owner actions" {
   let dispatch = test_dispatch()
-  // The fixture chat has sent nothing, so its chip still offers both agent
-  // groups. Picking a Codex model switches the surface and the defaults; the
-  // real draft arrives via the rotation command's `CodexDraftRotated`.
-  let (_, switched) = update(
-    dispatch,
-    ModelPicked("codex:gpt-5.4-codex"),
-    test_model(),
-  )
-  assert_true(switched.screen is Codex)
-  assert_true(switched.default_agent is CodexAgent)
-  // One composing row at a time: the empty husk was only ever the "New
-  // chat" placeholder, so it deactivates and its sidebar row goes with it.
-  assert_true(switched.active_conversation() is None)
-  // A husk holding typed writing keeps its row instead — switching back
-  // finds the text.
-  let typed = test_model().replace_conversation({
+  let before = test_model().replace_conversation({
     ..test_conversation(),
     composer_draft_present: true,
+    worktree_mode: true,
   })
-  let (_, kept) = update(dispatch, ModelPicked("codex:gpt-5.4-codex"), typed)
-  assert_true(kept.screen is Codex)
-  assert_true(kept.active_conversation() is Some(_))
+  let identity = before.composer_input().identity
+  let draft : @composer.Draft = {
+    task: "Inspect this screenshot 👀",
+    mentions: [],
+    images: [{ name: "screen.png", url: "data:image/png;base64,cGlj", }],
+  }
+  let action = ComposerAction(
+    @composer.ModelSelected(identity~, value="codex:gpt-5.4-codex", draft~),
+  )
+  let (_, switched) = update(dispatch, action, before)
+  let (_, repeated) = update(dispatch, action, before)
+  assert_true(switched.screen is Codex)
+  assert_true(switched.default_agent is CodexAgent)
+  assert_true(switched.active_conversation() is None)
+  assert_true(switched.codex.active_id() == Some(identity.owner.session))
+  assert_true(switched.codex_composer_input().draft == draft)
+  assert_true(switched.codex == repeated.codex)
+  assert_true(
+    switched.composer_entry_retirements == repeated.composer_entry_retirements,
+  )
+  assert_true(switched.codex.draft_worktree_mode())
+  assert_true(before.active_conversation() is Some(_))
+  assert_true(before.composer_entry_retirements.is_empty())
+  let codex_identity = switched.codex_composer_input().identity
+  let edited = { ..draft, task: "Edited in Codex", }
+  let back_action = CodexComposerAction(
+    @composer.ModelSelected(
+      identity=codex_identity,
+      value="openseek:deepseek-v4-pro",
+      draft=edited,
+    ),
+  )
+  let (_, back) = update(dispatch, back_action, switched)
+  let (_, back_repeated) = update(dispatch, back_action, switched)
+  assert_true(back.screen is Chat)
+  assert_true(!back.codex.composing_draft())
+  assert_true(back.composer_input().draft == edited)
+  assert_true(back.composer_input() == back_repeated.composer_input())
+  assert_true(back.codex == back_repeated.codex)
+  assert_true(back.active().worktree_mode)
+  assert_eq(back.active_session, identity.owner.session)
+  assert_true(back.conversation_for_composer_action(identity) is None)
+  assert_true(
+    !back.codex.accepts_composer_identity(codex_identity, back.focused),
+  )
+  let (_, stale) = update(dispatch, action, back)
+  assert_true(stale.screen is Chat)
+  assert_true(stale.composer_input().draft == edited)
+  // Returning again must use the latest draft, including an intentional clear.
+  let empty : @composer.Draft = { task: "", mentions: [], images: [], }
+  let (_, again) = update(
+    dispatch,
+    ComposerAction(
+      @composer.ModelSelected(
+        identity=back.composer_input().identity,
+        value="codex:gpt-5.4-codex",
+        draft=empty,
+      ),
+    ),
+    back,
+  )
+  assert_true(again.codex_composer_input().draft == empty)
+  assert_true(
+    !again.codex.accepts_composer_identity(codex_identity, again.focused),
+  )
+  assert_true(again.active_conversation() is None)
+}
+
+///|
+test "Codex composer retirements stay monotonic across device focus" {
+  let dispatch = test_dispatch()
+  let source = @interop.ChannelId::Local
+  let remote = @interop.ChannelId::Remote("remote-device")
+  let initial = test_model()
+  let initial = {
+    ..initial,
+    devices: [..initial.devices, empty_device_state(remote)],
+  }
+  let (_, started) = update(
+    dispatch,
+    Codex(channel=source, @codex.Msg::start_draft("local-draft", "/local")),
+    initial,
+  )
+  let old_identity = started.codex_composer_input().identity
+  let (_, retired) = update(
+    dispatch,
+    Codex(channel=source, @codex.Msg::abandon_draft()),
+    started,
+  )
+  let old_retirements = retired.codex_composer_input().retirements
+  assert_eq(old_retirements.length(), 1)
+  let (_, focused) = focus_channel(dispatch, retired, remote)
+  assert_true(focused.codex_composer_input().retirements == old_retirements)
+  assert_true(!focused.codex.has_active())
+  let (_, remote_started) = update(
+    dispatch,
+    Codex(channel=remote, @codex.Msg::start_draft("remote-draft", "/remote")),
+    focused,
+  )
+  let (_, remote_retired) = update(
+    dispatch,
+    Codex(channel=remote, @codex.Msg::abandon_draft()),
+    remote_started,
+  )
+  let retirements = remote_retired.codex_composer_input().retirements
+  assert_eq(retirements.length(), 2)
+  assert_true(retirements[0] == old_retirements[0])
+  assert_true(retirements[1] == { channel: remote, session: "remote-draft", })
+  let (_, returned) = focus_channel(dispatch, remote_retired, source)
+  let (_, reopened) = update(
+    dispatch,
+    Codex(channel=source, @codex.Msg::start_draft("local-draft", "/local")),
+    returned,
+  )
+  assert_true(reopened.codex_composer_input().retirements == retirements)
+  assert_true(!reopened.codex.accepts_composer_identity(old_identity, source))
+  assert_true(retired.codex_composer_input().retirements == old_retirements)
+}
+
+///|
+test "a goal editor cannot lose its draft through an agent switch" {
+  let before = test_model().replace_conversation({
+    ..test_conversation(),
+    goal_edit: Some({ draft: "Keep this goal", }),
+  })
+  assert_true(before.openseek_model_chip(before.active()).disabled)
+  let (_, after) = update(
+    test_dispatch(),
+    ModelPicked("codex:gpt-5.4-codex", draft={
+      task: "",
+      mentions: [],
+      images: [],
+    }),
+    before,
+  )
+  assert_true(after.screen is Chat)
+  assert_true(after.active().goal_edit == before.active().goal_edit)
+  assert_true(after.composer_entry_retirements.is_empty())
+}
+
+///|
+test "an agent switch cannot discard a pending goal write" {
+  let dispatch = test_dispatch()
+  let (_, pending) = update(
+    dispatch,
+    SubmitGoal,
+    test_model().replace_conversation({
+      ..test_conversation(),
+      goal_edit: Some({ draft: "Keep this goal", }),
+    }),
+  )
+  assert_true(pending.active().goal_edit is None)
+  assert_true(pending.openseek_model_chip(pending.active()).disabled)
+  let (_, after) = update(
+    dispatch,
+    ModelPicked("codex:gpt-5.4-codex", draft={
+      task: "",
+      mentions: [],
+      images: [],
+    }),
+    pending,
+  )
+  assert_true(after.screen is Chat)
+  assert_true(after.active().goal_pending == pending.active().goal_pending)
+  guard after.active().goal_pending is Some(command) else {
+    fail("pending goal must remain recoverable")
+  }
+  let (_, rejected) = update_dev(
+    dispatch,
+    GoalRejected(
+      session="desktop-test",
+      command=command.id,
+      draft=Some("Keep this goal"),
+      message="disk full",
+    ),
+    after,
+  )
+  assert_true(rejected.active().goal_edit is Some({ draft: "Keep this goal", }))
+  assert_true(rejected.active().goal_pending is None)
+}
+
+///|
+test "an agent switch cannot discard a pending semantic submission" {
+  let before = test_model().replace_conversation({
+    ..test_conversation(),
+    pending_semantic_submission: Some({
+      submission_id: "pending-semantic-send",
+      reference: large_semantic_reference_for_test(),
+      task: "Inspect these matches",
+      mentions: [],
+      followup: None,
+    }),
+  })
+  assert_true(before.openseek_model_chip(before.active()).disabled)
+  let (_, after) = update(
+    test_dispatch(),
+    ModelPicked("codex:gpt-5.4-codex", draft={
+      task: "Inspect these matches",
+      mentions: [],
+      images: [],
+    }),
+    before,
+  )
+  assert_true(after.screen is Chat)
+  assert_true(after.default_agent is OpenSeekAgent)
+  assert_true(
+    after.active().pending_semantic_submission ==
+    before.active().pending_semantic_submission,
+  )
+  assert_true(after.composer_entry_retirements.is_empty())
 }
 
 ///|
@@ -14629,7 +14926,15 @@ test "a begun conversation never changes agents" {
     ),
     test_model(),
   )
-  let (_, unchanged) = update(dispatch, ModelPicked("codex:gpt-5.4-codex"), ran)
+  let (_, unchanged) = update(
+    dispatch,
+    ModelPicked("codex:gpt-5.4-codex", draft={
+      task: "",
+      mentions: [],
+      images: [],
+    }),
+    ran,
+  )
   assert_true(unchanged.screen is Chat)
   assert_true(unchanged.default_agent is OpenSeekAgent)
 }
@@ -14646,7 +14951,11 @@ test "an OpenSeek pick on a composing Codex draft hands the chat back" {
   assert_true(drafting.codex.composing_draft())
   let (_, back) = update(
     dispatch,
-    ModelPicked("openseek:deepseek-v4-flash"),
+    ModelPicked("openseek:deepseek-v4-flash", draft={
+      task: "",
+      mentions: [],
+      images: [],
+    }),
     drafting,
   )
   assert_false(back.codex.composing_draft())
@@ -14659,7 +14968,11 @@ test "the Codex group's placeholder row opens Settings" {
   let dispatch = test_dispatch()
   let (_, opened) = update(
     dispatch,
-    ModelPicked("codex.unavailable"),
+    ModelPicked("codex.unavailable", draft={
+      task: "",
+      mentions: [],
+      images: [],
+    }),
     test_model(),
   )
   // Sign-in and connection state live in the Settings page's Codex group.
@@ -14724,7 +15037,11 @@ test "remembered tiers survive a round trip through storage" {
   let dispatch = test_dispatch()
   let (_, chosen) = update(
     dispatch,
-    ModelPicked("openseek:deepseek-v4-flash"),
+    ModelPicked("openseek:deepseek-v4-flash", draft={
+      task: "",
+      mentions: [],
+      images: [],
+    }),
     test_model(),
   )
   let restored = parse_conversation_models(
@@ -16017,7 +16334,11 @@ test "custom select menus switch and dismiss deterministically" {
   )
   let (_, picked) = update(
     dispatch,
-    ModelPicked("openseek:deepseek-v4-flash"),
+    ModelPicked("openseek:deepseek-v4-flash", draft={
+      task: "",
+      mentions: [],
+      images: [],
+    }),
     reopened,
   )
   assert_true(picked.select_menu is None)
@@ -17949,6 +18270,61 @@ test "JumpToMention opens the editor panel and selects the mention's file" {
 }
 
 ///|
+test "directory reveal opens a picker without changing the manual tree preference" {
+  let dispatch = test_dispatch()
+  for filename in ["report.pdf", "extensionless"] {
+    let (_, pending) = update(dispatch, OpenFile(filename), test_model())
+    let opened = pending.test_resolve_editor(filename)
+    let owner = file_ctx(opened).owner
+    let file = opened.test_file(filename)
+    let file_loaded = FileEditor(
+      @fileeditor.FileLoaded(
+        owner~,
+        epoch=opened.file_panel.request_epoch,
+        path=file,
+        name=filename,
+        file=@fileeditor.Office(
+          data_base64="JVBERi0xLjc=",
+          media_type="application/pdf",
+          sig="pdf:1",
+        ),
+        file_link_generation=Some(opened.file_panel.file_link_generation),
+        review_generation=None,
+        range=None,
+        annotation=None,
+      ),
+    )
+    let (_, loaded) = update(dispatch, file_loaded, opened)
+    assert_true(loaded.file_panel.docs[file].state is @fileeditor.TabPdf(..))
+    let starting = if filename == "report.pdf" { loaded } else { opened }
+    let (_, hidden) = update(dispatch, ToggleRightPanel, starting)
+    assert_false(hidden.right_panel_open)
+    let hidden = {
+      ..hidden,
+      file_panel: { ..hidden.file_panel, explorer_mode: ExplorerSearch, },
+    }
+    let (_, pending) = update(dispatch, OpenFile("src/nested"), hidden)
+    let (_, revealed) = update(
+      dispatch,
+      OpenPathResolved(
+        FileOpenContext::new(owner, pending.file_panel.file_link_generation),
+        Directory({ path: "src/nested", }),
+      ),
+      pending,
+    )
+    assert_true(revealed.right_panel_open)
+    assert_true(revealed.file_panel.explorer_mode is ExplorerFiles)
+    assert_true(revealed.file_panel.expanded.contains(Relative("src")))
+    assert_true(revealed.file_panel.expanded.contains(Relative("src/nested")))
+    assert_false(revealed.file_panel.tree_open)
+    assert_true(revealed.dock.active is Some(FilePicker))
+    let (_, settled) = update(dispatch, file_loaded, revealed)
+    assert_true(settled.file_panel.docs[file].state is @fileeditor.TabPdf(..))
+    assert_false(settled.file_panel.tree_open)
+  }
+}
+
+///|
 test "resolved transcript files and directories stay in the right panel" {
   let dispatch = test_dispatch()
   let model = test_model()
@@ -17976,9 +18352,22 @@ test "resolved transcript files and directories stay in the right panel" {
   let (_, directory) = update(dispatch, directory_msg, directory_pending)
   assert_true(directory.right_panel_open)
   assert_true(directory.dock.active is Some(FilePicker))
-  assert_true(directory.file_panel.tree_open)
-  assert_true(directory.file_panel.highlighted is Some(Relative("src")))
+  assert_true(
+    @fileeditor.editor_classes(directory.file_panel, file_ctx(directory)).contains(
+      "tree-open",
+    ),
+  )
   assert_true(directory.file_panel.expanded.contains(Relative("src")))
+  // The picker temporarily shows the tree; selecting a file hides it.
+  assert_false(directory.file_panel.tree_open)
+  let (_, child_pending) = update(
+    dispatch,
+    FileEditor(FileSelected(path=Relative("src/main.mbt"), name="main.mbt")),
+    directory,
+  )
+  let child = child_pending.test_resolve_editor("src/main.mbt")
+  assert_true(child.active_workspace_file() is Some(Relative("src/main.mbt")))
+  assert_false(child.file_panel.tree_open)
   // Repeating the same link is a reveal, not the row's collapse toggle.
   let (_, repeated) = update(dispatch, directory_msg, directory)
   assert_true(repeated.file_panel.expanded.contains(Relative("src")))
@@ -20591,7 +20980,7 @@ test "launcher rows open Browser and all Explorer destinations" {
   assert_true(model.file_panel.explorer_mode is ExplorerFiles)
   let (_, model) = update(dispatch, ExplorerRequested(ExplorerSearch), model)
   assert_true(model.file_panel.explorer_mode is ExplorerSearch)
-  assert_true(model.file_panel.tree_open)
+  assert_false(model.file_panel.tree_open)
 }
 
 ///|
@@ -21169,7 +21558,7 @@ test "Search reuses the picker and keeps a request when its Explorer tab leaves"
   assert_true(opened.dock.active is Some(@dock.DockTab::FilePicker))
   assert_true(opened.dock.tabs == [@dock.DockTab::FilePicker])
   assert_true(opened.file_panel.explorer_mode is ExplorerSearch)
-  assert_true(opened.file_panel.tree_open)
+  assert_false(opened.file_panel.tree_open)
   let (_, reopened_picker) = update(
     dispatch,
     ExplorerRequested(ExplorerSearch),
@@ -21197,7 +21586,7 @@ test "Search reuses the picker and keeps a request when its Explorer tab leaves"
 }
 
 ///|
-test "a Search result fulfills the picker while preserving Search beside the file" {
+test "a Search result fulfills the picker without pinning Search beside the file" {
   let dispatch = test_dispatch()
   let (_, opened) = update(
     dispatch,
@@ -21221,7 +21610,7 @@ test "a Search result fulfills the picker while preserving Search beside the fil
   assert_true(selected.dock.tabs == [@dock.DockTab::File(path=file)])
   assert_true(@dock.active_file(selected.dock) == Some(file))
   assert_true(selected.file_panel.explorer_mode is ExplorerSearch)
-  assert_true(selected.file_panel.tree_open)
+  assert_false(selected.file_panel.tree_open)
   assert_true(
     selected.file_panel.docs.get(file)
     is Some({ review: None, state: TabLoading, .. }),

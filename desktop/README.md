@@ -166,22 +166,19 @@ in the repository README. The file is created and edited by hand. When no
 file exists the host passes nothing, so an `OPENSEEK_MCP_CONFIG` inherited
 from the launching environment still applies.
 
-The host is the file's only reader. It reads it before each prompt and hands
-a new engine its own copy of exactly what it read
-(`<runtime_dir>/mcp/<session>.json`, readable by the user alone, removed as
-soon as the engine has loaded it); the engine never opens the user's file.
-The runtime directory is shared by every host process on the machine, so the
-copy is kept under the lock beside it (`<session>.json.lock`, which stays):
-another host starting the same conversation waits until this one's engine
-has loaded its copy, and a copy whose lock nobody holds — its host was killed
-before removing it — is removed by the next engine start in any host. An
-engine connects its servers once, when it starts — one set of server
-processes per conversation — so a digest of the content is part of what pins
-an engine to its configuration, like the model and the endpoint: an edit
-starts a new engine, and with it every server, on that conversation's next
-prompt, with no desktop restart. A prompt already queued behind a running turn
-runs on the engine it was queued for. A scheduled run is a single process that
-reads the file once, so it is pointed at the file directly.
+An engine connects its servers once, when it starts — one set of server
+processes per conversation. The host therefore reads the file before each
+prompt and keeps a digest of its content among the things that pin an engine
+to its configuration, like the model and the endpoint: an edit starts a new
+engine, and with it every server, on that conversation's next prompt, with no
+desktop restart. A prompt already queued behind a running turn runs on the
+engine it was queued for. Scheduled runs are pointed at the same file.
+
+The engine reads the file itself, a moment after the host does. An edit that
+lands in between leaves the engine on newer content than the host recorded,
+which costs one more engine start than was needed on the next prompt; only an
+edit that is also undone in that moment goes unnoticed until the file changes
+again.
 
 **Settings → MCP** shows what the current conversation's engine holds of
 those servers: connected with its tools, disconnected since it connected, no
@@ -199,9 +196,9 @@ whose engine has started and not reported yet is shown as still connecting.
 A configuration the engine cannot load, and a server that fails to start, to
 list its tools, or to fit under the tool limit, raise an error toast naming
 the cause; the conversation continues without those tools. A broken file is
-reported once, under the user's own path, however many conversations start
-engines on it. MCP tool calls are not gated by the approval prompt, which only
-covers the built-in tools' sandbox escalations. Codex conversations do not
+reported once, however many conversations start engines on it. MCP tool calls
+are not gated by the approval prompt, which only covers the built-in tools'
+sandbox escalations. Codex conversations do not
 read this file — Codex takes its MCP servers from its own `config.toml`.
 
 ## API endpoint
