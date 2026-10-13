@@ -367,7 +367,7 @@ pub fn ContextComponent::render(
       }
       @html.div(class="pending-steers", rows)
     }
-    QueuedInputPanel(items~) => {
+    QueuedInputPanel(items~, enabled~) => {
       let rows : Array[@html.Html] = []
       for item in items {
         let trailing : Array[@html.Html] = []
@@ -393,6 +393,7 @@ pub fn ContextComponent::render(
                   @html.button(
                     class="queued-input-action",
                     type_="button",
+                    disabled=!enabled,
                     title=ui(locale, SteerLabel),
                     attrs=@html.Attrs::build().aria_label(
                       ui(locale, SteerLabel),
@@ -409,6 +410,7 @@ pub fn ContextComponent::render(
                       "queued-input-action"
                     },
                     type_="button",
+                    disabled=!enabled,
                     title=if editing {
                       ui(locale, EditingLabel)
                     } else {
@@ -429,6 +431,7 @@ pub fn ContextComponent::render(
                   @html.button(
                     class="queued-input-action danger",
                     type_="button",
+                    disabled=!enabled,
                     title=ui(locale, DeleteLabel),
                     attrs=@html.Attrs::build().aria_label(
                       ui(locale, DeleteLabel),
@@ -768,6 +771,7 @@ priv struct MentionChip {
 fn MentionChip::render(
   locale~ : @i18n.Locale = English,
   self : MentionChip,
+  disabled~ : Bool,
 ) -> @html.Html {
   ignore(locale)
   let glyph = @html.span(class="mention-glyph", self.glyph)
@@ -789,6 +793,7 @@ fn MentionChip::render(
       @html.button(
         class="mention-remove",
         type_="button",
+        disabled~,
         title=ui(locale, RemoveLabel),
         on_click=command,
         content,
