@@ -167,8 +167,8 @@ from the launching environment still applies.
 
 The host is the file's only reader. It reads it before each prompt and hands
 a new engine its own copy of exactly what it read
-(`<runtime_dir>/mcp/<session>.json`, readable by the user alone, removed when
-the engine exits); the engine never opens the user's file. An engine connects
+(`<runtime_dir>/mcp/<session>.json`, readable by the user alone, removed as
+soon as the engine has loaded it); the engine never opens the user's file. An engine connects
 its servers once, when it starts — one set of server processes per
 conversation — so a digest of the content is part of what pins an engine to
 its configuration, like the model and the endpoint: an edit starts a new

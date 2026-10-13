@@ -1473,6 +1473,7 @@ async fn[G] start_serve_engine(
   let startup_follower = ensure_follower(sink~, group~, manager~, config~)
   let engine_follower = manager.followers.get(config.session)
   let mut startup_engine : ServeEngine? = None
+  let mut startup_mcp : McpHandoff? = None
   let mut startup_committed = false
   // Everything through scheduling both stream tasks is one initialization
   // transaction. This synchronous identity-scoped rollback also runs when
@@ -1498,6 +1499,12 @@ async fn[G] start_serve_engine(
     if startup_follower is Some(follower) {
       discard_follower_startup(manager, follower)
     }
+    // No engine came of this start, so nothing will ever read the copy of
+    // the MCP configuration made for it. Last, because it is the one step
+    // here that touches the disk.
+    if startup_mcp is Some(handoff) {
+      @async.protect_from_cancel(() => handoff.discard())
+    }
   })
   let (child_stdin, writer) = @process.write_to_process()
   let (reader, child_stdout) = @process.read_from_process()
@@ -1514,6 +1521,7 @@ async fn[G] start_serve_engine(
       Some(hand_off_mcp_config(mcp_config, manager.runtime_dir, config.session))
     None => None
   }
+  startup_mcp = mcp
   // One report per broken configuration, not one per conversation: the memo
   // only outlives engines started with that same configuration.
   if manager.mcp_rejection_reported != mcp.map(handoff => handoff.revision) {
@@ -1637,6 +1645,13 @@ async fn ServeEngine::run(
   reader : @process.ReadFromProcess,
   stderr_task : @async.Task[String],
 ) -> Unit {
+  // An engine that never said it had read its MCP configuration leaves the
+  // copy behind; this task is that engine's whole life, so its end — an
+  // exit, a failure, or the cancellation of the group it runs in, which
+  // skips everything below — is where the copy goes.
+  defer (if self.mcp is Some(handoff) {
+    @async.protect_from_cancel(() => handoff.discard())
+  })
   let code = self.consume(manager, reader) catch {
     error => {
       @xlog.error() <?
@@ -1767,6 +1782,18 @@ async fn ServeEngine::consume(
         let wire_event = match (@wire.parse(json), engine.mcp) {
           (Some(event), Some(handoff)) => Some(handoff.restore_path(event))
           (event, _) => event
+        }
+        // Each of these is the engine's word that it has read its MCP
+        // configuration, which it does once: the copy has served its purpose
+        // and goes now rather than at the end of the engine's life.
+        if wire_event
+          is Some(
+            McpToolsRegistered(..)
+            | McpConfigUnreadable(..)
+            | McpConfigInvalid(..)
+          ) &&
+          engine.mcp is Some(handoff) {
+          handoff.discard()
         }
         match wire_event {
           Some(McpConfigUnreadable(..) | McpConfigInvalid(..)) if engine.mcp
@@ -2091,11 +2118,6 @@ async fn ServeEngine::retire(
       "run_id": engine.phase.latest_run().unwrap_or(""),
     }
   engine.discard_commands("the engine exited")
-  // The process is gone, and its copy of the MCP configuration with it. The
-  // conversation's next engine is given a fresh one.
-  if engine.mcp is Some(handoff) {
-    @async.protect_from_cancel(() => handoff.discard())
-  }
   // Capture ownership only if the slot still contains THIS engine by
   // identity. Correct replacement waits on this handle through final
   // drain, but pump teardown and defensive cleanup can still detach it;
