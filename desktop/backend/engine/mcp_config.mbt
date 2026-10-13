@@ -72,12 +72,12 @@ fn mcp_config_fingerprint(config : McpConfig?) -> String {
 
 ///|
 /// What one engine was started with.
-priv struct McpHandoff {
+priv struct McpSnapshot {
   /// The path on the engine's command line, which is the path it reports.
   given : String
   /// The user's file, which is the path a person should be shown.
   source : String
-  /// The fingerprint component of what was handed over.
+  /// The fingerprint component of the content it holds.
   revision : String
 }
 
@@ -101,38 +101,38 @@ fn mcp_snapshot_path(
 /// never overlaps the previous one's startup read. A file the host could not read has nothing to copy, and a
 /// host without a runtime directory has nowhere to copy to; in both cases the
 /// engine is pointed at the user's file and reports what it finds there.
-async fn hand_off_mcp_config(
+async fn snapshot_mcp_config(
   config : McpConfig,
   runtime_dir : @pathx.Path?,
   session : String,
-) -> McpHandoff {
+) -> McpSnapshot {
   let source = config.path.to_string()
   let revision = mcp_config_fingerprint(Some(config))
   guard (config.revision, runtime_dir) is (Text(text), Some(runtime_dir)) else {
     return { given: source, source, revision, }
   }
-  let snapshot = mcp_snapshot_path(runtime_dir, session)
+  let copy = mcp_snapshot_path(runtime_dir, session)
   // The configuration is where tokens live: the directory and the file are
   // the user's alone.
   @fs.mkdir(
-    snapshot.dirname().to_string(),
+    copy.dirname().to_string(),
     permission=0o700,
     recursive=true,
     allow_exist=true,
   )
   @fs.write_file(
-    snapshot.to_string(),
+    copy.to_string(),
     text,
     create_mode=CreateOrTruncate,
     permission=0o600,
   )
-  { given: snapshot.to_string(), source, revision, }
+  { given: copy.to_string(), source, revision, }
 }
 
 ///|
 /// Remove the copy an engine was started with. Removing it again is nothing,
 /// and the user's own file is never touched.
-async fn McpHandoff::discard(self : McpHandoff) -> Unit {
+async fn McpSnapshot::discard(self : McpSnapshot) -> Unit {
   guard self.given != self.source else { return }
   @fsx.remove_if_exists(Path(self.given)) catch {
     error if @async.is_being_cancelled() => raise error
@@ -143,8 +143,8 @@ async fn McpHandoff::discard(self : McpHandoff) -> Unit {
 ///|
 /// The event as a person should read it: an engine started with a copy names
 /// the copy, and the user's file is the one they can open and fix.
-fn McpHandoff::restore_path(
-  self : McpHandoff,
+fn McpSnapshot::restore_path(
+  self : McpSnapshot,
   event : @wire.Event,
 ) -> @wire.Event {
   fn shown(path : String) -> String {
@@ -227,38 +227,38 @@ async test "an unreadable MCP configuration is carried, not treated as absent" {
     mcp_config_fingerprint(Some({ ..config, revision: Text(""), })),
   )
   // There is nothing to copy, so the engine is pointed at the file itself.
-  let handoff = hand_off_mcp_config(config, Some(root.join("runtime")), "s-1")
-  assert_eq(handoff.given, config.path.to_string())
-  assert_eq(handoff.source, handoff.given)
-  // Discarding that hand-off must leave the user's path alone.
-  handoff.discard()
+  let snapshot = snapshot_mcp_config(config, Some(root.join("runtime")), "s-1")
+  assert_eq(snapshot.given, config.path.to_string())
+  assert_eq(snapshot.source, snapshot.given)
+  // Discarding that snapshot must leave the user's path alone.
+  snapshot.discard()
   assert_true(@fs.kind(config.path.to_string()) is Directory)
 }
 
 ///|
 async test "a new engine is handed its own copy of the MCP configuration" {
   let root : @pathx.Path = Path(
-    @fs.realpath(@fs.tmpdir(prefix="openseek-mcp-handoff-")),
+    @fs.realpath(@fs.tmpdir(prefix="openseek-mcp-snapshot-")),
   )
   defer @fs.rmdir(root.to_string(), recursive=true)
   let path = root.join("home/.openseek/mcp.json").resolve()
   let config : McpConfig = { path, revision: Text("{\"mcpServers\": {}}"), }
   let runtime = root.join("runtime")
-  let handoff = hand_off_mcp_config(config, Some(runtime), "s-1")
+  let snapshot = snapshot_mcp_config(config, Some(runtime), "s-1")
   // The copy is per conversation, and holds exactly what the host read —
   // which is what the fingerprint describes.
-  assert_eq(handoff.given, runtime.join("mcp/s-1.json").to_string())
-  assert_eq(handoff.source, path.to_string())
-  assert_eq(handoff.revision, mcp_config_fingerprint(Some(config)))
-  assert_eq(@fsx.read_text(Path(handoff.given)), "{\"mcpServers\": {}}")
+  assert_eq(snapshot.given, runtime.join("mcp/s-1.json").to_string())
+  assert_eq(snapshot.source, path.to_string())
+  assert_eq(snapshot.revision, mcp_config_fingerprint(Some(config)))
+  assert_eq(@fsx.read_text(Path(snapshot.given)), "{\"mcpServers\": {}}")
   // The conversation's next engine replaces the copy.
-  let edited = hand_off_mcp_config(
+  let edited = snapshot_mcp_config(
     { ..config, revision: Text("{\"mcpServers\": {\"a\": {}}}"), },
     Some(runtime),
     "s-1",
   )
-  assert_eq(edited.given, handoff.given)
-  assert_true(edited.revision != handoff.revision)
+  assert_eq(edited.given, snapshot.given)
+  assert_true(edited.revision != snapshot.revision)
   assert_eq(@fsx.read_text(Path(edited.given)), "{\"mcpServers\": {\"a\": {}}}")
   // A person is shown their own file, never the copy.
   @debug.assert_eq(
@@ -273,7 +273,7 @@ async test "a new engine is handed its own copy of the MCP configuration" {
   edited.discard()
   assert_true(@fsx.read_text_if_exists(Path(edited.given)) is None)
   // Without a runtime directory there is nowhere to keep a copy.
-  let direct = hand_off_mcp_config(config, None, "s-1")
+  let direct = snapshot_mcp_config(config, None, "s-1")
   assert_eq(direct.given, path.to_string())
 }
 
@@ -353,13 +353,13 @@ async test "a broken MCP configuration is reported once, under the user's path" 
 }
 
 ///|
-/// Test-only: a stand-in engine for `session`, started on `handoff` with its
+/// Test-only: a stand-in engine for `session`, started on `snapshot` with its
 /// task running on `group`, whose child process runs `script`.
 #cfg(not(platform="windows"))
 async fn[G] start_stand_in_engine(
   group : @async.TaskGroup[G],
   manager : EngineManager,
-  handoff : McpHandoff,
+  snapshot : McpSnapshot,
   session : String,
   script : String,
 ) -> Unit {
@@ -381,7 +381,7 @@ async fn[G] start_stand_in_engine(
       EventSink(_ => ()),
       phase=Idle(last_run=None),
     ),
-    mcp: Some(handoff),
+    mcp: Some(snapshot),
   }
   let stderr_task = group.spawn(no_wait=true, () => "")
   group.spawn_bg(no_wait=true, allow_failure=true, () => {
@@ -402,13 +402,13 @@ async test "an engine's copy of the MCP configuration lasts until it has been lo
     revision: Text("{\"mcpServers\": {}}"),
   }
   let runtime = Some(root.join("runtime"))
-  async fn copy_exists(handoff : McpHandoff) -> Bool {
-    @fsx.read_text_if_exists(Path(handoff.given)) is Some(_)
+  async fn copy_exists(snapshot : McpSnapshot) -> Bool {
+    @fsx.read_text_if_exists(Path(snapshot.given)) is Some(_)
   }
 
   // The engine reads the copy once, as it starts, and says so. From then on
   // nothing needs it, however long the engine goes on running.
-  let loaded = hand_off_mcp_config(config, runtime, "s-loaded")
+  let loaded = snapshot_mcp_config(config, runtime, "s-loaded")
   @async.with_task_group(group => {
     let script =
       #|printf '{"event":"mcp_tools_registered","servers":0,"tools":0,"names":[]}\n'
@@ -423,7 +423,7 @@ async test "an engine's copy of the MCP configuration lasts until it has been lo
   })
   // An engine that never gets that far — the host is shutting down, say, and
   // cancels the group its task runs in — leaves no copy behind either.
-  let cancelled = hand_off_mcp_config(config, runtime, "s-cancelled")
+  let cancelled = snapshot_mcp_config(config, runtime, "s-cancelled")
   @async.with_task_group(group => {
     start_stand_in_engine(
       group, manager, cancelled, "s-cancelled", "cat >/dev/null",
@@ -434,7 +434,7 @@ async test "an engine's copy of the MCP configuration lasts until it has been lo
   })
   assert_false(copy_exists(cancelled))
   // Not even when the group ends before the engine's task has run at all.
-  let unstarted = hand_off_mcp_config(config, runtime, "s-unstarted")
+  let unstarted = snapshot_mcp_config(config, runtime, "s-unstarted")
   @async.with_task_group(group => {
     start_stand_in_engine(
       group, manager, unstarted, "s-unstarted", "cat >/dev/null",
