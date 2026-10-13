@@ -1545,7 +1545,7 @@ async fn[G] start_serve_engine(
   }
   let args = engine_process_args(
     config,
-    mcp_config?=mcp.map(snapshot => snapshot.given),
+    mcp_config?=mcp.map(snapshot => snapshot.given()),
   )
   let graceful_cancel = @process.graceful_cancel(timeout=1000)
   @xlog.debug() <?
