@@ -166,12 +166,15 @@ async fn run_serve(
         criteria=() => @execution.audit_criteria(session),
       )
     })
-    let { tools: extra_tools, mcp, } = @execution.build_extra_tools(
+    let mcp = @execution.connect_mcp(
       scope,
+      workspace_root~,
+      config_path?=@options.mcp_config_path(matches),
+    )
+    let extra_tools = @execution.build_extra_tools(
+      mcp,
       model~,
       api_key~,
-      workspace_root~,
-      mcp_config_path?=@options.mcp_config_path(matches),
       deepseek_api_key?=@options.deepseek_api_key(matches),
       api_url?,
     )

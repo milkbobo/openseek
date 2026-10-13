@@ -19,7 +19,7 @@ enum McpRegistry {
 /// configuration that cannot be used and a server that cannot be reached are
 /// recorded in the registry and reported as the events they always were. The
 /// connections' reader/writer tasks run on `scope`'s group.
-async fn[X] connect_mcp(
+pub async fn[X] connect_mcp(
   scope : @agent_runtime.AgentTaskScope[X],
   workspace_root~ : String,
   config_path? : String,
