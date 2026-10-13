@@ -144,12 +144,16 @@ priv enum ServeStep {
   // A background job finished; wake the loop to drain and surface its notice
   // even when no turn is active.
   BackgroundNotice
+  // What the engine holds of its MCP servers may have changed — a connection
+  // closed, or a turn reloaded the configuration; wake the loop to report it.
+  McpChanged
   Shutdown
 }
 
 ///|
 /// Decode one JSONL command line from the controller.
-/// `jobs_snapshot` and `job_stop` are correlated controls handled outside turns.
+/// `jobs_snapshot` and `job_stop` are correlated controls handled outside
+/// turns.
 ///
 /// `prompt` starts a turn, `steer` supplies typed step-boundary input, `compact`
 /// summarizes the current conversation once no work is active, and `cancel`

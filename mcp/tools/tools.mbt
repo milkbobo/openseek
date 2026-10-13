@@ -118,25 +118,118 @@ pub async fn[X] build_grouped(
   workspace_root? : String,
   discovery_timeout_ms~ : Int32 = DefaultDiscoveryTimeoutMs,
 ) -> Array[(String, Array[@agent_tool.AgentToolDefinition])] {
-  let groups : Array[(String, Array[@agent_tool.AgentToolDefinition])] = []
+  connect(
+    scope,
+    servers,
+    client_name~,
+    client_version~,
+    workspace_root?,
+    discovery_timeout_ms~,
+  ).map(entry => (entry.server.name(), entry.tools))
+}
+
+///|
+/// What connecting one configured server came to.
+pub enum Connection {
+  /// Connected and contributing tools, through this client. The client stays
+  /// open for as long as the scope lives, so it also says whether the
+  /// connection has been lost since.
+  Live(@mcp.McpClient)
+  /// Connected, offered no tools, and was released.
+  NoTools
+  /// It could not be started, reached, or asked for its tools; the text says
+  /// which and why.
+  Failed(String)
+  /// Never tried: earlier servers had already used up the tool budget.
+  Skipped
+}
+
+///|
+/// One configured server with what connecting to it came to and the tools it
+/// contributed to the registry (empty unless the connection is `Live`).
+pub struct ServerEntry {
+  server : @config.McpServer
+  connection : Connection
+  tools : Array[@agent_tool.AgentToolDefinition]
+  // Every tool the server offered, before the cross-server naming and the
+  // budget decided which of them `tools` holds and under what names. Kept so
+  // a later `connect` can carry this connection over and run that pass again
+  // without asking the server.
+  priv discovered : Array[@agent_tool.AgentToolDefinition]
+}
+
+///|
+/// Connect every configured server, in config order, and keep the outcome of
+/// each beside the tools it contributed. This is the build itself: `build` and
+/// `build_grouped` are views of its result, and every failure it returns is
+/// also reported as the event it always was.
+///
+/// `previous` is what an earlier call on the same scope returned, for a
+/// configuration that has changed since. A server defined exactly as it was
+/// whose connection is still up keeps that connection — and with it whatever
+/// state the server holds — instead of being started again. Every other
+/// connection in `previous` is closed before anything is started, because a
+/// changed server's replacement may need the port or the profile its
+/// predecessor holds. Names and the budget are decided afresh over the whole
+/// new set, so the result is what connecting from nothing would have
+/// registered. If the call is cancelled, the connections it made are closed
+/// too; `previous` then holds lost connections, which the next call replaces.
+pub async fn[X] connect(
+  scope : @agent_runtime.AgentTaskScope[X],
+  servers : Array[@config.McpServer],
+  client_name~ : String,
+  client_version~ : String,
+  workspace_root? : String,
+  discovery_timeout_ms~ : Int32 = DefaultDiscoveryTimeoutMs,
+  previous~ : Array[ServerEntry] = [],
+) -> Array[ServerEntry] {
+  let entries : Array[ServerEntry] = []
+  // The earlier entries whose connection carries over, by server name (names
+  // are unique in a configuration).
+  let carried : Map[String, ServerEntry] = Map([])
+  for entry in previous {
+    if entry.connection is Live(client) {
+      if !client.is_closed() && servers.contains(entry.server) {
+        carried[entry.server.name()] = entry
+      } else {
+        client.close()
+      }
+    }
+  }
+  errdefer (for entry in entries {
+    if entry.connection is Live(client) &&
+      !carried.contains(entry.server.name()) {
+      client.close()
+    }
+  })
   let mut total = 0
   let seen : Set[String] = Set([])
   for server in servers {
-    let mine : Array[@agent_tool.AgentToolDefinition] = []
-    groups.push((server.name(), mine))
     // Budget exhausted: don't launch servers whose tools could not register.
     if total >= MaxTotalMcpTools {
       @emit.emit(McpServerSkippedOverCap(server=server.name()))
+      // A connection that would have carried over has nothing left to
+      // register either.
+      if carried.get(server.name()) is Some({ connection: Live(client), .. }) {
+        carried.remove(server.name())
+        client.close()
+      }
+      entries.push({ server, connection: Skipped, tools: [], discovered: [], })
       continue
     }
-    let discovered = connect_server(
-      scope,
-      server,
-      client_name~,
-      client_version~,
-      workspace_root?,
-      discovery_timeout_ms~,
-    )
+    let (connection, discovered) = match carried.get(server.name()) {
+      Some(entry) => (entry.connection, entry.discovered)
+      None =>
+        connect_server(
+          scope,
+          server,
+          client_name~,
+          client_version~,
+          workspace_root?,
+          discovery_timeout_ms~,
+        )
+    }
+    let mine : Array[@agent_tool.AgentToolDefinition] = []
     for tool in discovered {
       // The provider accepts at most 128 function definitions per request; the
       // MCP budget leaves room for the built-ins. Beyond it, drop with a log.
@@ -161,15 +254,17 @@ pub async fn[X] build_grouped(
         ),
       )
     }
+    entries.push({ server, connection, tools: mine, discovered, })
   }
-  groups
+  entries
 }
 
 ///|
-/// Connect one server and return its bridged tools, or `[]` on any failure
-/// (logged) — including discovery outrunning `discovery_timeout_ms`, so a
-/// server that handshakes but never answers `tools/list` cannot hang the
-/// engine's startup. Cancellation propagates.
+/// Connect one server and return what that came to with its bridged tools —
+/// no tools on any failure (reported as an event), including discovery
+/// outrunning `discovery_timeout_ms`, so a server that handshakes but never
+/// answers `tools/list` cannot hang the engine's startup. Cancellation
+/// propagates.
 async fn[X] connect_server(
   scope : @agent_runtime.AgentTaskScope[X],
   server : @config.McpServer,
@@ -177,7 +272,7 @@ async fn[X] connect_server(
   client_version~ : String,
   workspace_root? : String,
   discovery_timeout_ms~ : Int32,
-) -> Array[@agent_tool.AgentToolDefinition] {
+) -> (Connection, Array[@agent_tool.AgentToolDefinition]) {
   let name = server.name()
   // A connected server, normalized across transports: the initialized client;
   // closing it tears the transport (and, for stdio, the process) down.
@@ -208,7 +303,7 @@ async fn[X] connect_server(
   } catch {
     error => {
       @emit.emit(McpConnectFailed(server=name, error="\{error}"))
-      return []
+      return (Failed("\{error}"), [])
     }
   }
   let discovered = try {
@@ -219,11 +314,11 @@ async fn[X] connect_server(
   } catch {
     @async.TimeoutError => {
       @emit.emit(McpListToolsTimeout(server=name))
-      return []
+      return (Failed("timed out listing its tools"), [])
     }
     error => {
       @emit.emit(McpListToolsFailed(server=name, error="\{error}"))
-      return []
+      return (Failed("\{error}"), [])
     }
   }
   // A server with nothing to offer is useless for the rest of the session:
@@ -231,8 +326,9 @@ async fn[X] connect_server(
   if discovered.is_empty() {
     @emit.emit(McpNoTools(server=name))
     client.close()
+    return (NoTools, [])
   }
-  discovered
+  (Live(client), discovered)
 }
 
 ///|

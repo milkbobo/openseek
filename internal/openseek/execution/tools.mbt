@@ -16,13 +16,23 @@ pub async fn[X] build_extra_tools(
   mcp_config_path? : String,
   deepseek_api_key? : String,
   api_url? : String,
-) -> Array[@agent_tool.AgentToolDefinition] {
-  let extra_tools = resolve_mcp_tools(mcp_config_path, scope, workspace_root~)
+) -> ExtraTools {
+  let mcp = connect_mcp(scope, workspace_root~, config_path?=mcp_config_path)
+  let tools = mcp.tools()
   if web_search_api_key(model, api_key, api_url, deepseek_api_key)
     is Some(web_search_key) {
-    extra_tools.push(@web_search.definition(api_key=web_search_key))
+    tools.push(@web_search.definition(api_key=web_search_key))
   }
-  extra_tools
+  { tools, mcp, }
+}
+
+///|
+/// What `build_extra_tools` wired: the tools, and the MCP registry the MCP
+/// ones came from. A long-lived loop keeps the registry to report it as
+/// `mcp_status`; a one-shot turn only needs the tools.
+pub struct ExtraTools {
+  tools : Array[@agent_tool.AgentToolDefinition]
+  mcp : McpRegistry
 }
 
 ///|

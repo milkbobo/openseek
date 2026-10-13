@@ -40,14 +40,14 @@ async fn run_task_turn(
     // audits against the LIVE standing goal, not the turn-start snapshot.
     let mut latest_session : @agent_session.Session = session
     let extra_tools = @execution.build_extra_tools(
-      scope,
-      model~,
-      api_key~,
-      workspace_root~,
-      mcp_config_path?=@options.mcp_config_path(matches),
-      deepseek_api_key?=@options.deepseek_api_key(matches),
-      api_url?,
-    )
+        scope,
+        model~,
+        api_key~,
+        workspace_root~,
+        mcp_config_path?=@options.mcp_config_path(matches),
+        deepseek_api_key?=@options.deepseek_api_key(matches),
+        api_url?,
+      ).tools
     // A snippet's workflow delegates to children named from the SAME ordinal
     // counter `run_subrun` uses, so a snippet's child and a `review` child
     // cannot collide on one transcript file.

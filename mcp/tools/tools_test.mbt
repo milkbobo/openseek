@@ -324,3 +324,162 @@ async test "build bridges and dispatches tools from an http server" {
     assert_eq(output.content, "pong")
   }
 }
+
+///|
+/// `connect` is the build itself: beside the tools, it keeps what connecting
+/// each server came to, and a live connection goes on saying whether it is
+/// still there.
+async test "connect keeps what each server came to, and a live one reports its loss" {
+  @async.with_task_group(group => {
+    let scope = @agent_runtime.AgentTaskScope(group)
+    // Offers one tool, then exits a moment later.
+    let brief =
+      #|read _
+      #|printf '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25"}}\n'
+      #|read _
+      #|read _
+      #|printf '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"ping"}]}}\n'
+      #|sleep 1
+    let empty =
+      #|read _
+      #|printf '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25"}}\n'
+      #|read _
+      #|read _
+      #|printf '{"jsonrpc":"2.0","id":2,"result":{"tools":[]}}\n'
+      #|sleep 5
+    let wedged =
+      #|read _
+      #|printf '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25"}}\n'
+      #|sleep 30
+    fn sh(name : String, script : String) -> @config.McpServer {
+      Stdio(name~, command="sh", args=["-c", script], env=Map([]))
+    }
+
+    let entries = @tools.connect(
+      scope,
+      [
+        sh("brief", brief),
+        sh("empty", empty),
+        sh("wedged", wedged),
+        Stdio(
+          name="bad",
+          command="openseek-no-such-mcp-server-xyz",
+          args=[],
+          env=Map([]),
+        ),
+      ],
+      client_name="openseek",
+      client_version="0.1",
+      discovery_timeout_ms=800,
+    )
+    guard entries is [brief, empty, wedged, bad] else {
+      fail("expected one entry per configured server, in order")
+    }
+    if brief.connection is Failed(_) {
+      // Spawning is forbidden in this sandbox: skip.
+      println("skipped: cannot spawn sh")
+      return
+    }
+    guard brief.connection is Live(client) else {
+      fail("a server that offered a tool should be live")
+    }
+    assert_eq([ for tool in brief.tools => tool.name ], ["mcp__brief__ping"])
+    assert_eq(brief.server.name(), "brief")
+    assert_true(empty.connection is NoTools)
+    assert_true(empty.tools.is_empty())
+    assert_true(wedged.connection is Failed("timed out listing its tools"))
+    assert_true(bad.connection is Failed(_))
+    assert_true(bad.tools.is_empty())
+    // The server exits on its own, and the client says so without being
+    // asked: that is what lets an engine report the loss when it happens.
+    // Install, then read — a connection already gone never runs the handler.
+    let lost : @async.Queue[Unit] = Queue(kind=Unbounded)
+    client.set_close_handler(() => ignore(lost.try_put(()) catch { _ => false }))
+    if !client.is_closed() {
+      @async.with_timeout(10000, () => lost.get())
+    }
+    assert_true(client.is_closed())
+  })
+}
+
+///|
+async test "connect carries an unchanged server's connection over and replaces the rest" {
+  @async.with_task_group(group => {
+    let scope = @agent_runtime.AgentTaskScope(group)
+    // A server that answers for as long as it is asked: one `ping` tool.
+    let serve =
+      #|while IFS= read -r line; do
+      #|  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+      #|  case "$line" in
+      #|    *'"initialize"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-11-25"}}\n' "$id" ;;
+      #|    *'"tools/list"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"ping"}]}}\n' "$id" ;;
+      #|  esac
+      #|done
+    fn sh(name : String, args : Array[String]) -> @config.McpServer {
+      Stdio(name~, command="sh", args=["-c", serve, ..args], env=Map([]))
+    }
+
+    let first = @tools.connect(
+      scope,
+      [sh("keep", []), sh("edit", []), sh("drop", [])],
+      client_name="openseek",
+      client_version="0.1",
+    )
+    guard first is [keep, edit, drop] else {
+      fail("expected one entry per configured server, in order")
+    }
+    if keep.connection is Failed(_) {
+      // Spawning is forbidden in this sandbox: skip.
+      println("skipped: cannot spawn sh")
+      return
+    }
+    guard (keep.connection, edit.connection, drop.connection)
+      is (Live(keep_client), Live(edit_client), Live(drop_client)) else {
+      fail("every server should be live")
+    }
+    // The configuration changes: one server as it was, one redefined, one
+    // gone, one new.
+    let second = @tools.connect(
+      scope,
+      [sh("keep", []), sh("edit", ["v2"]), sh("new", [])],
+      client_name="openseek",
+      client_version="0.1",
+      previous=first,
+    )
+    guard second is [kept, edited, added] else {
+      fail("expected one entry per configured server, in order")
+    }
+    // The untouched server was not restarted: same connection, still up, and
+    // its tool is registered as before without asking it again.
+    guard kept.connection is Live(client) else {
+      fail("the unchanged server should still be live")
+    }
+    assert_true(physical_equal(client, keep_client))
+    assert_false(client.is_closed())
+    assert_eq([ for tool in kept.tools => tool.name ], ["mcp__keep__ping"])
+    // The redefined server is a new connection, and the old one was let go.
+    guard edited.connection is Live(replacement) else {
+      fail("the redefined server should be live")
+    }
+    assert_false(physical_equal(replacement, edit_client))
+    assert_true(edit_client.is_closed())
+    assert_false(replacement.is_closed())
+    assert_true(drop_client.is_closed())
+    assert_true(added.connection is Live(_))
+    assert_eq([ for tool in added.tools => tool.name ], ["mcp__new__ping"])
+    // A connection lost since is not something to carry over.
+    client.close()
+    guard @tools.connect(
+        scope,
+        [sh("keep", [])],
+        client_name="openseek",
+        client_version="0.1",
+        previous=second,
+      )
+      is [{ connection: Live(reconnected), .. }] else {
+      fail("the lost server should be connected again")
+    }
+    assert_false(physical_equal(reconnected, client))
+    assert_true(replacement.is_closed())
+  })
+}

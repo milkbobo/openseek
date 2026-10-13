@@ -476,6 +476,38 @@ $ printf '{"command":"steer","text":"too late","submission_id":"late-steer"}\n' 
 {"event":"steer_dropped","content":"too late","submission_id":"late-steer"}
 ```
 
+The engine reports what it holds of its MCP servers without being asked: an
+`mcp_status` event once connecting is over, and another each time that state
+changes. Every one carries the whole state, so a controller keeps the latest.
+With nothing configured the state is `none`:
+
+```mooncram
+$ env DEEPSEEK=test-key openseek.exe serve </dev/null 2>/dev/null | grep '"event":"mcp_status"'
+{"event":"mcp_status","status":{"config":"none"}}
+```
+
+`serve` reads its MCP configuration again before every turn, so the file may be
+written, edited, or removed while the engine runs. A path with no file at it is
+therefore not an error: the engine has no servers yet, says so as `absent`, and
+raises no `mcp_config_unreadable`.
+
+```mooncram
+$ env DEEPSEEK=test-key openseek.exe serve --mcp-config not-written-yet.json </dev/null 2>/dev/null | grep -o '"event":"mcp_[a-z_]*".*'
+"event":"mcp_status","status":{"config":"absent","path":"not-written-yet.json"}}
+```
+
+A server that cannot start is listed with its failure rather than left out
+(the `grep -o` stops before the error text, which is the operating system's):
+
+```mooncram
+$ sh <<'EOF'
+> printf '{"mcpServers":{"notes":{"command":"openseek-no-such-mcp-server"}}}' > mcp.json
+> env DEEPSEEK=test-key openseek.exe serve --mcp-config mcp.json </dev/null 2>/dev/null | grep -o '"event":"mcp_status".*"state":"failed"'
+> rm -f mcp.json
+> EOF
+"event":"mcp_status","status":{"config":"loaded","path":"mcp.json","servers":[{"name":"notes","transport":"stdio","target":"openseek-no-such-mcp-server","state":"failed"
+```
+
 `serve` takes no positional; a stray task is rejected by the parser before
 anything runs.
 
