@@ -265,15 +265,6 @@ or list its tools is logged and skipped — MCP never breaks a session. Tool
 results are size-capped, calls are bounded by a timeout, and tool names are
 sanitized to the provider's function-name rules.
 
-`serve` reads the file again before every turn, so an edit takes effect on the
-next prompt without restarting the engine. Only what the edit touched is
-restarted: a server defined exactly as before keeps its connection and whatever
-state it holds, a changed or new one is connected, and a removed one is closed.
-A server that failed or exited is tried again the next time the file changes,
-not on every turn. A path with no file at it is not an error — the engine has no
-servers and loads the file when it appears — while a file that cannot be read or
-decoded leaves the engine without servers until it is fixed.
-
 Validate a configuration without starting a session:
 
 ```bash
@@ -282,12 +273,11 @@ moon run . -- mcp --mcp-config mcp.json
 
 A running `serve` engine reports what it holds of those servers without being
 asked. It emits an `mcp_status` event once it has finished connecting them, and
-again each time that state changes — a connected server exiting, or a turn
-picking up an edited file. Each event carries the whole state: whether a
-configuration was given, found, and usable (`none`, `absent`, `rejected` with
-the reason, or `loaded`), and for each server its `transport`, its `target` (the
-command, or the URL without credentials), and a `state` — `connected` with the
-tools it registered, `lost` when it connected and the connection has closed since,
+again each time that state changes — a connected server exiting, say. Each
+event carries the whole state: whether a configuration was given and could be
+used, and for each server its `transport`, its `target` (the command, or the
+URL without credentials), and a `state` — `connected` with the tools it
+registered, `lost` when it connected and the connection has closed since,
 `no_tools`, `failed` with the error, or `skipped` when earlier servers used up
 the tool budget. A controller keeps the latest one; it is this engine's own
 connections, not what connecting again would yield.

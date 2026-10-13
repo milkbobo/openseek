@@ -180,9 +180,6 @@ pub extend McpServerStatus with FromJson::{from_json}
 pub(all) enum McpStatus {
   /// The engine was started without an MCP configuration.
   NotConfigured
-  /// It was pointed at a path where there is no file, so it has no servers.
-  /// Nothing is wrong: it loads the file if one appears.
-  ConfigAbsent(path~ : String)
   /// It was pointed at a file it could not use — unreadable, not JSON, or
   /// not the `mcpServers` shape — so it has no servers.
   ConfigRejected(path~ : String, reason~ : String)
@@ -200,7 +197,6 @@ pub extend McpStatus with Debug::{to_repr}
 pub impl ToJson for McpStatus with fn to_json(self) {
   match self {
     NotConfigured => { "config": "none" }
-    ConfigAbsent(path~) => { "config": "absent", "path": Json(path) }
     ConfigRejected(path~, reason~) =>
       { "config": "rejected", "path": Json(path), "reason": Json(reason) }
     Configured(path~, servers~) =>
@@ -212,8 +208,6 @@ pub impl ToJson for McpStatus with fn to_json(self) {
 pub impl FromJson for McpStatus with fn from_json(json, path) {
   match json {
     { "config": "none", .. } => NotConfigured
-    { "config": "absent", "path": String(config_path), .. } =>
-      ConfigAbsent(path=config_path)
     {
       "config": "rejected",
       "path": String(config_path),
