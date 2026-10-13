@@ -66,6 +66,10 @@ priv struct ServeEngine {
   steer_runs : SteerRunTracker
   job_requests : Map[String, @async.Queue[@wire.Event]]
   queued_runs : Array[QueuedRun]
+  // The MCP configuration this process was started with; `None` when the
+  // user had no file. It is why the engine's reports can be shown with the
+  // user's path, and what is discarded when the process is gone.
+  mcp : McpHandoff?
 }
 
 ///|
@@ -702,6 +706,10 @@ priv enum PumpState {
 struct EngineManager {
   engine : String
   runtime_dir : @pathx.Path?
+  // The revision of the MCP configuration whose rejection has already been
+  // forwarded to pages. Every conversation's engine reports the same broken
+  // file; a person needs to hear it once.
+  mut mcp_rejection_reported : String?
   // Serializes the short placement/slot-claim phase of every operation that
   // can create or move a workspace-backed record with workspace detach.
   // Once a claim is visible, detach refuses it; once a run/compaction is
@@ -1046,6 +1054,7 @@ fn new_engine_manager(
   {
     engine,
     runtime_dir,
+    mcp_rejection_reported: None,
     workspace_lifecycle_lock: Mutex(),
     archive_cleanup_lock: Mutex(),
     settings_lock: Mutex(),
@@ -1428,7 +1437,7 @@ async fn engine_process_env(
 ///|
 fn engine_process_args(
   config : RunConfig,
-  mcp_config? : @pathx.Absolute,
+  mcp_config? : String,
 ) -> Array[String] {
   // Desktop engines always run in durable-session mode. Passing placement
   // explicitly keeps it out of the ambient environment inherited by tools.
@@ -1437,11 +1446,10 @@ fn engine_process_args(
   if config.session_root is Some(root) {
     args.push("--session-root=\{root.to_string()}")
   }
-  // The engine follows this file for its whole life — it reads it again
-  // before every turn — so the path is all the host says about MCP, and it
-  // is not part of what decides whether a live engine can be reused.
+  // The engine connects its MCP servers once, from this file, when it
+  // starts. It is the copy `hand_off_mcp_config` prepared, not the user's.
   if mcp_config is Some(path) {
-    args.push("--mcp-config=\{path.to_string()}")
+    args.push("--mcp-config=\{path}")
   }
   args.append(["--dir", ".", "--approval", "ask"])
   args
@@ -1501,7 +1509,20 @@ async fn[G] start_serve_engine(
   // a controller with a person behind it from a script reading its stdout.
   // Saying so here is what makes the escalation argument exist for this
   // session's model at all.
-  let args = engine_process_args(config, mcp_config?=mcp_config_path())
+  let mcp = match config.mcp_config {
+    Some(mcp_config) =>
+      Some(hand_off_mcp_config(mcp_config, manager.runtime_dir, config.session))
+    None => None
+  }
+  // One report per broken configuration, not one per conversation: the memo
+  // only outlives engines started with that same configuration.
+  if manager.mcp_rejection_reported != mcp.map(handoff => handoff.revision) {
+    manager.mcp_rejection_reported = None
+  }
+  let args = engine_process_args(
+    config,
+    mcp_config?=mcp.map(handoff => handoff.given),
+  )
   let graceful_cancel = @process.graceful_cancel(timeout=1000)
   @xlog.debug() <?
     {
@@ -1570,6 +1591,7 @@ async fn[G] start_serve_engine(
     steer_runs: SteerRunTracker(),
     queued_runs: [],
     job_requests: Map([]),
+    mcp,
   }
   startup_engine = Some(engine)
   // Spawned before the handle is reachable from any request, so stdin has an
@@ -1742,8 +1764,18 @@ async fn ServeEngine::consume(
         // appended to the durable record — the follower's low-latency
         // wakeup (its poll only backstops this).
         manager.kick_follower(engine.session_key)
-        let wire_event = @wire.parse(json)
+        let wire_event = match (@wire.parse(json), engine.mcp) {
+          (Some(event), Some(handoff)) => Some(handoff.restore_path(event))
+          (event, _) => event
+        }
         match wire_event {
+          Some(McpConfigUnreadable(..) | McpConfigInvalid(..)) if engine.mcp
+            is Some(handoff) => {
+            if manager.mcp_rejection_reported == Some(handoff.revision) {
+              continue
+            }
+            manager.mcp_rejection_reported = Some(handoff.revision)
+          }
           Some(PredictionResult(source_sequence~, outcome~)) => {
             if outcome is Completed(..) {
               emit(
@@ -2059,6 +2091,11 @@ async fn ServeEngine::retire(
       "run_id": engine.phase.latest_run().unwrap_or(""),
     }
   engine.discard_commands("the engine exited")
+  // The process is gone, and its copy of the MCP configuration with it. The
+  // conversation's next engine is given a fresh one.
+  if engine.mcp is Some(handoff) {
+    @async.protect_from_cancel(() => handoff.discard())
+  }
   // Capture ownership only if the slot still contains THIS engine by
   // identity. Correct replacement waits on this handle through final
   // drain, but pump teardown and defensive cleanup can still detach it;
@@ -2257,6 +2294,7 @@ fn test_serve_engine(
     steer_runs: SteerRunTracker(),
     queued_runs: [],
     job_requests: Map([]),
+    mcp: None,
   }
 }
 
@@ -2921,6 +2959,7 @@ async test "native engine env has one authoritative bundled moon path" {
     cwd: None,
     session: "s-env",
     session_root: None,
+    mcp_config: None,
   }
   let env = engine_process_env(config, Some(runtime))
   assert_eq(env["OPENSEEK_THINKING"], "high")
@@ -2951,13 +2990,12 @@ async test "native engine env has one authoritative bundled moon path" {
       "ask",
     ],
   )
-  // The MCP file is named whether or not it exists: the engine reads it
-  // again before every turn, so one written later is picked up.
-  let mcp_config = root.join("mcp.json").resolve()
+  // A configured engine is pointed at the copy prepared for it.
+  let mcp_config = root.join("runtime/mcp/s-env.json").to_string()
   @debug.assert_eq(engine_process_args(config, mcp_config~), [
     "serve",
     "--session=s-env",
-    "--mcp-config=\{mcp_config.to_string()}",
+    "--mcp-config=\{mcp_config}",
     "--dir",
     ".",
     "--approval",
@@ -3052,6 +3090,7 @@ async test "engine startup rolls back follower on pre-spawn failure" {
     cwd: None,
     session: "s-startup-failure",
     session_root: Some(@pathx.Path(dir + "/root").resolve()),
+    mcp_config: None,
   }
   @async.with_task_group(group => {
     let failed = try {
@@ -3167,6 +3206,7 @@ fn pump_test_config(session : String) -> RunConfig {
     cwd: None,
     session,
     session_root: Some(@pathx.Path("/tmp/openseek-pump-test").resolve()),
+    mcp_config: None,
   }
 }
 
