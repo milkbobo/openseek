@@ -157,6 +157,64 @@ async fn snapshot_mcp_config(
 }
 
 ///|
+/// How old a copy must be before a later start may remove it. A copy is
+/// needed for the seconds an engine takes to start, and its own host removes
+/// it then; one this much older belongs to no start still under way — its
+/// host was killed, or the machine lost power, before it could. The margin is
+/// what makes this safe in a directory other host processes also write to:
+/// nothing here can tell whose a copy is, only that nobody can still need it.
+const McpSnapshotOrphanAgeMs : Int64 = 600000
+
+///|
+/// Remove the copies in `runtime_dir` that outlived the host that made them,
+/// judged by their age at `now_ms` (wall-clock milliseconds). Run before
+/// every engine start, with or without a configuration: the copies hold
+/// whatever tokens the configuration held when they were made, and deleting
+/// or rotating `mcp.json` must not leave an old one behind for good. A copy
+/// that cannot be examined or removed is reported in the log, not skipped in
+/// silence, and tried again at the next start.
+async fn reclaim_mcp_snapshots(
+  runtime_dir : @pathx.Path,
+  now_ms : Int64,
+) -> Unit {
+  let directory = runtime_dir.join("mcp").to_string()
+  fn not_reclaimed(path : String, error : Error) -> Unit {
+    @xlog.warn() <?
+      {
+        "event": "desktop_mcp_snapshot_not_reclaimed",
+        "path": path,
+        "error": "\{error}",
+      }
+  }
+
+  let names = @fs.readdir(directory) catch {
+    // No directory: no host here has made a copy yet.
+    @os_error.OSError(_) as error if error.is_ENOENT() => return
+    error => {
+      not_reclaimed(directory, error)
+      return
+    }
+  }
+  for name in names {
+    guard name.has_suffix(".json") else { continue }
+    let path = "\{directory}/\{name}"
+    let (seconds, _) = @fs.mtime(path) catch {
+      // Its own host removed it between the listing and now.
+      @os_error.OSError(_) as error if error.is_ENOENT() => continue
+      error => {
+        not_reclaimed(path, error)
+        continue
+      }
+    }
+    guard now_ms - seconds * 1000 >= McpSnapshotOrphanAgeMs else { continue }
+    @fs.remove(path) catch {
+      @os_error.OSError(_) as error if error.is_ENOENT() => ()
+      error => not_reclaimed(path, error)
+    }
+  }
+}
+
+///|
 /// Remove the copy an engine was started on; an engine started on the user's
 /// own file has none. Removing a copy that is already gone is nothing. One
 /// that cannot be removed is still there, tokens included, so that is said
@@ -742,4 +800,34 @@ async test "a session id that is not a file name gets no snapshot" {
   }
   assert_eq(@fsx.read_text(neighbour), "keep")
   assert_false(@fs.exists(runtime.join("mcp").to_string()))
+}
+
+///|
+async test "a copy left by a host that was killed is reclaimed once nobody can need it" {
+  let root : @pathx.Path = Path(
+    @fs.realpath(@fs.tmpdir(prefix="openseek-mcp-reclaim-")),
+  )
+  defer @fs.rmdir(root.to_string(), recursive=true)
+  let runtime = root.join("runtime")
+  // Before any host has made a copy there is no directory, and nothing to do.
+  reclaim_mcp_snapshots(runtime, engine_clock_ms())
+  let config : McpConfig = {
+    path: root.join("home/.openseek/mcp.json").resolve(),
+    revision: Text("{\"mcpServers\": {}}"),
+  }
+  // A host makes a copy and is killed before removing it.
+  let orphan = snapshot_mcp_config(config, Some(runtime), "s-1").given()
+  let unrelated = runtime.join("mcp").join("notes.txt")
+  @fsx.write_text(unrelated, "keep")
+  let now = engine_clock_ms()
+  // While a start that made it could still be under way — this host's or
+  // another's — it is left alone.
+  reclaim_mcp_snapshots(runtime, now)
+  reclaim_mcp_snapshots(runtime, now + McpSnapshotOrphanAgeMs - 60000)
+  assert_true(@fs.exists(orphan))
+  // Past that, no start can still need it, and a later start removes it.
+  reclaim_mcp_snapshots(runtime, now + McpSnapshotOrphanAgeMs + 60000)
+  assert_false(@fs.exists(orphan))
+  // Only copies are touched.
+  assert_eq(@fsx.read_text(unrelated), "keep")
 }
