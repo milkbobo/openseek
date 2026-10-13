@@ -66,6 +66,11 @@ priv struct ServeEngine {
   steer_runs : SteerRunTracker
   job_requests : Map[String, @async.Queue[@wire.Event]]
   queued_runs : Array[QueuedRun]
+  // The engine's latest `mcp_status` — what this process holds of its MCP
+  // servers, in its own words. `None` until it has reported once, which it
+  // does when it has finished connecting them; it reports again on every
+  // change, and each report replaces the last.
+  mut mcp : @wire.McpStatus?
 }
 
 ///|
@@ -1578,6 +1583,7 @@ async fn[G] start_serve_engine(
     steer_runs: SteerRunTracker(),
     queued_runs: [],
     job_requests: Map([]),
+    mcp: None,
   }
   startup_engine = Some(engine)
   // Spawned before the handle is reachable from any request, so stdin has an
@@ -1766,9 +1772,11 @@ async fn[G] ServeEngine::consume(
             }
             continue
           }
+          // Kept for whoever asks later, and forwarded below like any other
+          // event so a page already showing it knows to read again.
+          Some(McpStatus(status~)) => self.mcp = Some(status)
           Some(JobsSnapshot(request_id~, ..) as event)
-          | Some(JobStopResult(request_id~, ..) as event)
-          | Some(McpSnapshot(request_id~, ..) as event) => {
+          | Some(JobStopResult(request_id~, ..) as event) => {
             if self.job_requests.get(request_id) is Some(reply) {
               ignore(reply.try_put(event) catch { _ => false })
             }
@@ -2248,6 +2256,7 @@ fn test_serve_engine(
     steer_runs: SteerRunTracker(),
     queued_runs: [],
     job_requests: Map([]),
+    mcp: None,
   }
 }
 

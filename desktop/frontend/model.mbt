@@ -2503,6 +2503,9 @@ priv enum DeviceMsg {
   // by it, because a conversation compacted before its first prompt of this
   // app-lifetime has no run id to match.
   JobsChanged(String)
+  // The engine of this session reported what it holds of its MCP servers.
+  // The host keeps the report; this only says there is a newer one to read.
+  McpChanged(String)
   Engine(String?, @transcript.EngineEvent, session~ : String?)
   // The exact local start request returned its run result. `accepted` is the
   // prompt's ownership receipt and can recover a Started notification lost on

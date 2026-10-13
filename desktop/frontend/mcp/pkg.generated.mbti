@@ -20,6 +20,7 @@ pub fn update(@cmd.Emit[Msg], Msg, State) -> (@cmd.Cmd, State)
 pub(all) enum Msg {
   Opened(@interop.ConversationKey?)
   Refresh(@interop.ConversationKey)
+  Changed(@interop.ConversationKey)
   Checked(serial~ : Int, Result[@protocol.McpStatusReply, String])
 }
 
@@ -27,6 +28,7 @@ pub enum Phase {
   Unchecked
   Checking
   Loaded(@protocol.McpStatusReply)
+  Reloading(@protocol.McpStatusReply)
   CheckFailed(String)
 } derive(Eq)
 pub fn Phase::equal(Self, Self) -> Bool

@@ -8,6 +8,7 @@ priv enum UiMessage {
   Refreshing
   NoConversation
   EngineNotRunning(String)
+  EngineConnecting
   NotConfigured(String)
   NoServers(String)
   ConfigRejected(String)
@@ -71,6 +72,16 @@ fn text(locale : @i18n.Locale, message : UiMessage) -> String {
       "此對話的引擎尚未執行。傳送下一則訊息啟動引擎時，會連線 \{path} 中的伺服器。"
     (Japanese, EngineNotRunning(path)) =>
       "この会話のエンジンは実行されていません。次のメッセージでエンジンが起動すると、\{path} のサーバーに接続します。"
+    (English, EngineConnecting) =>
+      "This conversation's engine is starting and has not finished connecting its servers yet."
+    (Spanish, EngineConnecting) =>
+      "El motor de esta conversación se está iniciando y aún no ha terminado de conectar sus servidores."
+    (SimplifiedChinese, EngineConnecting) =>
+      "此对话的引擎正在启动，尚未完成服务器连接。"
+    (TraditionalChinese, EngineConnecting) =>
+      "此對話的引擎正在啟動，尚未完成伺服器連線。"
+    (Japanese, EngineConnecting) =>
+      "この会話のエンジンは起動中で、サーバーへの接続がまだ完了していません。"
     (English, NotConfigured(path)) =>
       "This conversation's engine started without an MCP configuration. Servers in \{path} connect from its next message."
     (Spanish, NotConfigured(path)) =>
@@ -95,12 +106,11 @@ fn text(locale : @i18n.Locale, message : UiMessage) -> String {
     (TraditionalChinese, ConfigRejected(path)) => "無法載入 \{path}"
     (Japanese, ConfigRejected(path)) =>
       "\{path} を読み込めませんでした"
-    (English, CheckFailed) => "The engine could not be asked"
-    (Spanish, CheckFailed) => "No se pudo consultar al motor"
-    (SimplifiedChinese, CheckFailed) => "未能向引擎查询"
-    (TraditionalChinese, CheckFailed) => "未能向引擎查詢"
-    (Japanese, CheckFailed) =>
-      "エンジンに問い合わせできませんでした"
+    (English, CheckFailed) => "The status could not be read"
+    (Spanish, CheckFailed) => "No se pudo leer el estado"
+    (SimplifiedChinese, CheckFailed) => "未能读取状态"
+    (TraditionalChinese, CheckFailed) => "未能讀取狀態"
+    (Japanese, CheckFailed) => "状態を読み取れませんでした"
     (English, Connected) => "Connected"
     (Spanish, Connected) => "Conectado"
     (SimplifiedChinese, Connected) => "已连接"

@@ -54,7 +54,6 @@ async fn ServeEngine::job_request(
   request_id : String,
   command : @wire.Command,
   settlement~ : Bool = false,
-  subject~ : String = "background job",
 ) -> @wire.Event {
   let reply : @async.Queue[@wire.Event] = Queue(kind=Blocking(1))
   self.job_requests[request_id] = reply
@@ -62,10 +61,10 @@ async fn ServeEngine::job_request(
   let ack : @async.Queue[EngineError?] = Queue(kind=Blocking(1))
   guard self.submit(
     command,
-    failure_reason="\{subject} command could not be delivered",
+    failure_reason="background job command could not be delivered",
     ack~,
   ) else {
-    raise EngineError("\{subject} engine is unavailable")
+    raise EngineError("background job engine is unavailable")
   }
   @async.with_timeout(5000, () => if ack.get() is Some(error) { raise error })
   if settlement {

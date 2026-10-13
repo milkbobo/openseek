@@ -1,9 +1,10 @@
 // The Settings page's MCP panel: what the current conversation's engine holds
 // of its MCP servers. The host keeps no connections of its own — every
-// conversation's engine connects its servers when it starts — so the panel
-// asks that engine, through the host, and shows its answer. Asking reads
-// state the engine already has and starts nothing, so the panel asks again
-// every time Settings opens.
+// conversation's engine connects its servers when it starts, and reports
+// what came of it then and whenever it changes — so the panel asks the host
+// for that engine's latest report and shows it. Asking starts nothing, so
+// the panel asks every time Settings opens, and again each time the engine
+// of the conversation on show reports.
 
 ///|
 pub(all) enum Msg {
@@ -11,6 +12,9 @@ pub(all) enum Msg {
   Opened(@interop.ConversationKey?)
   /// The user asked again about the conversation the panel is showing.
   Refresh(@interop.ConversationKey)
+  /// This conversation's engine reported to the host: whatever the panel
+  /// holds for it is out of date.
+  Changed(@interop.ConversationKey)
   /// The host answered question number `serial`.
   Checked(serial~ : Int32, Result[@protocol.McpStatusReply, String])
 }
@@ -24,9 +28,13 @@ pub enum Phase {
   Checking
   /// The host answered.
   Loaded(@protocol.McpStatusReply)
-  /// The question itself failed — the host could not be reached, or the
-  /// engine did not answer. Distinct from an engine that is not running and
-  /// from a configuration the engine rejected, which are both answers.
+  /// The host answered, the engine has reported since, and the question is
+  /// out again. The last answer stays up until its replacement arrives, so a
+  /// change the user did not ask about does not blank the list.
+  Reloading(@protocol.McpStatusReply)
+  /// The question itself failed — the host could not be reached, or could
+  /// not answer. Distinct from an engine that is not running and from a
+  /// configuration the engine rejected, which are both answers.
   CheckFailed(String)
 } derive(Eq)
 
@@ -76,11 +84,26 @@ pub fn update(
     Opened(Some(conversation)) | Refresh(conversation) =>
       // One question at a time per conversation; another conversation's
       // supersedes it.
-      if state.conversation == Some(conversation) && state.phase is Checking {
+      if state.conversation == Some(conversation) &&
+        state.phase is (Checking | Reloading(_)) {
         (@cmd.none, state)
       } else {
-        ask(emit, conversation, state)
+        ask(emit, conversation, state, waiting=Checking)
       }
+    // A report from an engine the panel is not showing changes nothing here:
+    // its conversation is asked about when Settings opens on it. For the one
+    // on show, a question already out may have been answered before this
+    // report, so it is superseded rather than awaited.
+    Changed(conversation) => {
+      guard state.conversation == Some(conversation) else {
+        return (@cmd.none, state)
+      }
+      let waiting = match state.phase {
+        Loaded(reply) | Reloading(reply) => Reloading(reply)
+        Unchecked | Checking | CheckFailed(_) => Checking
+      }
+      ask(emit, conversation, state, waiting~)
+    }
     // No conversation, no engine to ask. Advancing the serial retires any
     // question still out for the conversation that was current before.
     Opened(None) =>
@@ -89,7 +112,7 @@ pub fn update(
         { conversation: None, phase: Unchecked, serial: state.serial + 1, },
       )
     Checked(serial~, result) => {
-      guard serial == state.serial && state.phase is Checking else {
+      guard serial == state.serial && state.phase is (Checking | Reloading(_)) else {
         return (@cmd.none, state)
       }
       let phase = match result {
@@ -102,10 +125,12 @@ pub fn update(
 }
 
 ///|
+/// Ask the host about `conversation`, showing `waiting` until it answers.
 fn ask(
   emit : @cmd.Emit[Msg],
   conversation : @interop.ConversationKey,
   state : State,
+  waiting~ : Phase,
 ) -> (@cmd.Cmd, State) {
   let serial = state.serial + 1
   let cmd = @cmd.attempt(
@@ -116,5 +141,5 @@ fn ask(
       })
     },
   )
-  (cmd, { conversation: Some(conversation), phase: Checking, serial, })
+  (cmd, { conversation: Some(conversation), phase: waiting, serial, })
 }

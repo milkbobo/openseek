@@ -1,7 +1,7 @@
 ///|
 /// The rows of the Settings page's MCP group for `conversation`: the
-/// explanation with its refresh button, then what that conversation's engine
-/// last answered.
+/// explanation with its refresh button, then that conversation's engine's
+/// latest report.
 pub fn rows(
   locale~ : @i18n.Locale = English,
   conversation~ : @interop.ConversationKey?,
@@ -37,18 +37,26 @@ pub fn rows(
     rows.push(note(text(locale, NoConversation)))
     return rows
   }
-  match phase {
-    Unchecked | Checking => ()
-    CheckFailed(reason) => rows.push(problem(text(locale, CheckFailed), reason))
-    Loaded({ config_path, engine: NotRunning, }) =>
+  let reply = match phase {
+    Unchecked | Checking => return rows
+    CheckFailed(reason) => {
+      rows.push(problem(text(locale, CheckFailed), reason))
+      return rows
+    }
+    Loaded(reply) | Reloading(reply) => reply
+  }
+  match reply {
+    { config_path, engine: NotRunning, } =>
       rows.push(note(text(locale, EngineNotRunning(config_path))))
-    Loaded({ config_path, engine: Running(NotConfigured), }) =>
+    { engine: Connecting, .. } =>
+      rows.push(note(text(locale, EngineConnecting)))
+    { config_path, engine: Running(NotConfigured), } =>
       rows.push(note(text(locale, NotConfigured(config_path))))
-    Loaded({ engine: Running(ConfigRejected(path~, reason~)), .. }) =>
+    { engine: Running(ConfigRejected(path~, reason~)), .. } =>
       rows.push(problem(text(locale, ConfigRejected(path)), reason))
-    Loaded({ engine: Running(Configured(path~, servers=[])), .. }) =>
+    { engine: Running(Configured(path~, servers=[])), .. } =>
       rows.push(note(text(locale, NoServers(path))))
-    Loaded({ engine: Running(Configured(servers~, ..)), .. }) =>
+    { engine: Running(Configured(servers~, ..)), .. } =>
       for server in servers {
         rows.push(server_row(locale, server))
       }

@@ -169,12 +169,15 @@ launching environment still applies.
 **Settings → MCP** shows what the current conversation's engine holds of
 those servers: connected with its tools, disconnected since it connected, no
 tools, failed with the reason, or skipped over the tool limit. The host holds
-no MCP connections of its own, so it forwards the question to that
-conversation's running engine (`mcp_snapshot` on the serve protocol) and shows
-the answer. Asking reads state the engine already has and starts nothing, so
-the panel asks again each time Settings opens. A conversation whose engine is
-not running — before its first message, or after a restart — is shown as that;
-its servers connect when its next message starts one.
+no MCP connections of its own. Each engine reports what it holds once it has
+connected its servers, and again whenever that changes (`mcp_status` on the
+serve protocol); the host keeps a conversation's latest report and the panel
+shows it. Reading it starts nothing, so the panel reads each time Settings
+opens, and again whenever the engine of the conversation on show reports — a
+server that exits turns to disconnected without a refresh. A conversation
+whose engine is not running — before its first message, or after a restart —
+is shown as that; its servers connect when its next message starts one. One
+whose engine has started and not reported yet is shown as still connecting.
 
 An engine connects its servers once, when it starts — one set of server
 processes per conversation. The file's content is therefore part of what pins

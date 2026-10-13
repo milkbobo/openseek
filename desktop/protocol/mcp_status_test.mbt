@@ -1,5 +1,5 @@
 ///|
-test "an MCP status reply carries the engine's own snapshot unchanged" {
+test "an MCP status reply carries the engine's own report unchanged" {
   let status : @wire.McpStatus = Configured(path="/home/.openseek/mcp.json", servers=[
     {
       name: "playwright",
@@ -49,6 +49,20 @@ test "a conversation without an engine is its own MCP status answer" {
     "session": "s-1",
   })
   assert_eq(payload.session, "s-1")
+}
+
+///|
+test "an engine that has not reported yet is neither stopped nor unconfigured" {
+  let reply : @protocol.McpStatusReply = {
+    config_path: "/home/.openseek/mcp.json",
+    engine: Connecting,
+  }
+  json_inspect(reply.to_json(), content={
+    "config_path": "/home/.openseek/mcp.json",
+    "engine": "connecting",
+  })
+  let decoded : @protocol.McpStatusReply = @json.from_json(reply.to_json())
+  @debug.assert_eq(decoded, reply)
 }
 
 ///|

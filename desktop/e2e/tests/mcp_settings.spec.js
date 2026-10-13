@@ -105,11 +105,48 @@ test('MCP status says when there is no engine to ask, and asks again on reopen a
   await expect(group.getByText('started without an MCP configuration', { exact: false })).toBeVisible();
   expect(statusRequests(app)).toHaveLength(3);
 
-  // A question the engine did not answer is reported as that, not as an
+  // A question the host could not answer is reported as that, not as an
   // engine that is not running.
-  app.rpcErrors.set('mcp.status', 'MCP status command could not be delivered');
+  app.rpcErrors.set('mcp.status', 'there is no home directory to look for the MCP configuration in');
   await group.getByRole('button', { name: 'Refresh', exact: true }).click();
-  await expect(group.getByText('The engine could not be asked', { exact: true })).toBeVisible();
-  await expect(group.getByText('MCP status command could not be delivered')).toBeVisible();
+  await expect(group.getByText('The status could not be read', { exact: true })).toBeVisible();
+  await expect(group.getByText('there is no home directory to look for the MCP configuration in')).toBeVisible();
+  expect(app.pageErrors).toEqual([]);
+});
+
+test('the MCP panel follows what the engine reports while Settings is open', async ({ page }) => {
+  const app = new DesktopBrowserHarness(page);
+  // The engine has started and is still connecting its servers.
+  app.mcpStatus = { config_path: configPath, engine: 'connecting' };
+  await app.install();
+  await app.goto();
+  await app.openSession();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const group = mcpGroup(page);
+  await expect(group.getByText('is starting and has not finished connecting', { exact: false })).toBeVisible();
+  expect(statusRequests(app)).toHaveLength(1);
+
+  // The engine reports. The host keeps the report and forwards the event;
+  // the page reads the kept state again rather than trusting the event.
+  const report = servers => {
+    const status = { config: 'loaded', path: configPath, servers };
+    app.mcpStatus = running(status);
+    app.notify('agent.event', { session: 'session-1', event: { event: 'mcp_status', status } });
+  };
+  const tools = [{ name: 'mcp__memory__recall', description: 'Recall a note' }];
+  report([{ name: 'memory', transport: 'stdio', target: 'memory-mcp', state: 'connected', tools }]);
+  await expect(group.getByText('Connected', { exact: true })).toBeVisible();
+  expect(statusRequests(app)).toHaveLength(2);
+
+  // The server exits; nobody touches Refresh.
+  report([{ name: 'memory', transport: 'stdio', target: 'memory-mcp', state: 'lost', tools }]);
+  await expect(group.getByText('Disconnected', { exact: true })).toBeVisible();
+  await expect(group.getByText('Connected', { exact: true })).toBeHidden();
+  expect(statusRequests(app)).toHaveLength(3);
+
+  // Another conversation's engine is not this panel's business.
+  app.notify('agent.event', { session: 'another-session', event: { event: 'mcp_status', status: { config: 'none' } } });
+  await page.getByRole('button', { name: 'Skills', exact: true }).click();
+  expect(statusRequests(app)).toHaveLength(3);
   expect(app.pageErrors).toEqual([]);
 });

@@ -8600,6 +8600,14 @@ fn update_device_msg(
       } else {
         (@cmd.none, model)
       }
+    McpChanged(session) => {
+      let (cmd, mcp) = @mcp.update(
+        dispatch.map(msg => Mcp(msg)),
+        Changed({ channel, session, }),
+        model.mcp,
+      )
+      (cmd, { ..model, mcp, })
+    }
     Engine(run_id, event, session~) => {
       // Compaction and background notices happen between turns, so their
       // events arrive after the run that owned `run_id` cleared
