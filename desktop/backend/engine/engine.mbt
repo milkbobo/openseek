@@ -1542,7 +1542,7 @@ async fn[G] start_serve_engine(
   // the ones a killed host left behind. This runs whether or not there is a
   // configuration now: the file may have been deleted since.
   if manager.runtime_dir is Some(runtime_dir) {
-    reclaim_mcp_snapshots(runtime_dir, engine_clock_ms())
+    reclaim_mcp_snapshots(runtime_dir)
   }
   let mcp = match config.mcp_config {
     Some(mcp_config) =>

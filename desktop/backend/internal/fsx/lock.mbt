@@ -94,6 +94,23 @@ async fn open_lock_file(sidecar : String) -> @fs.File {
 }
 
 ///|
+/// Take the advisory lock guarding `path` if no process holds it, without
+/// waiting: `None` means some process — this one included — holds it now.
+/// For asking whether anyone still owns what the lock guards, where waiting
+/// for the owner would defeat the question.
+pub async fn FileLock::try_acquire(path : @pathx.Path) -> FileLock? {
+  ensure_dir(path.dirname())
+  let file = open_lock_file(lock_file(path).to_string())
+  errdefer file.close()
+  if file.try_lock(Exclusive) {
+    Some({ file, })
+  } else {
+    file.close()
+    None
+  }
+}
+
+///|
 pub fn FileLock::release(self : FileLock) -> Unit {
   self.file.unlock()
   self.file.close()
