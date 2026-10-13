@@ -327,7 +327,10 @@ fn update(
         guard state.tab_by_key(key) is Some(tab) &&
           tab.workspace.channel() == channel &&
           tab.status is TabOpening else {
-          return (drop_pending(id), state)
+          return (
+            @cmd.batch([send_close(channel, id), drop_pending(id)]),
+            state,
+          )
         }
         match tab.command {
           // A quick command (`true`, `ls`) is exactly this race. Its output
@@ -336,6 +339,7 @@ fn update(
           Some(command) =>
             (
               @cmd.batch([
+                send_close(channel, id),
                 flush_pending(key, id),
                 report_command(dispatch, key, command.shell, exit_code_of(code)),
               ]),
@@ -343,6 +347,7 @@ fn update(
             )
           None => {
             let (cmds, state) = drop_tab(state, ctx, key)
+            cmds.push(send_close(channel, id))
             cmds.push(drop_pending(id))
             (@cmd.batch(cmds), state)
           }

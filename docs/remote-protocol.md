@@ -26,9 +26,10 @@ it:
 - `RelayActor` owns the control connection and creates one `WsClientActor`
   for each relayed client.
 - Every Proton or WebSocket client owns a separate `HostConnection`, whose
-  `FsWatchActor` serves only that client's `fs.watch` state and whose
-  terminal state owns only that client's PTYs; filesystem and terminal
-  notifications return only to the owning client.
+  `FsWatchActor` serves only that client's `fs.watch` state. Its terminal
+  client forwards output only from PTYs currently attached to that connection.
+- `HostState` owns the terminal service and its PTYs across connection loss;
+  detached sessions remain available for reattachment during the grace period.
 - `DesktopBridgeActor` owns the current Proton page attachment and forwards
   the shared catalog notifications to it.
 

@@ -1,6 +1,6 @@
 // Transport-agnostic host operations: file browsing, language services,
-// skills, self-update, app launching, and connection-owned filesystem/PTY
-// state. Typed payloads enter here only after an Endpoint has decoded them.
+// skills, self-update, app launching, connection-owned filesystem state, and
+// host-owned PTYs. Typed payloads enter here only after an Endpoint has decoded them.
 
 ///|
 /// A host-side failure with a user-facing message. Ops raise it; the
@@ -98,11 +98,12 @@ pub fn new_host_state(
 ///|
 /// The background tasks behind the host ops, spawned into the caller's
 /// app-lifetime task group: the moon-check diagnostics forwarder and the
-/// self-update pump with its startup leftover sweep. These are shared by
+/// self-update pump with its startup leftover sweep, and the terminal service.
+/// These are shared by
 /// every connection;
 /// connection-owned filesystem watcher tasks start in `HostConnection::run`.
-/// Every background task is best-effort: a language-service hiccup degrades
-/// that feature, never the connection.
+/// Language-service and update failures degrade only those features; the
+/// terminal service remains a required part of the host's task group.
 pub fn[G] spawn_host_pumps(
   group : @async.TaskGroup[G],
   state : HostState,

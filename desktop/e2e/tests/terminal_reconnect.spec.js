@@ -139,3 +139,40 @@ test('all tabs reattach to their own shells and retain their separate screens', 
   expect(app.requests.filter(r => r.method === 'terminal.open')).toHaveLength(2);
   expect(app.pageErrors).toEqual([]);
 });
+
+for (const kind of ['command', 'shell', 'closed tab']) {
+  test(`an exit before the open reply releases the retained ${kind} session`, async ({ page }) => {
+    const app = new DesktopBrowserHarness(page);
+    const replyFor = app.replyFor.bind(app);
+    let finishOpen;
+    app.replyFor = request => request.method === 'terminal.open'
+      ? new Promise(resolve => { finishOpen = resolve; })
+      : replyFor(request);
+    if (kind === 'command') {
+      await app.install();
+      await app.goto();
+      await app.openSession();
+      await page.locator('#task').fill('!printf early');
+      await expect(page.locator('.composer-mode-chip')).toBeVisible();
+      await page.locator('#task').press('Enter');
+    } else {
+      await openTerminal(page, app);
+    }
+    await expect.poll(() => typeof finishOpen).toBe('function');
+    app.notify('terminal.output', { id: 'early-exit', sequence: 1, data: Buffer.from('early\r\n').toString('base64') });
+    app.notify('terminal.exit', { id: 'early-exit', code: 0 });
+    // Let the exit reach the opening tab before releasing its held reply.
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    if (kind === 'closed tab') {
+      await page.locator('.terminal-tab-close').click();
+      await expect(page.locator('.terminal-tab')).toHaveCount(0);
+    }
+    finishOpen({ id: 'early-exit' });
+    await expect.poll(() => app.requests.filter(r => r.method === 'terminal.close').map(r => r.params)).toEqual([{ id: 'early-exit' }]);
+    if (kind === 'command') {
+      await expect.poll(() => app.requests.find(r => r.method === 'agent.start')?.params.task).toContain('exit=0\nearly');
+    }
+    await expect(page.locator('.terminal-tab')).toHaveCount(0);
+    expect(app.pageErrors).toEqual([]);
+  });
+}
