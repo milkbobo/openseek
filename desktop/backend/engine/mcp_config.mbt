@@ -81,11 +81,17 @@ priv struct McpSnapshot {
 }
 
 ///|
-/// Where a conversation's engine finds its copy of the MCP configuration.
+/// Where a conversation's engine finds its copy of the MCP configuration. The
+/// session id becomes a file name here, so one that could name anything else
+/// — a path separator, a dot segment — is refused before any path exists to
+/// write to.
 fn mcp_snapshot_path(
   runtime_dir : @pathx.Path,
   session : String,
-) -> @pathx.Path {
+) -> @pathx.Path raise EngineError {
+  guard @session_store.safe_session_id(session) else {
+    raise EngineError("invalid session id")
+  }
   runtime_dir.join("mcp").join("\{session}.json")
 }
 
@@ -492,4 +498,34 @@ async test "a snapshot whose making is interrupted leaves nothing behind" {
     })
     assert_false(@fs.exists(copy))
   }
+}
+
+///|
+async test "a session id that is not a file name gets no snapshot" {
+  let root : @pathx.Path = Path(
+    @fs.realpath(@fs.tmpdir(prefix="openseek-mcp-session-")),
+  )
+  defer @fs.rmdir(root.to_string(), recursive=true)
+  let runtime = root.join("runtime")
+  // What a path-like id would otherwise reach: a file beside the `mcp`
+  // directory, which the host keeps other state in.
+  let neighbour = runtime.join("engine-settings.json")
+  @fsx.ensure_dir(runtime)
+  @fsx.write_text(neighbour, "keep")
+  let config : McpConfig = {
+    path: root.join("home/.openseek/mcp.json").resolve(),
+    revision: Text("{\"mcpServers\": {}}"),
+  }
+  for session in ["../engine-settings", "a/b", "a\\b", "..", "."] {
+    let refused = try {
+      ignore(snapshot_mcp_config(config, Some(runtime), session))
+      false
+    } catch {
+      EngineError(_) => true
+      _ => false
+    }
+    assert_true(refused)
+  }
+  assert_eq(@fsx.read_text(neighbour), "keep")
+  assert_false(@fs.exists(runtime.join("mcp").to_string()))
 }
