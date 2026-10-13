@@ -813,8 +813,8 @@ fn is_idle_event(event : @transcript.EngineEvent) -> Bool {
     | CompactionFinished(_)
     | CompactionFailed(_)
     | SessionAppendFailed(_)
-    | McpConfigRejected(..)
-    | McpServerUnavailable(..)
+    | McpConfigFailed(..)
+    | McpServerFailed(..)
     | McpToolsDropped(..)
     | BackgroundNotice(_) => true
     _ => false
@@ -1109,8 +1109,8 @@ fn ends_retry(event : @transcript.EngineEvent) -> Bool {
     | ApprovalRequested(..)
     | ApprovalResolved(..)
     | SessionAppendFailed(_)
-    | McpConfigRejected(..)
-    | McpServerUnavailable(..)
+    | McpConfigFailed(..)
+    | McpServerFailed(..)
     | McpToolsDropped(..) => false
   }
 }
@@ -1424,11 +1424,11 @@ fn apply_engine_event(
       (Some(content), conv)
     }
     // The conversation runs on without the tools; the toast is the only
-    // place the reason appears, since the engine never records it.
-    McpConfigRejected(path~, reason~) =>
-      (Some("MCP configuration \{path} was not loaded: \{reason}"), conv)
-    McpServerUnavailable(server~, reason~) =>
-      (Some("MCP server \{server} is unavailable: \{reason}"), conv)
+    // place the error appears, since the engine never records it.
+    McpConfigFailed(path~, error~) =>
+      (Some("MCP configuration \{path} was not loaded: \{error}"), conv)
+    McpServerFailed(server~, error~) =>
+      (Some("MCP server \{server} is unavailable: \{error}"), conv)
     McpToolsDropped(server~, limit~) =>
       (
         Some(

@@ -722,10 +722,11 @@ priv enum PumpState {
 struct EngineManager {
   engine : String
   runtime_dir : @pathx.Path?
-  // The revision of the MCP configuration whose rejection has already been
-  // forwarded to pages. Every conversation's engine reports the same broken
-  // file; a person needs to hear it once.
-  mut mcp_rejection_reported : String?
+  // The MCP configuration error already forwarded to pages. Every
+  // conversation's engine reports the same broken file, and a person needs
+  // to hear it once; it is forgotten when a configuration loads, or when
+  // there is no file any more.
+  mut mcp_error : String?
   // Serializes the short placement/slot-claim phase of every operation that
   // can create or move a workspace-backed record with workspace detach.
   // Once a claim is visible, detach refuses it; once a run/compaction is
@@ -1070,7 +1071,7 @@ fn new_engine_manager(
   {
     engine,
     runtime_dir,
-    mcp_rejection_reported: None,
+    mcp_error: None,
     workspace_lifecycle_lock: Mutex(),
     archive_cleanup_lock: Mutex(),
     settings_lock: Mutex(),
@@ -1543,10 +1544,9 @@ async fn[G] start_serve_engine(
     None => None
   }
   startup_mcp = mcp
-  // One report per broken configuration, not one per conversation: the memo
-  // only outlives engines started with that same configuration.
-  if manager.mcp_rejection_reported != mcp.map(snapshot => snapshot.revision) {
-    manager.mcp_rejection_reported = None
+  // With no file there is nothing wrong with it any more.
+  if mcp is None {
+    manager.mcp_error = None
   }
   let args = engine_process_args(
     config,
@@ -1819,13 +1819,17 @@ async fn ServeEngine::consume(
           snapshot.discard()
         }
         match wire_event {
-          Some(McpConfigUnreadable(..) | McpConfigInvalid(..)) if engine.mcp
-            is Some(snapshot) => {
-            if manager.mcp_rejection_reported == Some(snapshot.revision) {
+          // One report per error, not one per conversation.
+          Some(McpConfigUnreadable(error~, ..) | McpConfigInvalid(error~, ..)) if engine.mcp
+            is Some(_) => {
+            if manager.mcp_error == Some(error) {
               continue
             }
-            manager.mcp_rejection_reported = Some(snapshot.revision)
+            manager.mcp_error = Some(error)
           }
+          // A configuration that loaded ends whatever was wrong before it.
+          Some(McpToolsRegistered(..)) if engine.mcp is Some(_) =>
+            manager.mcp_error = None
           Some(PredictionResult(source_sequence~, outcome~)) => {
             if outcome is Completed(..) {
               emit(
