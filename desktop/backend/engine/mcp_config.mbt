@@ -74,6 +74,16 @@ fn mcp_config_fingerprint(config : McpConfig?) -> String {
 }
 
 ///|
+/// Whether an engine started with `config` and the environment `env` has an
+/// MCP configuration to load: the user's file, or — when the host passes
+/// none — the one an inherited `OPENSEEK_MCP_CONFIG` names. The engine reads
+/// an empty variable as none, and so does this.
+fn mcp_configured(config : RunConfig, env : Map[String, String]) -> Bool {
+  config.mcp_config is Some(_) ||
+  (env.get("OPENSEEK_MCP_CONFIG") is Some(path) && !path.is_empty())
+}
+
+///|
 async test "an absent MCP configuration names nothing; a present one is read" {
   ambient_env_test_lock.acquire()
   defer ambient_env_test_lock.release()
@@ -221,4 +231,24 @@ async test "a broken MCP configuration is reported once, not once per conversati
     start("s-6", Some("worse"))
     @debug.assert_eq(reported(), ["bad", "worse", "worse"])
   })
+}
+
+///|
+test "an inherited MCP configuration counts as one the engine will load" {
+  let config = pump_test_config("s-configured")
+  let mcp : McpConfig = {
+    path: @pathx.Path("/home/.openseek/mcp.json").resolve(),
+    revision: McpConfigRevision::of_text("{}"),
+  }
+  // The user's file, whatever the environment says.
+  assert_true(mcp_configured({ ..config, mcp_config: Some(mcp), }, {}))
+  // No file: the engine falls back to what its environment names, and a
+  // broken file there is reported like any other — so it must not look like
+  // there is nothing to go wrong.
+  assert_true(
+    mcp_configured(config, { "OPENSEEK_MCP_CONFIG": "/tmp/mcp.json" }),
+  )
+  // Neither, or the variable set to nothing, which is how MCP is turned off.
+  assert_false(mcp_configured(config, {}))
+  assert_false(mcp_configured(config, { "OPENSEEK_MCP_CONFIG": "" }))
 }
