@@ -32,7 +32,7 @@ priv struct RunConfig {
   session : String
   session_root : @pathx.Absolute?
   // The user's MCP server configuration as the host read it; None when there
-  // is no file. A new engine is given exactly this (see `hand_off_mcp_config`).
+  // is no file. A new engine is given exactly this (see `snapshot_mcp_config`).
   mcp_config : McpConfig?
 }
 

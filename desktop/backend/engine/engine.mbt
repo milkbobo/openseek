@@ -69,7 +69,7 @@ priv struct ServeEngine {
   // The MCP configuration this process was started with; `None` when the
   // user had no file. It is why the engine's reports can be shown with the
   // user's path, and what is discarded when the process is gone.
-  mcp : McpHandoff?
+  mcp : McpSnapshot?
   // The engine's latest `mcp_status` — what this process holds of its MCP
   // servers, in its own words. `None` until it has reported once, which it
   // does when it has finished connecting them; it reports again on every
@@ -1452,7 +1452,7 @@ fn engine_process_args(
     args.push("--session-root=\{root.to_string()}")
   }
   // The engine connects its MCP servers once, from this file, when it
-  // starts. It is the copy `hand_off_mcp_config` prepared, not the user's.
+  // starts. It is the copy `snapshot_mcp_config` prepared, not the user's.
   if mcp_config is Some(path) {
     args.push("--mcp-config=\{path}")
   }
@@ -1478,7 +1478,7 @@ async fn[G] start_serve_engine(
   let startup_follower = ensure_follower(sink~, group~, manager~, config~)
   let engine_follower = manager.followers.get(config.session)
   let mut startup_engine : ServeEngine? = None
-  let mut startup_mcp : McpHandoff? = None
+  let mut startup_mcp : McpSnapshot? = None
   let mut startup_committed = false
   // Everything through scheduling both stream tasks is one initialization
   // transaction. This synchronous identity-scoped rollback also runs when
@@ -1507,8 +1507,8 @@ async fn[G] start_serve_engine(
     // No engine came of this start, so nothing will ever read the copy of
     // the MCP configuration made for it. Last, because it is the one step
     // here that touches the disk.
-    if startup_mcp is Some(handoff) {
-      @async.protect_from_cancel(() => handoff.discard())
+    if startup_mcp is Some(snapshot) {
+      @async.protect_from_cancel(() => snapshot.discard())
     }
   })
   let (child_stdin, writer) = @process.write_to_process()
@@ -1523,18 +1523,18 @@ async fn[G] start_serve_engine(
   // session's model at all.
   let mcp = match config.mcp_config {
     Some(mcp_config) =>
-      Some(hand_off_mcp_config(mcp_config, manager.runtime_dir, config.session))
+      Some(snapshot_mcp_config(mcp_config, manager.runtime_dir, config.session))
     None => None
   }
   startup_mcp = mcp
   // One report per broken configuration, not one per conversation: the memo
   // only outlives engines started with that same configuration.
-  if manager.mcp_rejection_reported != mcp.map(handoff => handoff.revision) {
+  if manager.mcp_rejection_reported != mcp.map(snapshot => snapshot.revision) {
     manager.mcp_rejection_reported = None
   }
   let args = engine_process_args(
     config,
-    mcp_config?=mcp.map(handoff => handoff.given),
+    mcp_config?=mcp.map(snapshot => snapshot.given),
   )
   let graceful_cancel = @process.graceful_cancel(timeout=1000)
   @xlog.debug() <?
@@ -1655,8 +1655,8 @@ async fn ServeEngine::run(
   // copy behind; this task is that engine's whole life, so its end — an
   // exit, a failure, or the cancellation of the group it runs in, which
   // skips everything below — is where the copy goes.
-  defer (if self.mcp is Some(handoff) {
-    @async.protect_from_cancel(() => handoff.discard())
+  defer (if self.mcp is Some(snapshot) {
+    @async.protect_from_cancel(() => snapshot.discard())
   })
   let code = self.consume(manager, reader) catch {
     error => {
@@ -1786,7 +1786,7 @@ async fn ServeEngine::consume(
         // wakeup (its poll only backstops this).
         manager.kick_follower(engine.session_key)
         let wire_event = match (@wire.parse(json), engine.mcp) {
-          (Some(event), Some(handoff)) => Some(handoff.restore_path(event))
+          (Some(event), Some(snapshot)) => Some(snapshot.restore_path(event))
           (event, _) => event
         }
         // Each of these is the engine's word that it has read its MCP
@@ -1798,16 +1798,16 @@ async fn ServeEngine::consume(
             | McpConfigUnreadable(..)
             | McpConfigInvalid(..)
           ) &&
-          engine.mcp is Some(handoff) {
-          handoff.discard()
+          engine.mcp is Some(snapshot) {
+          snapshot.discard()
         }
         match wire_event {
           Some(McpConfigUnreadable(..) | McpConfigInvalid(..)) if engine.mcp
-            is Some(handoff) => {
-            if manager.mcp_rejection_reported == Some(handoff.revision) {
+            is Some(snapshot) => {
+            if manager.mcp_rejection_reported == Some(snapshot.revision) {
               continue
             }
-            manager.mcp_rejection_reported = Some(handoff.revision)
+            manager.mcp_rejection_reported = Some(snapshot.revision)
           }
           Some(PredictionResult(source_sequence~, outcome~)) => {
             if outcome is Completed(..) {
