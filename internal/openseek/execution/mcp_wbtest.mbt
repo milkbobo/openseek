@@ -8,19 +8,19 @@ async test "the MCP registry says how the engine was configured and what came of
     let unconfigured = connect_mcp(scope, workspace_root=dir)
     assert_true(unconfigured.status() is NotConfigured)
     assert_true(unconfigured.tools().is_empty())
-    // A file the engine cannot use is its own state, with the reason.
+    // A file the engine cannot use is its own state, with the error.
     let path = "\{dir}/mcp.json"
     guard connect_mcp(scope, workspace_root=dir, config_path=path).status()
-      is ConfigRejected(path=missing, ..) else {
-      fail("a missing file should be rejected")
+      is ConfigFailed(path=missing, ..) else {
+      fail("a missing file should fail to load")
     }
     assert_eq(missing, path)
     @fs.write_file(path, "{\"servers\": {}}", create_mode=CreateOrTruncate)
     guard connect_mcp(scope, workspace_root=dir, config_path=path).status()
-      is ConfigRejected(reason~, ..) else {
-      fail("a file without `mcpServers` should be rejected")
+      is ConfigFailed(error~, ..) else {
+      fail("a file without `mcpServers` should fail to load")
     }
-    assert_true(reason.contains("mcpServers"))
+    assert_true(error.contains("mcpServers"))
     // A configured server that cannot start is listed with why, by its
     // command and never its arguments.
     @fs.write_file(

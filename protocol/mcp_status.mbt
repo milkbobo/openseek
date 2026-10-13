@@ -182,7 +182,7 @@ pub(all) enum McpStatus {
   NotConfigured
   /// It was pointed at a file it could not use — unreadable, not JSON, or
   /// not the `mcpServers` shape — so it has no servers.
-  ConfigRejected(path~ : String, reason~ : String)
+  ConfigFailed(path~ : String, error~ : String)
   /// The configuration loaded; these are its servers, in file order.
   Configured(path~ : String, servers~ : Array[McpServerStatus])
 } derive(Eq, Debug)
@@ -197,8 +197,8 @@ pub extend McpStatus with Debug::{to_repr}
 pub impl ToJson for McpStatus with fn to_json(self) {
   match self {
     NotConfigured => { "config": "none" }
-    ConfigRejected(path~, reason~) =>
-      { "config": "rejected", "path": Json(path), "reason": Json(reason) }
+    ConfigFailed(path~, error~) =>
+      { "config": "failed", "path": Json(path), "error": Json(error) }
     Configured(path~, servers~) =>
       { "config": "loaded", "path": Json(path), "servers": Json(servers) }
   }
@@ -209,11 +209,11 @@ pub impl FromJson for McpStatus with fn from_json(json, path) {
   match json {
     { "config": "none", .. } => NotConfigured
     {
-      "config": "rejected",
+      "config": "failed",
       "path": String(config_path),
-      "reason": String(reason),
+      "error": String(error),
       ..
-    } => ConfigRejected(path=config_path, reason~)
+    } => ConfigFailed(path=config_path, error~)
     { "config": "loaded", "path": String(config_path), "servers": listed, .. } =>
       Configured(
         path=config_path,
