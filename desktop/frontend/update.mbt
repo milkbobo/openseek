@@ -802,8 +802,9 @@ fn apply_session_snapshot(
 
 ///|
 /// Whether an event the engine emits while idle (between turns) — the
-/// compaction lifecycle, background-job notices, and the failure of an
-/// idle-time durable append — so the routing must match by last run id: the
+/// compaction lifecycle, background-job notices, the failure of an
+/// idle-time durable append, and the MCP failures of an engine that is still
+/// starting — so the routing must match by last run id: the
 /// run that owned the id has already cleared `active_run_id` by the time
 /// these arrive.
 fn is_idle_event(event : @transcript.EngineEvent) -> Bool {
@@ -812,6 +813,9 @@ fn is_idle_event(event : @transcript.EngineEvent) -> Bool {
     | CompactionFinished(_)
     | CompactionFailed(_)
     | SessionAppendFailed(_)
+    | McpConfigRejected(..)
+    | McpServerUnavailable(..)
+    | McpToolsDropped(..)
     | BackgroundNotice(_) => true
     _ => false
   }
@@ -1104,7 +1108,10 @@ fn ends_retry(event : @transcript.EngineEvent) -> Bool {
     | CompactionFailed(_)
     | ApprovalRequested(..)
     | ApprovalResolved(..)
-    | SessionAppendFailed(_) => false
+    | SessionAppendFailed(_)
+    | McpConfigRejected(..)
+    | McpServerUnavailable(..)
+    | McpToolsDropped(..) => false
   }
 }
 
@@ -1416,6 +1423,19 @@ fn apply_engine_event(
       }
       (Some(content), conv)
     }
+    // The conversation runs on without the tools; the toast is the only
+    // place the reason appears, since the engine never records it.
+    McpConfigRejected(path~, reason~) =>
+      (Some("MCP configuration \{path} was not loaded: \{reason}"), conv)
+    McpServerUnavailable(server~, reason~) =>
+      (Some("MCP server \{server} is unavailable: \{reason}"), conv)
+    McpToolsDropped(server~, limit~) =>
+      (
+        Some(
+          "MCP server \{server} is missing some of its tools: the limit of \{limit} MCP tools was reached",
+        ),
+        conv,
+      )
     CompactionFailed(reason) => {
       let content = if reason.is_blank() {
         "compaction failed"

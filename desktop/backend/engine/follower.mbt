@@ -666,6 +666,7 @@ fn follower_test_config(
     cwd: None,
     session,
     session_root: Some(root),
+    mcp_config: None,
   }
 }
 

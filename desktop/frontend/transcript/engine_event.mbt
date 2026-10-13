@@ -97,6 +97,16 @@ pub(all) enum EngineEvent {
   // waiting on that append — a goal command most of all — would otherwise
   // wait on a commit that is never coming, with no word of why.
   SessionAppendFailed(String)
+  // The engine could not load the user's MCP configuration, or one server
+  // in it contributed no tools. Reported while the engine starts, before any
+  // turn, and never recorded: without a word here the configured tools are
+  // simply missing from the conversation and nothing says why.
+  McpConfigRejected(path~ : String, reason~ : String)
+  McpServerUnavailable(server~ : String, reason~ : String)
+  // A server connected, but the registry's budget for MCP tools ran out
+  // partway through its list: the tools past `limit` were dropped, so the
+  // conversation has only some of what the server offers.
+  McpToolsDropped(server~ : String, limit~ : Int32)
 }
 
 ///|
@@ -149,6 +159,23 @@ pub fn decode_engine_event(event : @protocol.Event) -> EngineEvent? {
     // has no use for it and drops it, so unless the view reads it off the raw
     // stream nobody hears about it at all.
     SessionError(error~) => Some(SessionAppendFailed(error))
+    // The ways a configured MCP server ends up with none, or only some, of
+    // its tools in this engine.
+    McpConfigUnreadable(path~, error~) | McpConfigInvalid(path~, error~) =>
+      Some(McpConfigRejected(path~, reason=error))
+    McpConnectFailed(server~, error~) | McpListToolsFailed(server~, error~) =>
+      Some(McpServerUnavailable(server~, reason=error))
+    McpListToolsTimeout(server~) =>
+      Some(McpServerUnavailable(server~, reason="timed out listing its tools"))
+    McpServerSkippedOverCap(server~) =>
+      Some(
+        McpServerUnavailable(
+          server~,
+          reason="the MCP tool limit was already reached",
+        ),
+      )
+    // The engine reports the registry-wide budget as `kept`.
+    McpToolsCapped(server~, kept~) => Some(McpToolsDropped(server~, limit=kept))
     ApprovalRequested(id~, tool_name~, detail~, body~) =>
       Some(ApprovalRequested(id~, tool_name~, detail~, body~))
     // The outcome word is dropped: this view shows one prompt at a time and
@@ -193,7 +220,8 @@ pub fn decode_engine_event(event : @protocol.Event) -> EngineEvent? {
     // error, not as stream events; `auto_compaction_started/failed` are internal
     // to an open turn, unlike the finish this view previews;
     // `session_started`/`workspace_created` describe a headless
-    // run's setup; the MCP events are engine-side registry diagnostics.
+    // run's setup; the remaining MCP events are registry bookkeeping for
+    // tools that did register, or a server that has none to offer.
     GoalUpdated(..)
     | GoalBlocked(..)
     | GoalUnblocked
@@ -209,16 +237,9 @@ pub fn decode_engine_event(event : @protocol.Event) -> EngineEvent? {
     | SessionStarted(..)
     | WorkspaceCreated(..)
     | McpConfigIgnored(..)
-    | McpConfigUnreadable(..)
-    | McpConfigInvalid(..)
     | McpToolsRegistered(..)
     | McpToolDuplicate(..)
     | McpToolRenamed(..)
-    | McpToolsCapped(..)
-    | McpServerSkippedOverCap(..)
-    | McpConnectFailed(..)
-    | McpListToolsFailed(..)
-    | McpListToolsTimeout(..)
     | McpNoTools(..) => None
   }
 }
