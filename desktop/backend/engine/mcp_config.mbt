@@ -70,12 +70,24 @@ fn mcp_config_fingerprint(config : McpConfig?) -> String {
 }
 
 ///|
-/// What one engine was started with.
-priv struct McpSnapshot {
-  /// The path on the engine's command line, which is the path it reports.
-  given : String
-  /// The user's file, which is the path a person should be shown.
-  source : String
+/// What one engine was started on.
+priv enum McpSnapshot {
+  /// A private copy, at `copy`, of the user's file `source`. The engine reads
+  /// the copy and names it in what it reports; the host removes it.
+  Copy(copy~ : String, source~ : String)
+  /// The user's file itself: there was nothing to copy, or nowhere to keep a
+  /// copy. There is nothing to remove, and the engine already names the path
+  /// a person should be shown.
+  Original(String)
+}
+
+///|
+/// The path on the engine's command line.
+fn McpSnapshot::given(self : McpSnapshot) -> String {
+  match self {
+    Copy(copy~, ..) => copy
+    Original(path) => path
+  }
 }
 
 ///|
@@ -101,9 +113,10 @@ fn mcp_snapshot_path(
 /// starts, and the caller discards it as soon as the engine says it has —
 /// or when the start fails, or the engine's task ends without having said
 /// so. The copy is rewritten for each new engine of the conversation, which
-/// never overlaps the previous one's startup read. A file the host could not read has nothing to copy, and a
-/// host without a runtime directory has nowhere to copy to; in both cases the
-/// engine is pointed at the user's file and reports what it finds there.
+/// never overlaps the previous one's startup read. A file the host could not
+/// read has nothing to copy, and a host without a runtime directory has
+/// nowhere to copy to; in both cases the engine is pointed at the user's file
+/// and reports what it finds there.
 async fn snapshot_mcp_config(
   config : McpConfig,
   runtime_dir : @pathx.Path?,
@@ -111,7 +124,7 @@ async fn snapshot_mcp_config(
 ) -> McpSnapshot {
   let source = config.path.to_string()
   guard (config.revision, runtime_dir) is (Text(text), Some(runtime_dir)) else {
-    return { given: source, source, }
+    return Original(source)
   }
   let copy = mcp_snapshot_path(runtime_dir, session)
   // The configuration is where tokens live: the directory and the file are
@@ -126,14 +139,9 @@ async fn snapshot_mcp_config(
   // making it is cut short — a full disk, the host shutting down between
   // creating the file and filling it — there is no record to remove it by,
   // so it is removed here.
+  let snapshot : McpSnapshot = Copy(copy=copy.to_string(), source~)
   let mut written = false
-  defer (if !written {
-    @async.protect_from_cancel(() => {
-      @fsx.remove_if_exists(copy) catch {
-        _ => ()
-      }
-    })
-  })
+  defer (if !written { @async.protect_from_cancel(() => snapshot.discard()) })
   @fs.write_file(
     copy.to_string(),
     text,
@@ -141,16 +149,25 @@ async fn snapshot_mcp_config(
     permission=0o600,
   )
   written = true
-  { given: copy.to_string(), source, }
+  snapshot
 }
 
 ///|
-/// Remove the copy an engine was started with. Removing it again is nothing,
-/// and the user's own file is never touched.
+/// Remove the copy an engine was started on; an engine started on the user's
+/// own file has none. Removing a copy that is already gone is nothing. One
+/// that cannot be removed is still there, tokens included, so that is said
+/// in the log where it can be found rather than passed off as gone — and the
+/// engine's task tries once more when it ends.
 async fn McpSnapshot::discard(self : McpSnapshot) -> Unit {
-  guard self.given != self.source else { return }
-  @fsx.remove_if_exists(Path(self.given)) catch {
-    _ => ()
+  guard self is Copy(copy~, ..) else { return }
+  @fsx.remove_if_exists(Path(copy)) catch {
+    error =>
+      @xlog.warn() <?
+        {
+          "event": "desktop_mcp_snapshot_not_removed",
+          "path": copy,
+          "error": "\{error}",
+        }
   }
 }
 
@@ -161,9 +178,11 @@ fn McpSnapshot::restore_path(
   self : McpSnapshot,
   event : @wire.Event,
 ) -> @wire.Event {
+  // An engine started on the user's own file already names it.
+  guard self is Copy(copy~, source~) else { return event }
   fn shown(path : String) -> String {
-    if path == self.given {
-      self.source
+    if path == copy {
+      source
     } else {
       path
     }
@@ -275,8 +294,7 @@ async test "an unreadable MCP configuration is carried, not treated as absent" {
   )
   // There is nothing to copy, so the engine is pointed at the file itself.
   let snapshot = snapshot_mcp_config(config, Some(root.join("runtime")), "s-1")
-  assert_eq(snapshot.given, config.path.to_string())
-  assert_eq(snapshot.source, snapshot.given)
+  assert_true(snapshot is Original(path) && path == config.path.to_string())
   // Discarding that snapshot must leave the user's path alone.
   snapshot.discard()
   assert_true(@fs.kind(config.path.to_string()) is Directory)
@@ -294,20 +312,24 @@ async test "a new engine is handed its own copy of the MCP configuration" {
   let snapshot = snapshot_mcp_config(config, Some(runtime), "s-1")
   // The copy is per conversation, and holds exactly what the host read —
   // which is what the fingerprint describes.
-  assert_eq(snapshot.given, runtime.join("mcp/s-1.json").to_string())
-  assert_eq(snapshot.source, path.to_string())
-  assert_eq(@fsx.read_text(Path(snapshot.given)), "{\"mcpServers\": {}}")
+  guard snapshot is Copy(copy~, source~) else {
+    fail("text and a runtime directory should make a copy")
+  }
+  assert_eq(copy, runtime.join("mcp/s-1.json").to_string())
+  assert_eq(source, path.to_string())
+  assert_eq(snapshot.given(), copy)
+  assert_eq(@fsx.read_text(Path(copy)), "{\"mcpServers\": {}}")
   // The conversation's next engine replaces the copy.
   let edited = snapshot_mcp_config(
     { ..config, revision: Text("{\"mcpServers\": {\"a\": {}}}"), },
     Some(runtime),
     "s-1",
   )
-  assert_eq(edited.given, snapshot.given)
-  assert_eq(@fsx.read_text(Path(edited.given)), "{\"mcpServers\": {\"a\": {}}}")
+  assert_eq(edited.given(), copy)
+  assert_eq(@fsx.read_text(Path(copy)), "{\"mcpServers\": {\"a\": {}}}")
   // A person is shown their own file, never the copy.
   @debug.assert_eq(
-    edited.restore_path(McpConfigInvalid(path=edited.given, error="bad")),
+    edited.restore_path(McpConfigInvalid(path=copy, error="bad")),
     McpConfigInvalid(path=path.to_string(), error="bad"),
   )
   @debug.assert_eq(
@@ -328,10 +350,15 @@ async test "a new engine is handed its own copy of the MCP configuration" {
   )
   // When the engine is gone, so is its copy.
   edited.discard()
-  assert_true(@fsx.read_text_if_exists(Path(edited.given)) is None)
-  // Without a runtime directory there is nowhere to keep a copy.
+  assert_true(@fsx.read_text_if_exists(Path(copy)) is None)
+  // Without a runtime directory there is nowhere to keep a copy, and what
+  // the engine reports about the user's own file needs no translating.
   let direct = snapshot_mcp_config(config, None, "s-1")
-  assert_eq(direct.given, path.to_string())
+  assert_true(direct is Original(original) && original == path.to_string())
+  @debug.assert_eq(
+    direct.restore_path(McpConfigInvalid(path=path.to_string(), error="bad")),
+    McpConfigInvalid(path=path.to_string(), error="bad"),
+  )
 }
 
 ///|
@@ -393,7 +420,7 @@ async test "a broken MCP configuration is reported once, under the user's path" 
           sink,
           phase=Idle(last_run=None),
         ),
-        mcp: Some({ given: "/runtime/mcp/\{session}.json", source, }),
+        mcp: Some(Copy(copy="/runtime/mcp/\{session}.json", source~)),
       }
       group.spawn_bg(no_wait=true, allow_failure=true, () => {
         ignore(engine.consume(manager, reader))
@@ -589,7 +616,7 @@ async test "an engine's copy of the MCP configuration lasts until it has been lo
   }
   let runtime = Some(root.join("runtime"))
   async fn copy_exists(snapshot : McpSnapshot) -> Bool {
-    @fsx.read_text_if_exists(Path(snapshot.given)) is Some(_)
+    @fsx.read_text_if_exists(Path(snapshot.given())) is Some(_)
   }
 
   // The engine reads the copy once, as it starts, and says so. From then on
