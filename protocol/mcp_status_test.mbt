@@ -70,9 +70,9 @@ test "an mcp_status survives the wire with every server state" {
 test "an engine without a usable MCP configuration says which way" {
   let statuses : Array[@openseek_protocol.McpStatus] = [
     NotConfigured,
-    ConfigRejected(
+    ConfigFailed(
       path="/home/.openseek/mcp.json",
-      reason="configuration is missing an `mcpServers` object",
+      error="configuration is missing an `mcpServers` object",
     ),
     Configured(path="/home/.openseek/mcp.json", servers=[]),
   ]

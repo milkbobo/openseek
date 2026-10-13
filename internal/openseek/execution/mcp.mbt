@@ -10,7 +10,7 @@ pub const McpClientVersion : String = "0.2.2"
 enum McpRegistry {
   NotConfigured
   /// The configuration could not be read or decoded, so there are no servers.
-  Rejected(path~ : String, reason~ : String)
+  Failed(path~ : String, error~ : String)
   Loaded(path~ : String, entries~ : Array[@mcptools.ServerEntry])
 }
 
@@ -28,13 +28,13 @@ pub async fn[X] connect_mcp(
   let text = @fs.read_file(path).text() catch {
     error => {
       @emit.emit(McpConfigUnreadable(path~, error="\{error}"))
-      return Rejected(path~, reason="\{error}")
+      return Failed(path~, error="\{error}")
     }
   }
   let servers = @mcpconfig.decode(@json.parse(text)) catch {
     error => {
       @emit.emit(McpConfigInvalid(path~, error="\{error}"))
-      return Rejected(path~, reason="\{error}")
+      return Failed(path~, error="\{error}")
     }
   }
   let entries = @mcptools.connect(
@@ -89,7 +89,7 @@ pub fn McpRegistry::on_connection_closed(
 pub fn McpRegistry::status(self : McpRegistry) -> @protocol.McpStatus {
   match self {
     NotConfigured => NotConfigured
-    Rejected(path~, reason~) => ConfigRejected(path~, reason~)
+    Failed(path~, error~) => ConfigFailed(path~, error~)
     Loaded(path~, entries~) =>
       Configured(
         path~,
@@ -106,7 +106,7 @@ pub fn McpRegistry::status(self : McpRegistry) -> @protocol.McpStatus {
                 Connected(tools)
               }
             NoTools => NoTools
-            Failed(reason) => Failed(reason)
+            Failed(error) => Failed(error)
             Skipped => Skipped
           }
           {
