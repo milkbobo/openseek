@@ -333,15 +333,11 @@ async test "a new engine is handed its own copy of the MCP configuration" {
     McpConfigInvalid(path=path.to_string(), error="bad"),
   )
   @debug.assert_eq(
-    edited.restore_path(
-      McpStatus(status=ConfigFailed(path=edited.given, error="bad")),
-    ),
+    edited.restore_path(McpStatus(status=ConfigFailed(path=copy, error="bad"))),
     McpStatus(status=ConfigFailed(path=path.to_string(), error="bad")),
   )
   @debug.assert_eq(
-    edited.restore_path(
-      McpStatus(status=Configured(path=edited.given, servers=[])),
-    ),
+    edited.restore_path(McpStatus(status=Configured(path=copy, servers=[]))),
     McpStatus(status=Configured(path=path.to_string(), servers=[])),
   )
   @debug.assert_eq(
@@ -513,7 +509,7 @@ async test "MCP status is the live engine's latest report" {
         sink,
         phase=Idle(last_run=None),
       ),
-      mcp: Some({ given: "/p/mcp.json", source: "/home/.openseek/mcp.json", }),
+      mcp: Some(Copy(copy="/p/mcp.json", source="/home/.openseek/mcp.json")),
     }
     let sessions : Map[String, SessionSlot] = Map([])
     slot_for(sessions, "s-live").engine = Some(engine)
