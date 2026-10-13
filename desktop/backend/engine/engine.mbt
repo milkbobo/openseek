@@ -1539,19 +1539,20 @@ async fn[G] start_serve_engine(
   if manager.runtime_dir is Some(runtime_dir) {
     reclaim_mcp_snapshots(runtime_dir)
   }
-  let mcp = match config.mcp_config {
+  // Recorded where the rollback above can see it from the moment it exists:
+  // a start that fails from here on must not leave the copy or its lock.
+  startup_mcp = match config.mcp_config {
     Some(mcp_config) =>
       Some(snapshot_mcp_config(mcp_config, manager.runtime_dir, config.session))
     None => None
   }
-  startup_mcp = mcp
   // With no file there is nothing wrong with it any more.
-  if mcp is None {
+  if startup_mcp is None {
     manager.mcp_error = None
   }
   let args = engine_process_args(
     config,
-    mcp_config?=mcp.map(snapshot => snapshot.given()),
+    mcp_config?=startup_mcp.map(snapshot => snapshot.given()),
   )
   let graceful_cancel = @process.graceful_cancel(timeout=1000)
   @xlog.debug() <?
@@ -1621,7 +1622,7 @@ async fn[G] start_serve_engine(
     steer_runs: SteerRunTracker(),
     queued_runs: [],
     job_requests: Map([]),
-    mcp,
+    mcp: startup_mcp,
     last_activity_ms: engine_clock_ms(),
   }
   startup_engine = Some(engine)
