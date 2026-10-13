@@ -1519,15 +1519,16 @@ async fn[G] start_serve_engine(
   let (stderr_reader, child_stderr) = @process.read_from_process()
   let env = engine_process_env(config, manager.runtime_dir)
   let program = config.engine
+  // An engine with no MCP configuration to load has nothing wrong with it
+  // any more, so the error remembered from one that had is forgotten.
+  if !mcp_configured(config, env) {
+    manager.mcp_error = None
+  }
   // `--approval ask` is the host declaring that it CAN answer a permission
   // question: the engine's own default is never, because an engine cannot tell
   // a controller with a person behind it from a script reading its stdout.
   // Saying so here is what makes the escalation argument exist for this
   // session's model at all.
-  // With no file there is nothing wrong with it any more.
-  if config.mcp_config is None {
-    manager.mcp_error = None
-  }
   let args = engine_process_args(config)
   let graceful_cancel = @process.graceful_cancel(timeout=1000)
   @xlog.debug() <?
