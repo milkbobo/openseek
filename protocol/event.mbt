@@ -202,9 +202,12 @@ pub(all) enum Event {
   CommandError(error~ : String)
 
   // ── mcp ────────────────────────────────────────────────────────────────
-  /// The answer to an `mcp_snapshot` command: what the engine holds of its
-  /// configured servers right now.
-  McpSnapshot(request_id~ : String, status~ : McpStatus)
+  /// What the engine holds of its configured MCP servers. Nobody asks for it:
+  /// the engine sends one when it has finished connecting them — whatever
+  /// came of that, no configuration at all included — and another each time
+  /// the answer changes, which is a connected server's connection closing.
+  /// Each is the whole state and replaces the one before it.
+  McpStatus(status~ : McpStatus)
   McpConfigIgnored(reason~ : String)
   McpConfigUnreadable(path~ : String, error~ : String)
   McpConfigInvalid(path~ : String, error~ : String)

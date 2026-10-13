@@ -30,7 +30,6 @@ fn all_commands() -> Array[@openseek_protocol.Command] {
     ),
     JobsSnapshot(request_id="jobs-1"),
     JobStop(request_id="stop-1", generation="runtime-1", job_id="bg-1"),
-    McpSnapshot(request_id="mcp-1"),
     Compact,
     Cancel,
     GoalSet(text="ship it", auto=false),

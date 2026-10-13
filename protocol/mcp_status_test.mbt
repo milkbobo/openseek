@@ -4,7 +4,7 @@ fn tool(name : String) -> @openseek_protocol.McpTool {
 }
 
 ///|
-test "an mcp_snapshot survives the wire with every server state" {
+test "an mcp_status survives the wire with every server state" {
   let status : @openseek_protocol.McpStatus = Configured(
     path="/home/.openseek/mcp.json",
     servers=[
@@ -30,18 +30,14 @@ test "an mcp_snapshot survives the wire with every server state" {
       { name: "late", transport: Stdio, target: "late", state: Skipped, },
     ],
   )
-  let event : @openseek_protocol.Event = McpSnapshot(
-    request_id="mcp-1",
-    status~,
-  )
+  let event : @openseek_protocol.Event = McpStatus(status~)
   guard @openseek_protocol.parse(event.to_json())
-    is Some(McpSnapshot(request_id="mcp-1", status=decoded)) else {
-    fail("mcp_snapshot did not decode")
+    is Some(McpStatus(status=decoded)) else {
+    fail("mcp_status did not decode")
   }
   @debug.assert_eq(decoded, status)
   json_inspect(
-    @openseek_protocol.Event::McpSnapshot(
-      request_id="mcp-2",
+    @openseek_protocol.Event::McpStatus(
       status=Configured(path="/p", servers=[
         {
           name: "docs",
@@ -52,8 +48,7 @@ test "an mcp_snapshot survives the wire with every server state" {
       ]),
     ).to_json(),
     content={
-      "event": "mcp_snapshot",
-      "request_id": "mcp-2",
+      "event": "mcp_status",
       "status": {
         "config": "loaded",
         "path": "/p",
@@ -119,8 +114,7 @@ test "a malformed MCP server status is refused, not guessed" {
   // An event whose status does not decode is not an event.
   assert_true(
     @openseek_protocol.parse({
-      "event": "mcp_snapshot",
-      "request_id": "r",
+      "event": "mcp_status",
       "status": { "config": "loaded", "path": "/p" },
     })
     is None,

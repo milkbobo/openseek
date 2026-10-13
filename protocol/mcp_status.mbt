@@ -1,7 +1,8 @@
 // What a running engine holds of the MCP servers it was configured with: the
-// payload of the `mcp_snapshot` event, which answers the command of the same
-// name. It is the engine's own state, read when asked — the connections a
-// conversation actually has, not what connecting afresh would yield.
+// payload of the `mcp_status` event, which the engine sends on its own when
+// it has connected them and whenever that state changes. It is the engine's
+// own state — the connections a conversation actually has, not what
+// connecting afresh would yield.
 
 ///|
 /// One tool a connected MCP server registered, under its namespaced name

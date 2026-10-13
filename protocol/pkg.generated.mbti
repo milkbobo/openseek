@@ -61,7 +61,6 @@ pub(all) enum Command {
   Cancel
   JobsSnapshot(request_id~ : String)
   JobStop(request_id~ : String, generation~ : String, job_id~ : String)
-  McpSnapshot(request_id~ : String)
   GoalSet(text~ : String, auto~ : Bool)
   GoalClear
   ApprovalDecision(id~ : String, allow~ : Bool)
@@ -143,7 +142,7 @@ pub(all) enum Event {
   SessionError(error~ : String)
   WorkspaceCreated(dir~ : String)
   CommandError(error~ : String)
-  McpSnapshot(request_id~ : String, status~ : McpStatus)
+  McpStatus(status~ : McpStatus)
   McpConfigIgnored(reason~ : String)
   McpConfigUnreadable(path~ : String, error~ : String)
   McpConfigInvalid(path~ : String, error~ : String)
