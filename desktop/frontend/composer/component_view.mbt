@@ -36,6 +36,7 @@ fn Entry::mention_chips(
   locale~ : @i18n.Locale = English,
   self : Entry,
   emit : @cmd.Emit[Msg],
+  disabled~ : Bool,
 ) -> Array[@html.Html] {
   let chips : Array[@html.Html] = []
   for index, mention in self.draft.mentions {
@@ -70,11 +71,11 @@ fn Entry::mention_chips(
         remove: Some(
           (emit(MentionRemoved(index)), @icons.icon(@icons.icon_close)),
         ),
-      }.render(locale~),
+      }.render(locale~, disabled~),
     )
   }
   if self.review_changes().length() > 0 {
-    chips.push(self.changes_chip(locale~, emit))
+    chips.push(self.changes_chip(locale~, emit, disabled~))
   }
   chips
 }
@@ -243,7 +244,9 @@ fn Entry::action_buttons(
             Queue => ui(locale, QueueNextTurn)
             SaveQueue => ui(locale, SaveQueued)
           },
-          disabled: self.image_reads > 0 || !self.attachment_requests.is_empty(),
+          disabled: input.presentation.disabled ||
+          self.image_reads > 0 ||
+          !self.attachment_requests.is_empty(),
           command: emit(SubmitRequested),
           content: @icons.icon(@icons.icon_arrow_up),
         })
@@ -324,8 +327,12 @@ fn Entry::view(
     },
     before_inner: context,
     mentions: [
-      ..self.mention_chips(locale~, emit),
-      ..self.draft.image_previews(locale~, emit),
+      ..self.mention_chips(locale~, emit, disabled=input.presentation.disabled),
+      ..self.draft.image_previews(
+        locale~,
+        emit,
+        disabled=input.presentation.disabled,
+      ),
     ],
     value: if goal_mode {
       self.goal_draft.unwrap_or("")
