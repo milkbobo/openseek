@@ -288,9 +288,9 @@ test "decode surfaces the ways a configured MCP server ends up without tools" {
       }),
     )
     is Some(
-      @transcript.McpConfigRejected(
+      @transcript.McpConfigFailed(
         path="/home/.openseek/mcp.json",
-        reason="configuration is missing an `mcpServers` object"
+        error="configuration is missing an `mcpServers` object"
       )
     ) else {
     fail("mcp_config_invalid not decoded")
@@ -302,7 +302,7 @@ test "decode surfaces the ways a configured MCP server ends up without tools" {
         "error": "permission denied",
       }),
     )
-    is Some(@transcript.McpConfigRejected(reason="permission denied", ..)) else {
+    is Some(@transcript.McpConfigFailed(error="permission denied", ..)) else {
     fail("mcp_config_unreadable not decoded")
   }
   guard @transcript.decode_engine_event(
@@ -313,9 +313,9 @@ test "decode surfaces the ways a configured MCP server ends up without tools" {
       }),
     )
     is Some(
-      @transcript.McpServerUnavailable(
+      @transcript.McpServerFailed(
         server="playwright",
-        reason="npx: command not found"
+        error="npx: command not found"
       )
     ) else {
     fail("mcp_connect_failed not decoded")
@@ -324,7 +324,7 @@ test "decode surfaces the ways a configured MCP server ends up without tools" {
     guard @transcript.decode_engine_event(
         event_fields({ "event": event, "server": "playwright" }),
       )
-      is Some(@transcript.McpServerUnavailable(server="playwright", ..)) else {
+      is Some(@transcript.McpServerFailed(server="playwright", ..)) else {
       fail("\{event} not decoded")
     }
   }

@@ -76,8 +76,6 @@ priv struct McpSnapshot {
   given : String
   /// The user's file, which is the path a person should be shown.
   source : String
-  /// The fingerprint component of the content it holds.
-  revision : String
 }
 
 ///|
@@ -112,9 +110,8 @@ async fn snapshot_mcp_config(
   session : String,
 ) -> McpSnapshot {
   let source = config.path.to_string()
-  let revision = mcp_config_fingerprint(Some(config))
   guard (config.revision, runtime_dir) is (Text(text), Some(runtime_dir)) else {
-    return { given: source, source, revision, }
+    return { given: source, source, }
   }
   let copy = mcp_snapshot_path(runtime_dir, session)
   // The configuration is where tokens live: the directory and the file are
@@ -144,7 +141,7 @@ async fn snapshot_mcp_config(
     permission=0o600,
   )
   written = true
-  { given: copy.to_string(), source, revision, }
+  { given: copy.to_string(), source, }
 }
 
 ///|
@@ -266,7 +263,6 @@ async test "a new engine is handed its own copy of the MCP configuration" {
   // which is what the fingerprint describes.
   assert_eq(snapshot.given, runtime.join("mcp/s-1.json").to_string())
   assert_eq(snapshot.source, path.to_string())
-  assert_eq(snapshot.revision, mcp_config_fingerprint(Some(config)))
   assert_eq(@fsx.read_text(Path(snapshot.given)), "{\"mcpServers\": {}}")
   // The conversation's next engine replaces the copy.
   let edited = snapshot_mcp_config(
@@ -275,7 +271,6 @@ async test "a new engine is handed its own copy of the MCP configuration" {
     "s-1",
   )
   assert_eq(edited.given, snapshot.given)
-  assert_true(edited.revision != snapshot.revision)
   assert_eq(@fsx.read_text(Path(edited.given)), "{\"mcpServers\": {\"a\": {}}}")
   // A person is shown their own file, never the copy.
   @debug.assert_eq(
@@ -301,15 +296,17 @@ async test "a broken MCP configuration is reported once, under the user's path" 
   let emitted : Array[EngineEvent] = []
   let sink = EventSink(event => emitted.push(event))
   let source = "/home/.openseek/mcp.json"
-  // What reached pages: each rejection's path, and each engine's last word.
-  fn rejections() -> Array[String] {
-    let paths : Array[String] = []
+  // What reached pages: the error of each report that was forwarded, every
+  // one of which must name the user's file.
+  fn reported() -> Array[String] raise {
+    let errors : Array[String] = []
     for event in emitted {
-      if event is StreamEvent({ event: McpConfigInvalid(path~, ..), .. }) {
-        paths.push(path)
+      if event is StreamEvent({ event: McpConfigInvalid(path~, error~), .. }) {
+        assert_eq(path, source)
+        errors.push(error)
       }
     }
-    paths
+    errors
   }
 
   fn finished(session : String) -> Bool {
@@ -320,11 +317,17 @@ async test "a broken MCP configuration is reported once, under the user's path" 
   }
 
   @async.with_task_group(group => {
-    // Stands in for a serve engine that could not decode the copy it was
-    // started with: it says so, naming the copy, then says one more thing.
-    async fn start(session : String, revision : String) -> Unit {
+    // Stands in for a serve engine started on a copy of the configuration.
+    // With an error to report it says it could not decode the copy, naming
+    // the copy; with none it says the configuration loaded. Then it says one
+    // more thing, so the test knows it has been heard.
+    async fn start(session : String, error : String?) -> Unit {
       let script =
-        #|printf '{"event":"mcp_config_invalid","path":"/runtime/mcp/%s.json","error":"bad"}\n' "$1"
+        #|if [ -n "$2" ]; then
+        #|  printf '{"event":"mcp_config_invalid","path":"/runtime/mcp/%s.json","error":"%s"}\n' "$1" "$2"
+        #|else
+        #|  printf '{"event":"mcp_tools_registered","servers":0,"tools":0,"names":[]}\n'
+        #|fi
         #|printf '{"event":"mcp_connect_failed","server":"%s","error":"marker"}\n' "$1"
         #|cat >/dev/null
       let (child_stdin, writer) = @process.write_to_process()
@@ -332,7 +335,7 @@ async test "a broken MCP configuration is reported once, under the user's path" 
       let process = @process.spawn(
         group,
         "/bin/sh",
-        ["-c", script, "sh", session],
+        ["-c", script, "sh", session, error.unwrap_or("")],
         stdin=child_stdin,
         stdout=child_stdout,
         no_wait=true,
@@ -345,7 +348,7 @@ async test "a broken MCP configuration is reported once, under the user's path" 
           sink,
           phase=Idle(last_run=None),
         ),
-        mcp: Some({ given: "/runtime/mcp/\{session}.json", source, revision, }),
+        mcp: Some({ given: "/runtime/mcp/\{session}.json", source, }),
       }
       group.spawn_bg(no_wait=true, allow_failure=true, () => {
         ignore(engine.consume(manager, reader))
@@ -359,13 +362,20 @@ async test "a broken MCP configuration is reported once, under the user's path" 
 
     // Two conversations start engines on the same broken file. A person
     // hears it once, and is pointed at the file they can fix.
-    start("s-1", "rev-a")
-    @debug.assert_eq(rejections(), [source])
-    start("s-2", "rev-a")
-    @debug.assert_eq(rejections(), [source])
-    // A different broken file is a new thing to say.
-    start("s-3", "rev-b")
-    @debug.assert_eq(rejections(), [source, source])
+    start("s-1", Some("bad"))
+    @debug.assert_eq(reported(), ["bad"])
+    start("s-2", Some("bad"))
+    @debug.assert_eq(reported(), ["bad"])
+    // A different error is a new thing to say.
+    start("s-3", Some("worse"))
+    @debug.assert_eq(reported(), ["bad", "worse"])
+    start("s-4", Some("worse"))
+    @debug.assert_eq(reported(), ["bad", "worse"])
+    // Once a configuration has loaded, the same mistake made again is news.
+    start("s-5", None)
+    assert_true(manager.mcp_error is None)
+    start("s-6", Some("worse"))
+    @debug.assert_eq(reported(), ["bad", "worse", "worse"])
   })
 }
 

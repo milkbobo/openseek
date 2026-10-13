@@ -101,8 +101,8 @@ pub(all) enum EngineEvent {
   // in it contributed no tools. Reported while the engine starts, before any
   // turn, and never recorded: without a word here the configured tools are
   // simply missing from the conversation and nothing says why.
-  McpConfigRejected(path~ : String, reason~ : String)
-  McpServerUnavailable(server~ : String, reason~ : String)
+  McpConfigFailed(path~ : String, error~ : String)
+  McpServerFailed(server~ : String, error~ : String)
   // A server connected, but the registry's budget for MCP tools ran out
   // partway through its list: the tools past `limit` were dropped, so the
   // conversation has only some of what the server offers.
@@ -162,17 +162,14 @@ pub fn decode_engine_event(event : @protocol.Event) -> EngineEvent? {
     // The ways a configured MCP server ends up with none, or only some, of
     // its tools in this engine.
     McpConfigUnreadable(path~, error~) | McpConfigInvalid(path~, error~) =>
-      Some(McpConfigRejected(path~, reason=error))
+      Some(McpConfigFailed(path~, error~))
     McpConnectFailed(server~, error~) | McpListToolsFailed(server~, error~) =>
-      Some(McpServerUnavailable(server~, reason=error))
+      Some(McpServerFailed(server~, error~))
     McpListToolsTimeout(server~) =>
-      Some(McpServerUnavailable(server~, reason="timed out listing its tools"))
+      Some(McpServerFailed(server~, error="timed out listing its tools"))
     McpServerSkippedOverCap(server~) =>
       Some(
-        McpServerUnavailable(
-          server~,
-          reason="the MCP tool limit was already reached",
-        ),
+        McpServerFailed(server~, error="the MCP tool limit was already reached"),
       )
     // The engine reports the registry-wide budget as `kept`.
     McpToolsCapped(server~, kept~) => Some(McpToolsDropped(server~, limit=kept))

@@ -8,7 +8,7 @@ test "an MCP server that failed while the engine started is reported" {
     dispatch,
     Engine(
       None,
-      McpServerUnavailable(server="playwright", reason="npx: command not found"),
+      McpServerFailed(server="playwright", error="npx: command not found"),
       session=Some("desktop-test"),
     ),
     test_model(),
@@ -30,9 +30,9 @@ test "an MCP failure stamped with a run this page has not opened yet still lands
     dispatch,
     Engine(
       Some("r-not-started-here"),
-      McpConfigRejected(
+      McpConfigFailed(
         path="/home/.openseek/mcp.json",
-        reason="configuration is missing an `mcpServers` object",
+        error="configuration is missing an `mcpServers` object",
       ),
       session=Some("desktop-test"),
     ),
