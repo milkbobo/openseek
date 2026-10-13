@@ -91,9 +91,9 @@ test('MCP status says when there is no engine to ask, and asks again on reopen a
   // Asking reads the engine's state and starts nothing, so every visit asks.
   await page.getByRole('button', { name: 'Skills', exact: true }).click();
   app.mcpStatus = running({
-    config: 'rejected',
+    config: 'failed',
     path: configPath,
-    reason: 'mcp config error: configuration is missing an `mcpServers` object',
+    error: 'mcp config error: configuration is missing an `mcpServers` object',
   });
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(group.getByText(`${configPath} could not be loaded`, { exact: true })).toBeVisible();

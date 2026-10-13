@@ -39,8 +39,8 @@ pub fn rows(
   }
   let reply = match phase {
     Unchecked | Checking => return rows
-    CheckFailed(reason) => {
-      rows.push(problem(text(locale, CheckFailed), reason))
+    CheckFailed(error) => {
+      rows.push(problem(text(locale, CheckFailed), error))
       return rows
     }
     Loaded(reply) | Reloading(reply) => reply
@@ -52,8 +52,8 @@ pub fn rows(
       rows.push(note(text(locale, EngineConnecting)))
     { config_path, engine: Running(NotConfigured), } =>
       rows.push(note(text(locale, NotConfigured(config_path))))
-    { engine: Running(ConfigRejected(path~, reason~)), .. } =>
-      rows.push(problem(text(locale, ConfigRejected(path)), reason))
+    { engine: Running(ConfigFailed(path~, error~)), .. } =>
+      rows.push(problem(text(locale, ConfigFailed(path)), error))
     { engine: Running(Configured(path~, servers=[])), .. } =>
       rows.push(note(text(locale, NoServers(path))))
     { engine: Running(Configured(servers~, ..)), .. } =>
@@ -73,13 +73,13 @@ fn note(message : String) -> @html.Html {
 }
 
 ///|
-/// A row for something that went wrong, with the reason in the words of
+/// A row for something that went wrong, with the error in the words of
 /// whoever reported it (the host or the engine).
-fn problem(title : String, reason : String) -> @html.Html {
+fn problem(title : String, error : String) -> @html.Html {
   @html.div(class="setting-row", [
     @html.div(class="setting-text", [
       @html.div(class="setting-name", title),
-      @html.div(class="setting-desc mcp-error", reason),
+      @html.div(class="setting-desc mcp-error", error),
     ]),
   ])
 }

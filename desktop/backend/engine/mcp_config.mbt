@@ -174,8 +174,8 @@ fn McpSnapshot::restore_path(
       McpConfigUnreadable(path=shown(path), error~)
     McpConfigInvalid(path~, error~) =>
       McpConfigInvalid(path=shown(path), error~)
-    McpStatus(status=ConfigRejected(path~, reason~)) =>
-      McpStatus(status=ConfigRejected(path=shown(path), reason~))
+    McpStatus(status=ConfigFailed(path~, error~)) =>
+      McpStatus(status=ConfigFailed(path=shown(path), error~))
     McpStatus(status=Configured(path~, servers~)) =>
       McpStatus(status=Configured(path=shown(path), servers~))
     other => other
@@ -312,9 +312,9 @@ async test "a new engine is handed its own copy of the MCP configuration" {
   )
   @debug.assert_eq(
     edited.restore_path(
-      McpStatus(status=ConfigRejected(path=edited.given, reason="bad")),
+      McpStatus(status=ConfigFailed(path=edited.given, error="bad")),
     ),
-    McpStatus(status=ConfigRejected(path=path.to_string(), reason="bad")),
+    McpStatus(status=ConfigFailed(path=path.to_string(), error="bad")),
   )
   @debug.assert_eq(
     edited.restore_path(
@@ -486,11 +486,7 @@ async test "MCP status is the live engine's latest report" {
         sink,
         phase=Idle(last_run=None),
       ),
-      mcp: Some({
-        given: "/p/mcp.json",
-        source: "/home/.openseek/mcp.json",
-        revision: "rev",
-      }),
+      mcp: Some({ given: "/p/mcp.json", source: "/home/.openseek/mcp.json", }),
     }
     let sessions : Map[String, SessionSlot] = Map([])
     slot_for(sessions, "s-live").engine = Some(engine)

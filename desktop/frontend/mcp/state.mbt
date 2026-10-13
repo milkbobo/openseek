@@ -34,7 +34,7 @@ pub enum Phase {
   Reloading(@protocol.McpStatusReply)
   /// The question itself failed — the host could not be reached, or could
   /// not answer. Distinct from an engine that is not running and from a
-  /// configuration the engine rejected, which are both answers.
+  /// configuration the engine could not load, which are both answers.
   CheckFailed(String)
 } derive(Eq)
 

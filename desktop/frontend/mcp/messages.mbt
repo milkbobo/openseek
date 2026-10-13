@@ -11,7 +11,7 @@ priv enum UiMessage {
   EngineConnecting
   NotConfigured(String)
   NoServers(String)
-  ConfigRejected(String)
+  ConfigFailed(String)
   CheckFailed
   Connected
   ToolCount(Int32)
@@ -100,11 +100,11 @@ fn text(locale : @i18n.Locale, message : UiMessage) -> String {
       "\{path} 中沒有設定任何伺服器。"
     (Japanese, NoServers(path)) =>
       "\{path} にサーバーがありません。"
-    (English, ConfigRejected(path)) => "\{path} could not be loaded"
-    (Spanish, ConfigRejected(path)) => "No se pudo cargar \{path}"
-    (SimplifiedChinese, ConfigRejected(path)) => "无法加载 \{path}"
-    (TraditionalChinese, ConfigRejected(path)) => "無法載入 \{path}"
-    (Japanese, ConfigRejected(path)) =>
+    (English, ConfigFailed(path)) => "\{path} could not be loaded"
+    (Spanish, ConfigFailed(path)) => "No se pudo cargar \{path}"
+    (SimplifiedChinese, ConfigFailed(path)) => "无法加载 \{path}"
+    (TraditionalChinese, ConfigFailed(path)) => "無法載入 \{path}"
+    (Japanese, ConfigFailed(path)) =>
       "\{path} を読み込めませんでした"
     (English, CheckFailed) => "The status could not be read"
     (Spanish, CheckFailed) => "No se pudo leer el estado"
