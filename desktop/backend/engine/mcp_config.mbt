@@ -46,7 +46,6 @@ priv struct McpConfig {
 async fn resolved_mcp_config() -> McpConfig? {
   guard mcp_config_path() is Some(path) else { return None }
   let text = @fsx.read_text_if_exists(path.to_path()) catch {
-    error if @async.is_being_cancelled() => raise error
     error => return Some({ path, revision: ReadFailed("\{error}"), })
   }
   guard text is Some(text) else { return None }
@@ -135,7 +134,6 @@ async fn snapshot_mcp_config(
 async fn McpSnapshot::discard(self : McpSnapshot) -> Unit {
   guard self.given != self.source else { return }
   @fsx.remove_if_exists(Path(self.given)) catch {
-    error if @async.is_being_cancelled() => raise error
     _ => ()
   }
 }
