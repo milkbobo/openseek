@@ -798,6 +798,11 @@ fn apply_session_snapshot(
       loading_conversation: None,
       conversation_load_failure: None,
     }
+    if next.fork_focus is Some(target) &&
+      target.matches_record(channel, session, conv.project(), conv.record) {
+      commands.push(@composer.focus_message_end())
+      next = { ..next, fork_focus: None, }
+    }
     // An archived transcript has no runnable checkout to inspect here. Its
     // retained workspace placement is still available to file links, but git
     // state is refreshed only after an unarchive turns the record live.
@@ -5189,6 +5194,10 @@ fn update_msg(
         (@cmd.none, model)
       }
     }
+    ForkRequested(slot~, through~) =>
+      model.request_fork(dispatch, slot, through)
+    ForkCompleted(pending, result) =>
+      model.finish_fork(dispatch, pending, result)
     // A transcript link naming a session on the device already focused. It
     // delegates rather than duplicating: the sub-run child this opens is an
     // ordinary durable session, and `OpenSession` is how one is opened.
@@ -10139,6 +10148,7 @@ test "a later run does not confuse identical historical reasoning for its commit
           calls=[],
           replay=false,
           finished=false,
+          end_sequence=None,
         ),
         ts: None,
         sequence: Some(2),
@@ -10180,6 +10190,7 @@ test "a new model step advances past identical reasoning from the prior step" {
           calls=[],
           replay=false,
           finished=false,
+          end_sequence=None,
         ),
         ts: None,
         sequence: Some(2),
@@ -10522,6 +10533,7 @@ test "finished run reloads the named durable session for an old host" {
             calls=[],
             replay=false,
             finished=false,
+            end_sequence=None,
           ),
           ts: None,
           sequence: None,
@@ -11934,6 +11946,7 @@ test "same-id session loads are fenced by channel owner" {
               calls=[],
               replay=false,
               finished=false,
+              end_sequence=None,
             ),
             ts: None,
             sequence: None,
@@ -12009,6 +12022,7 @@ test "reselecting a synced active session reloads idle external writes" {
             calls=[],
             replay=false,
             finished=false,
+            end_sequence=None,
           ),
           ts: None,
           sequence: None,
@@ -12482,6 +12496,7 @@ test "session loaded swaps the active conversation onto the stored session" {
         calls=[],
         replay=false,
         finished=false,
+        end_sequence=None,
       ),
       ts: None,
       sequence: None,
@@ -13085,6 +13100,7 @@ test "an accepted start response opens the run without Started" {
             calls=[],
             replay=false,
             finished=false,
+            end_sequence=None,
           ),
           ts: None,
           sequence: None,
@@ -14221,6 +14237,7 @@ test "a foreign background run schedules one causal read after Started" {
             calls=[],
             replay=false,
             finished=false,
+            end_sequence=None,
           ),
           ts: None,
           sequence: None,
@@ -16632,6 +16649,7 @@ test "switching same-id archived stores fences the first transcript load" {
             calls=[],
             replay=false,
             finished=false,
+            end_sequence=None,
           ),
           ts: None,
           sequence: Some(1),
@@ -16659,6 +16677,7 @@ test "switching same-id archived stores fences the first transcript load" {
             calls=[],
             replay=false,
             finished=false,
+            end_sequence=None,
           ),
           ts: None,
           sequence: Some(1),
@@ -16729,6 +16748,7 @@ test "an archived snapshot stays open across archived-list reconciliation" {
             calls=[],
             replay=false,
             finished=false,
+            end_sequence=None,
           ),
           ts: None,
           sequence: Some(1),
@@ -16766,6 +16786,7 @@ test "unarchiving an open transcript fences its archived snapshot" {
           calls=[],
           replay=false,
           finished=false,
+          end_sequence=None,
         ),
         ts: None,
         sequence: Some(1),
@@ -16808,6 +16829,7 @@ test "unarchiving an open transcript fences its archived snapshot" {
             calls=[],
             replay=false,
             finished=false,
+            end_sequence=None,
           ),
           ts: None,
           sequence: Some(1),
@@ -17603,6 +17625,7 @@ test "BridgeReady replaces archive overrides with fresh-list truth" {
           calls=[],
           replay=false,
           finished=false,
+          end_sequence=None,
         ),
         ts: None,
         sequence: Some(1),
@@ -17661,6 +17684,7 @@ test "BridgeReady replaces archive overrides with fresh-list truth" {
             calls=[],
             replay=false,
             finished=false,
+            end_sequence=None,
           ),
           ts: None,
           sequence: Some(1),
@@ -20132,6 +20156,7 @@ test "a snapshot drains buffered commits in sequence order" {
             calls=[],
             replay=false,
             finished=false,
+            end_sequence=None,
           ),
           ts: None,
           sequence: None,
@@ -21942,6 +21967,7 @@ test "a sub-run's progress refreshes the child transcript on screen" {
             calls=[],
             replay=false,
             finished=false,
+            end_sequence=None,
           ),
           ts: None,
           sequence: Some(5),
