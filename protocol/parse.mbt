@@ -299,13 +299,12 @@ pub fn parse(line : Json) -> Event? {
     "workspace_created" =>
       text(fields, "dir").map(dir => WorkspaceCreated(dir~))
     "command_error" => text(fields, "error").map(error => CommandError(error~))
-    "mcp_snapshot" => {
-      guard text(fields, "request_id") is Some(request_id) else { return None }
+    "mcp_status" => {
       let status : McpStatus = match fields.get("status") {
         Some(value) => @json.from_json(value) catch { _ => return None }
         None => return None
       }
-      Some(McpSnapshot(request_id~, status~))
+      Some(McpStatus(status~))
     }
     "mcp_config_ignored" =>
       text(fields, "reason").map(reason => McpConfigIgnored(reason~))

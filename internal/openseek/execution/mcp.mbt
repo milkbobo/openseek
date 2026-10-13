@@ -6,7 +6,7 @@ pub const McpClientVersion : String = "0.2.2"
 /// What this engine holds of MCP: whether it was configured, and for each
 /// configured server what connecting came to. Built once at startup and kept
 /// for the engine's life, because the connections are — it is what an
-/// `mcp_snapshot` reads back.
+/// `mcp_status` event reports.
 enum McpRegistry {
   NotConfigured
   /// The configuration could not be read or decoded, so there are no servers.
@@ -66,7 +66,24 @@ fn McpRegistry::tools(
 }
 
 ///|
-/// The registry as the `mcp_snapshot` event reports it. A server's state is
+/// Run `handler` each time a connected server's connection closes — the one
+/// way this registry's status changes after it is built. The handler must not
+/// block. A connection that closed before this call does not run it, so a
+/// caller reads `status` after installing and reports from there.
+pub fn McpRegistry::on_connection_closed(
+  self : McpRegistry,
+  handler : () -> Unit,
+) -> Unit {
+  guard self is Loaded(entries~, ..) else { return }
+  for entry in entries {
+    if entry.connection is Live(client) {
+      client.set_close_handler(handler)
+    }
+  }
+}
+
+///|
+/// The registry as the `mcp_status` event reports it. A server's state is
 /// read now, not remembered: one that connected at startup and has since lost
 /// its connection is `Lost`, with the tools that are still registered.
 pub fn McpRegistry::status(self : McpRegistry) -> @protocol.McpStatus {

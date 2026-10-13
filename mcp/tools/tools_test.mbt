@@ -390,13 +390,14 @@ async test "connect keeps what each server came to, and a live one reports its l
     assert_true(wedged.connection is Failed("timed out listing its tools"))
     assert_true(bad.connection is Failed(_))
     assert_true(bad.tools.is_empty())
-    // The server exits on its own; the client notices without being asked to
-    // do anything, which is what lets a later status read tell a lost
-    // connection from a live one.
-    @async.with_timeout(10000, () => {
-      while !client.is_closed() {
-        @async.sleep(20)
-      }
-    })
+    // The server exits on its own, and the client says so without being
+    // asked: that is what lets an engine report the loss when it happens.
+    // Install, then read — a connection already gone never runs the handler.
+    let lost : @async.Queue[Unit] = Queue(kind=Unbounded)
+    client.set_close_handler(() => ignore(lost.try_put(()) catch { _ => false }))
+    if !client.is_closed() {
+      @async.with_timeout(10000, () => lost.get())
+    }
+    assert_true(client.is_closed())
   })
 }

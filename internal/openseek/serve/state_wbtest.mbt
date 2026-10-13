@@ -26,15 +26,6 @@ test "serve commands decode and reject with actionable errors" {
     is Ok(JobsSnapshot(request_id="list-1")),
   )
   assert_true(
-    decode_serve_command({ "command": "mcp_snapshot", "request_id": "mcp-1" })
-    is Ok(McpSnapshot(request_id="mcp-1")),
-  )
-  // A reply needs an id to be correlated by.
-  assert_true(
-    decode_serve_command({ "command": "mcp_snapshot", "request_id": "" })
-    is Err(_),
-  )
-  assert_true(
     decode_serve_command({
       "command": "job_stop",
       "request_id": "stop-1",

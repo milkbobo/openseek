@@ -49,6 +49,7 @@ pub struct ExtraTools {
 }
 
 type McpRegistry
+pub fn McpRegistry::on_connection_closed(Self, () -> Unit) -> Unit
 pub fn McpRegistry::status(Self) -> @openseek_protocol.McpStatus
 
 // Type aliases

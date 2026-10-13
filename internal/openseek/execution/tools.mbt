@@ -28,8 +28,8 @@ pub async fn[X] build_extra_tools(
 
 ///|
 /// What `build_extra_tools` wired: the tools, and the MCP registry the MCP
-/// ones came from. A long-lived loop keeps the registry to answer
-/// `mcp_snapshot`; a one-shot turn only needs the tools.
+/// ones came from. A long-lived loop keeps the registry to report it as
+/// `mcp_status`; a one-shot turn only needs the tools.
 pub struct ExtraTools {
   tools : Array[@agent_tool.AgentToolDefinition]
   mcp : McpRegistry

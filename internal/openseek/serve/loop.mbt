@@ -27,6 +27,7 @@
 ///   producers: stdin reader ──────────── Wire(command)
 ///              turn/compact completions ─ TurnDone(finished~) │ CompactDone
 ///              background-job exits ───── BackgroundNotice
+///              MCP connection closes ──── McpConnectionClosed
 ///   pump: for ;; match step
 ///     ├─ Wire(Prompt)          ── active? queue pending : start turn
 ///     ├─ Wire(Steer(Prompt))   ── turn running │ prompt queued? queue steer : reject
@@ -36,6 +37,7 @@
 ///     ├─ Wire(Goal)            ── durable marker; auto=true arms auto-continue
 ///     ├─ Wire(Approval)        ── release a tool blocked INSIDE the active turn
 ///     ├─ BackgroundNotice      ── idle? drain queued context to the log
+///     ├─ McpConnectionClosed   ── emit `mcp_status` if it changed
 ///     ├─ TurnDone              ── drain context ── start next pending work
 ///     │                           └─ armed goal(auto) unmet ⇒ auto-continue
 ///     ├─ CompactDone           ── adopt compacted session ── start next pending
@@ -173,6 +175,24 @@ async fn run_serve(
       deepseek_api_key?=@options.deepseek_api_key(matches),
       api_url?,
     )
+    // What this engine holds of its MCP servers goes out unasked: once now
+    // that connecting is over, and again whenever it changes. The close
+    // handler runs inside a connection's own teardown, so it only wakes the
+    // loop and the loop reports — which also means nothing is sent once the
+    // loop has stopped and the group is closing every connection on the way
+    // out. Installed before the first read, so no close falls between them.
+    mcp.on_connection_closed(() => {
+      ignore(steps.try_put(McpConnectionClosed) catch { _ => false })
+    })
+    let mut reported_mcp = mcp.status()
+    @emit.emit(McpStatus(status=reported_mcp))
+    fn report_mcp_status() {
+      let status = mcp.status()
+      if status != reported_mcp {
+        reported_mcp = status
+        @emit.emit(McpStatus(status~))
+      }
+    }
     // The advisory goal-met gate (--review-gate): built once, shared by
     // every turn; engine-initiated, so it runs on its own allowance.
     let on_goal_met = if @options.review_gate_enabled(matches) {
@@ -623,10 +643,7 @@ async fn run_serve(
                 runtime.queue_steer(Notice(text))
               }
           }
-        // Read at the moment of asking: a server that has died since startup
-        // answers as lost, not as it was.
-        Wire(McpSnapshot(request_id~)) =>
-          @emit.emit(McpSnapshot(request_id~, status=mcp.status()))
+        McpConnectionClosed => report_mcp_status()
         Wire(JobsSnapshot(request_id~)) => {
           let jobs = match tools.background_job_runtime() {
             Some(runtime) => runtime.records()
