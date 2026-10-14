@@ -39,3 +39,9 @@ Prefer accessible roles, labels, and visible text. Use classes only for
 product DOM whose presentation contract is itself under test. Mock network
 traffic with Playwright routes and use retrying assertions instead of fixed
 sleeps.
+
+Keep specs focused on one feature so Playwright can schedule independent files
+across its workers. Each test owns its page and transport harness; shared
+helpers belong in `tests/support/` and must not retain mutable state between
+tests. Minimal transcript cases are split into images, tools, groups, layout,
+edits, and Codex specs, using the shared `MinimalTranscriptHarness` fixture.
