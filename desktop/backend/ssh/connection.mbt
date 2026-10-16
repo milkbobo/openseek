@@ -25,7 +25,7 @@ pub fn Connection::close(self : Connection) -> Unit {
 /// Own the bootstrap SSH process, TCP forwarder, and local WebSocket as one
 /// connection. No RPC travels over SSH stdin/stdout, and requests never replay.
 pub async fn Connection::run(self : Connection, emit : (Json) -> Unit) -> Unit {
-  let stderr = Buffer()
+  let mut stderr = Buffer()
   let result : Result[Unit, Error] = try {
     @async.with_task_group(group => {
       let args = arguments(self.profile.command)
@@ -38,10 +38,10 @@ pub async fn Connection::run(self : Connection, emit : (Json) -> Unit) -> Unit {
       defer errors.close()
       group.spawn_bg(allow_failure=true, () => {
         while errors.read_some(max_len=4096) is Some(bytes) {
-          let room = 8192 - stderr.length()
-          if room > 0 {
-            stderr.write_bytes(bytes[:Int32::min(room, bytes.length())])
+          if stderr.length() + bytes.length() > 8192 {
+            stderr = Buffer()
           }
+          stderr.write_bytes(bytes)
         }
       })
       let bootstrap = @process.spawn(
@@ -54,19 +54,26 @@ pub async fn Connection::run(self : Connection, emit : (Json) -> Unit) -> Unit {
         no_console_window=true,
         cancel_handler=@process.graceful_cancel(timeout=1000),
       )
-      let endpoint = @async.with_timeout(20_000, () => {
-        let line = Buffer()
+      let endpoint = @async.with_timeout(1_200_000, () => {
         for ;; {
-          guard line.length() < 65536 else {
-            raise SshError("SSH bootstrap output too large")
+          let line = Buffer()
+          for ;; {
+            guard line.length() < 65536 else {
+              raise SshError("SSH bootstrap output too large")
+            }
+            let byte = reader.read_exactly(1)
+            if byte == b"\n" {
+              break
+            }
+            line.write_bytes(byte)
           }
-          let byte = reader.read_exactly(1)
-          if byte == b"\n" {
-            break
+          let value = @json.parse(@utf8.decode(line.to_bytes()))
+          if value is { "stage": String(stage), .. } {
+            emit({ "stage": stage })
+          } else {
+            break value
           }
-          line.write_bytes(byte)
         }
-        @json.parse(@utf8.decode(line.to_bytes()))
       })
       guard endpoint
         is {
@@ -167,14 +174,11 @@ pub async fn Connection::run(self : Connection, emit : (Json) -> Unit) -> Unit {
   }
   self.rpc = None
   let detail = @utf8.decode_lossy(stderr.to_bytes()).trim().to_owned()
-  let message = if !detail.is_empty() {
-    detail
-  } else {
-    match result {
+  let message = (match result {
       Ok(_) => "SSH disconnected"
       Err(error) => "SSH connection failed: \{error}"
-    }
-  }
+    }) +
+    (if detail.is_empty() { "" } else { "\n" + detail })
   emit({ "disconnected": message })
 }
 

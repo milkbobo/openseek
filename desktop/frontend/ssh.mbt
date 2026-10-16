@@ -2,29 +2,20 @@
 priv struct SshUi {
   hosts : Array[@protocol.SshProfile]
   command : String
-  server : String
   busy : Bool
   error : String?
-  connecting : Set[String]
+  connecting : Map[String, String]
 } derive(Eq)
 
 ///|
 fn SshUi::empty() -> SshUi {
-  {
-    hosts: [],
-    command: "",
-    server: "openseek",
-    busy: false,
-    error: None,
-    connecting: Set([]),
-  }
+  { hosts: [], command: "", busy: false, error: None, connecting: Map([]), }
 }
 
 ///|
 priv enum SshMsg {
   Open
   Command(String)
-  Server(String)
   Save
   Loaded(Result[@protocol.SshProfiles, String])
   Saved(Result[@protocol.SshProfile, String])
@@ -123,10 +114,25 @@ fn update_ssh(
   guard model.is_desktop else { return (@cmd.none, model) }
   let ui = model.ssh_ui
   match msg {
-    Open => (@cmd.none, { ..model, screen: Settings, project_picker: None, })
+    Open => {
+      let (_, next) = update_msg(dispatch, OpenSetup, {
+        ..model,
+        project_picker: None,
+      })
+      let focus = @cmd.custom_cmd(
+        _ => {
+          if @dom.document().get_element_by_id("ssh-command").to_option()
+            is Some(element) &&
+            element.to_html_element() is Some(input) {
+            input.focus()
+          }
+        },
+        kind=@cmd.after_render,
+      )
+      (focus, next)
+    }
     Command(value) =>
       (@cmd.none, { ..model, ssh_ui: { ..ui, command: value, }, })
-    Server(value) => (@cmd.none, { ..model, ssh_ui: { ..ui, server: value, }, })
     Failed(message) =>
       (
         @cmd.none,
@@ -136,7 +142,7 @@ fn update_ssh(
             ..ui,
             busy: false,
             error: Some(message),
-            connecting: Set([]),
+            connecting: Map([]),
           },
         },
       )
@@ -158,7 +164,7 @@ fn update_ssh(
               @interop.bridge_request(Local, @commands.ssh_save, {
                 id: "",
                 command: ui.command,
-                server: ui.server,
+                server: "openseek",
               }) {
               SshSuccess(value) => Ok(@json.from_json(value))
               SshUnsent(message) | SshRefused(message) | SshUnknown(message) =>
@@ -182,7 +188,7 @@ fn update_ssh(
     }
     Connect(id) => {
       let connecting = ui.connecting.copy()
-      connecting.add(id)
+      connecting[id] = "Connecting…"
       @interop.set_ssh_epoch(Remote(id), None)
       (
         ssh_connect(dispatch, id),
@@ -190,6 +196,9 @@ fn update_ssh(
       )
     }
     Disconnect(id) => {
+      let connecting = ui.connecting.copy()
+      connecting.remove(id)
+      let model = { ..model, ssh_ui: { ..ui, connecting, }, }
       @interop.set_ssh_epoch(Remote(id), None)
       let (cmd, model) = update_device_msg(
         dispatch,
@@ -216,6 +225,15 @@ fn update_ssh(
       }
       let channel : @interop.ChannelId = Remote(id)
       let epoch = epoch.to_int()
+      if event is { "stage": String(stage), .. } && ui.connecting.contains(id) {
+        let connecting = ui.connecting.copy()
+        connecting[id] = match stage {
+          "downloading" => "Downloading OpenSeek…"
+          "installing" => "Running openseek setup…"
+          _ => "Connecting…"
+        }
+        return (@cmd.none, { ..model, ssh_ui: { ..ui, connecting, }, })
+      }
       if event is { "method": "agent.connected", .. } {
         if @interop.current_ssh_epoch(channel) is Some(current) &&
           current > epoch {
@@ -279,7 +297,7 @@ fn ssh_settings(dispatch : @cmd.Emit[Msg], model : Model) -> @html.Html {
       @settings.row(host.command, [
         @html.span(
           if connecting {
-            "Connecting…"
+            ui.connecting.get(host.id).unwrap_or("Connecting…")
           } else if online {
             "Connected"
           } else {
@@ -294,11 +312,18 @@ fn ssh_settings(dispatch : @cmd.Emit[Msg], model : Model) -> @html.Html {
         ),
         @html.button(
           class="button secondary",
-          disabled=connecting,
           on_click=dispatch(
-            Ssh(if online { Disconnect(host.id) } else { Connect(host.id) }),
+            Ssh(
+              if online || connecting {
+                Disconnect(host.id)
+              } else {
+                Connect(host.id)
+              },
+            ),
           ),
-          if online {
+          if connecting {
+            "Cancel"
+          } else if online {
             "Disconnect"
           } else {
             "Connect"
@@ -314,26 +339,14 @@ fn ssh_settings(dispatch : @cmd.Emit[Msg], model : Model) -> @html.Html {
         @html.input(
           value=ui.command,
           placeholder="ssh -p 22 user@host",
-          attrs=@html.Attrs::build().aria_label("SSH command").disabled(ui.busy),
+          attrs=@html.Attrs::build()
+            .id("ssh-command")
+            .aria_label("SSH command")
+            .disabled(ui.busy),
           on_input=dispatch.map(value => Ssh(Command(value))),
         ),
       ],
-      desc="Use an SSH key or agent and a trusted host in ~/.ssh/known_hosts. Connection options: -p, -i, -J, -l, -F.",
-    ),
-  )
-  rows.push(
-    @settings.row(
-      "Remote app-server",
-      [
-        @html.input(
-          value=ui.server,
-          attrs=@html.Attrs::build()
-            .aria_label("Remote app-server")
-            .disabled(ui.busy),
-          on_input=dispatch.map(value => Ssh(Server(value))),
-        ),
-      ],
-      desc="Install the matching OpenSeek CLI release on the remote host. Enter an absolute executable path if it is not on PATH.",
+      desc="SeekMoon downloads OpenSeek CLI and runs openseek setup on this host automatically. Use an SSH key or agent and a trusted host in ~/.ssh/known_hosts. Options: -p, -i, -J, -l, -F.",
     ),
   )
   rows.push(

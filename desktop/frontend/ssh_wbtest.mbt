@@ -69,3 +69,48 @@ test "SSH disconnect retains project identity and removes request readiness" {
   )
   assert_eq(@interop.current_ssh_epoch(channel), None)
 }
+
+///|
+test "adding SSH from the project picker survives navigation reconciliation" {
+  let dispatch = test_dispatch()
+  let (_, initial) = update(dispatch, ToggleSidebar, {
+    ..test_model(),
+    is_desktop: true,
+  })
+  let (_, picker) = update(dispatch, PickProject(Local), initial)
+  assert_true(picker.project_picker is Some(_))
+  let (_, opened) = update(dispatch, Ssh(Open), picker)
+  assert_true(opened.project_picker is None)
+  assert_true(opened.screen is Settings)
+  assert_true(opened.navigation.location is Some({ target: Settings, .. }))
+  let (_, settled) = update(dispatch, ToggleSidebar, opened)
+  assert_true(settled.screen is Settings)
+  let (_, back) = update(dispatch, Navigation(Back), settled)
+  assert_true(back.screen is Chat)
+}
+
+///|
+test "SSH preparation progress can be cancelled and does not revive an offline host" {
+  let dispatch = test_dispatch()
+  let profile : @protocol.SshProfile = {
+    id: "ssh-prepare-test",
+    command: "ssh build",
+    server: "openseek",
+  }
+  let model = { ..test_model(), is_desktop: true, }.register_ssh(profile)
+  let (_, connecting) = update_ssh(dispatch, Connect(profile.id), model)
+  let event = Event({
+    "host_id": profile.id,
+    "epoch": 1,
+    "event": { "stage": "installing" },
+  })
+  let (_, preparing) = update_ssh(dispatch, event, connecting)
+  assert_eq(
+    preparing.ssh_ui.connecting.get(profile.id),
+    Some("Running openseek setup…"),
+  )
+  let (_, cancelled) = update_ssh(dispatch, Disconnect(profile.id), preparing)
+  let (_, stale) = update_ssh(dispatch, event, cancelled)
+  assert_false(stale.ssh_ui.connecting.contains(profile.id))
+  assert_eq(@interop.current_ssh_epoch(Remote(profile.id)), None)
+}

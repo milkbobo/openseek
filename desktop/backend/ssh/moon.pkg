@@ -23,3 +23,7 @@ import {
   "moonbitlang/async/fs",
   "moonbitlang/core/env",
 } for "test"
+
+import {
+  "openseek_desktop/backend/internal/processx",
+} for "wbtest"
