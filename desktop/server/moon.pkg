@@ -1,6 +1,7 @@
 import {
   "moonbitlang/async",
   "moonbitlang/async/fs",
+  "tonyfettes/xlog",
   "moonbitlang/core/argparse",
   "moonbitlang/core/env",
   "moonbitlang/core/string",

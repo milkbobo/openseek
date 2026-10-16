@@ -4,6 +4,7 @@ version = "0.1.5"
 
 import {
   "moonbitlang/async@0.22.4",
+  "tonyfettes/xlog@0.4.2",
   "openseek_desktop/backend@0.1.5",
 }
 

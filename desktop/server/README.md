@@ -20,8 +20,8 @@ line and the private ready file contain `url` (the JSON-RPC WebSocket),
 `token` (this launch's authentication capability), and `entry_url` (the
 desktop frontend URL). Readiness is published after backend initialization.
 
-The TUI's `--connect` and `--token` options accept `url` and `token`. Native
-clients authenticate with the same launch session cookie as browser clients.
+Native clients authenticate with `Cookie: seekmoon_session_<port>=<token>`
+on the returned WebSocket URL.
 The server retains the cookie and browser Origin checks used by Desktop's
 existing development console.
 
@@ -54,3 +54,23 @@ operation error while other features remain available.
 The reusable `host.Server` API binds the same server inside another native
 host, starts its services with `run`, and exposes the same connection details.
 Cancelling its owner closes client sockets and their PTYs.
+
+To build on a machine without Node or the Proton window runtime, use the
+server's scoped workspace:
+
+```sh
+moon -C desktop/server build . --target native --release
+```
+
+Backend logs go to `openseek-server.log` in the runtime directory. SIGINT
+and SIGTERM use the async runtime's cancellation handlers: services unwind,
+client connections close, and their PTYs are reaped before exit.
+
+Run the process smoke against that executable (Python 3 and Git required):
+
+```sh
+python3 desktop/server/smoke.py desktop/server/_build/native/release/build/openseek_desktop/server/server.exe
+```
+
+It isolates HOME and backend state, checks authenticated RPC and frontend
+assets, then sends SIGTERM with a live PTY child and verifies it was reaped.

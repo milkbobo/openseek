@@ -97,11 +97,6 @@ seekmoon-tui *args:
     moon build . --target native
     moon run tui --target native -- --engine '{{justfile_directory()}}/_build/native/debug/build/moonbitlang/openseek/openseek.exe' {{ args }}
 
-# Run a persistent shared backend for terminal and desktop clients.
-seekmoon-server *args:
-    moon build . --target native
-    moon run desktop/server --target native -- --engine '{{justfile_directory()}}/_build/native/debug/build/moonbitlang/openseek/openseek.exe' {{ args }}
-
 # Exercise the terminal UI, native client transport, and shared server.
 seekmoon-tui-test:
     moon test tui tui/client tui/codexchat tui/workbench tui/attachments tui/pages tui/workspace tui/terminal desktop/server desktop/server/host desktop/backend/host desktop/backend/remote --target native
@@ -113,3 +108,8 @@ viz-test-browser:
 # Exercise bundled agent workflows against an offline child contract.
 test-workflows:
     moon run tests/integration/workflows
+
+# Run a persistent shared backend for terminal and desktop clients.
+seekmoon-server *args:
+    moon build . --target native
+    moon run desktop/server --target native -- --engine '{{justfile_directory()}}/_build/native/debug/build/moonbitlang/openseek/openseek.exe' {{ args }}

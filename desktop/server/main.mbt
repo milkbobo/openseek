@@ -73,13 +73,20 @@ async fn main {
       @env.args().get(0).unwrap_or("seekmoon-server"),
     )
   }
+  // Keep the launcher readiness record separate from backend service logs.
+  guard runtime_dir is Some(runtime_dir) else {
+    fail("cannot determine the per-user runtime directory; pass --runtime-dir")
+  }
+  @xlog.global().set_handler(
+    @xlog.File(runtime_dir.join("openseek-server.log").to_string()),
+  )
   let engine = option(matches, "engine").unwrap_or("openseek")
   let engine = if engine.contains("/") || engine.contains("\\") {
     @pathx.Path(engine).resolve().to_string()
   } else {
     engine
   }
-  let server = @host.Server::bind(engine~, port~, runtime_dir?, resources={
+  let server = @host.Server::bind(engine~, port~, runtime_dir~, resources={
     ..@backend_host.HostResources::from_path(),
     viz: match (option(matches, "viz-shell"), option(matches, "viz-bundle")) {
       (Some(shell), Some(bundle)) => Some({ shell, bundle, })
@@ -98,6 +105,7 @@ async fn main {
     on_ready=() => {
       if option(matches, "ready-file") is Some(path) {
         let temporary = path + "." + @uuid.mint() + ".tmp"
+        defer (@fs.remove(temporary) catch { _ => () })
         @fs.write_file(
           temporary,
           ready.stringify(),
