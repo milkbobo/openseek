@@ -3,6 +3,7 @@
 pub fn State::set_demo(self : State, diff~ : Bool = false) -> Unit {
   let root = "/workspace/seekmoon"
   let context : @workbench.Context = {
+    codex_thread: None,
     session: "demo-session",
     workspace: Some(root),
     model: "deepseek-flash",
@@ -18,7 +19,6 @@ pub fn State::set_demo(self : State, diff~ : Bool = false) -> Unit {
   baseline.move_to_start()
   self.tabs.push({
     path: root + "/src/main.mbt",
-    root,
     context,
     editor,
     original: baseline,

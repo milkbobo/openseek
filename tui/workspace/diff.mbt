@@ -18,9 +18,9 @@ fn diff_document(
 ///|
 fn changed_lines(
   document : @diff_model.HunkDocument,
-) -> (Map[String, Unit], Map[String, Unit]) {
-  let removed : Map[String, Unit] = Map([])
-  let added : Map[String, Unit] = Map([])
+) -> (Map[Int32, Unit], Map[Int32, Unit]) {
+  let removed : Map[Int32, Unit] = Map([])
+  let added : Map[Int32, Unit] = Map([])
   for hunk in document.hunks {
     for block in hunk.blocks {
       match block {
@@ -29,11 +29,11 @@ fn changed_lines(
           for row in rows {
             match row {
               Paired(old, new) => {
-                removed[old.text()] = ()
-                added[new.text()] = ()
+                removed[old.index] = ()
+                added[new.index] = ()
               }
-              OldOnly(old) => removed[old.text()] = ()
-              NewOnly(new) => added[new.text()] = ()
+              OldOnly(old) => removed[old.index] = ()
+              NewOnly(new) => added[new.index] = ()
             }
           }
       }
@@ -130,17 +130,12 @@ fn Tab::draw_diff(
     old_body,
     focused=false,
     line_numbers=@tui.Style(fg=Rgb(116, 131, 150)),
-    highlight=line => {
-      [
-        @tui.Span(
-          line,
-          style=if removed.contains(line) {
-            @tui.Style(fg=Rgb(241, 164, 166), bg=Rgb(48, 27, 32))
-          } else {
-            @tui.Style()
-          },
-        ),
-      ]
+    line_style=line => {
+      if removed.contains(line) {
+        @tui.Style(fg=Rgb(241, 164, 166), bg=Rgb(48, 27, 32))
+      } else {
+        @tui.Style()
+      }
     },
   )
   self.editor.draw(
@@ -148,17 +143,12 @@ fn Tab::draw_diff(
     new_body,
     focused~,
     line_numbers=@tui.Style(fg=Rgb(116, 131, 150)),
-    highlight=line => {
-      [
-        @tui.Span(
-          line,
-          style=if added.contains(line) {
-            @tui.Style(fg=Rgb(139, 222, 173), bg=Rgb(20, 45, 32))
-          } else {
-            @tui.Style()
-          },
-        ),
-      ]
+    line_style=line => {
+      if added.contains(line) {
+        @tui.Style(fg=Rgb(139, 222, 173), bg=Rgb(20, 45, 32))
+      } else {
+        @tui.Style()
+      }
     },
   )
 }

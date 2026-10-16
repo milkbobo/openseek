@@ -1,6 +1,7 @@
 ///|
 fn context() -> @workbench.Context {
   {
+    codex_thread: None,
     session: "example",
     workspace: Some("/workspace/example"),
     model: "deepseek-v4-pro",

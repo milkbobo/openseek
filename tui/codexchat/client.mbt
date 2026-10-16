@@ -22,16 +22,31 @@ pub async fn State::list(
   self : State,
   client : @client.Client,
   archived~ : Bool = false,
+  only? : Set[String],
 ) -> Array[Thread] {
   let result : Array[Thread] = []
   let mut cursor : String? = None
   for ;; {
+    let before = self.revisions.copy()
     let reply = success(
       client.call(@commands.codex_thread_list, { limit: 100, archived, cursor, }),
     )
     for value in reply.data {
       if decode_thread(value) is Some(thread) {
-        result.push(self.install(thread, preserve=true))
+        if only is Some(ids) && !ids.contains(thread.id) {
+          continue
+        }
+        let thread = self.install(thread, preserve=true)
+        result.push(
+          self.put({
+            ..thread,
+            archived: if self.revisions.get(thread.id) == before.get(thread.id) {
+              archived
+            } else {
+              thread.archived
+            },
+          }),
+        )
       }
     }
     guard reply.next_cursor is Some(next) else { break }

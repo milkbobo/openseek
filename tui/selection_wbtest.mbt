@@ -68,6 +68,19 @@ async test "local editor aliases share quoted path parsing and preserve the nati
           id,
           @protocol.WorktreesReply::{ worktrees: [], }.to_json(),
         )
+        if command == "/diff" {
+          let (id, _) = terminal_request(socket, "git.changes")
+          selection_reply(
+            socket,
+            id,
+            @protocol.GitChangesReply::{
+              repository: true,
+              head: Some("head"),
+              baseline: Some("baseline"),
+              changes: [],
+            }.to_json(),
+          )
+        }
         let (id, params) = terminal_request(socket, "fs.read_file")
         let payload : @protocol.ReadFilePayload = @json.from_json(params)
         assert_eq(payload.path, "src/a file.mbt")

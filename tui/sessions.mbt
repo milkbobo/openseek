@@ -297,6 +297,22 @@ async fn State::resync(self : State, client : @client.Client) -> Unit {
   let settings = client.call(@commands.settings_get, @protocol.NoPayload)
   self.apply_settings(settings)
   let active = self.active
+  if !self.codex.threads().is_empty() {
+    let tracked = Set(
+      self.chats.values().filter_map(chat => chat.codex_id()).collect(),
+    )
+    try {
+      for archived in [false, true] {
+        for thread in self.codex.list(client, archived~, only=tracked) {
+          self.install_codex(thread)
+        }
+      }
+      self.codex_catalog_error = None
+    } catch {
+      error if @async.is_being_cancelled() => raise error
+      error => self.codex_catalog_error = Some(error.to_string())
+    }
+  }
   for chat in self.chats.values().collect() {
     if chat.codex_id() is Some(id) {
       self.install_codex(self.codex.read(client, id)) catch {
@@ -335,6 +351,7 @@ async fn State::resync(self : State, client : @client.Client) -> Unit {
 fn State::context(self : State) -> @workbench.Context {
   {
     session: self.active.codex_id().unwrap_or(self.active.key.session),
+    codex_thread: self.active.codex_id(),
     workspace: self.active.key.workspace,
     model: self.model,
     run_id: self.active.run_id,
@@ -352,10 +369,34 @@ async fn State::send_prompt(
   guard !chat.key.archived else {
     fail("Unarchive this chat before sending a prompt")
   }
+  if chat.codex_id() is Some(_) && self.codex_catalog_error is Some(error) {
+    fail(
+      "Cannot verify Codex archive state; reconnect before sending: " + error,
+    )
+  }
   let draft_before = chat.draft.text()
   let submitted_text = text
   if chat.codex_id() is None && !chat.loaded && chat.run_id is None {
     self.prepare_workspace(client, chat)
+  }
+  if chat.codex_id() is Some(id) &&
+    chat.codex_place_pending &&
+    chat.run_id is None &&
+    chat.key.workspace is Some(workspace) {
+    let settings = client.call(@commands.workspace_settings_get, { workspace, })
+    if settings.worktree_mode {
+      let created = client.call(@commands.worktree_create, {
+        workspace: settings.workspace,
+        session: None,
+        codex_thread: Some(id),
+      })
+      if created is WorktreeCreateError(message) {
+        fail(message)
+      }
+      if physical_equal(self.active, chat) {
+        self.refresh_selected_workspace(client)
+      }
+    }
   }
   let (text, images) = chat.prepare_prompt(client, text)
   if chat.codex_id() is Some(id) {
@@ -364,6 +405,7 @@ async fn State::send_prompt(
       id,
       text,
       model?=self.codex_model,
+      effort?=self.codex_effort,
       images~,
     )
     self.install_codex(thread)
@@ -371,6 +413,7 @@ async fn State::send_prompt(
       chat.draft.clear()
     }
     chat.attachments.clear()
+    chat.codex_place_pending = false
     return
   }
   let submission = self.submission()

@@ -38,11 +38,7 @@ async fn State::upload(
     fail("Attachments must be nonempty and 20 MiB or smaller")
   }
   let bytes = file.read_exactly_at(size.to_int(), position=0L)
-  let name = path
-    .split("/")
-    .last()
-    .map(value => value.to_owned())
-    .unwrap_or("attachment")
+  let name = upload_name(path)
   self.notice = self.active.attachments.attach(
     client,
     self.active.codex_id().unwrap_or(self.active.key.session),
@@ -81,4 +77,14 @@ fn attachment_path(value : String) -> String {
     }
   }
   path
+}
+
+///|
+fn upload_name(path : String) -> String {
+  path
+  .replace_all(old="\\", new="/")
+  .split("/")
+  .last()
+  .map(value => value.to_owned())
+  .unwrap_or("attachment")
 }

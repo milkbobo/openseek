@@ -35,6 +35,7 @@ struct Chat {
   scroll : @tui.Scroll
   selection : @tui.Selection
   mut watermark : Int32
+  mut codex_place_pending : Bool
   mut loaded : Bool
   mut loading : Bool
   mut needs_reload : Bool
@@ -66,6 +67,7 @@ fn Chat::Chat(key : ChatKey, title~ : String = "New chat") -> Chat {
     scroll: @tui.Scroll(stick_to_bottom=true),
     selection: @tui.Selection(),
     watermark: 0,
+    codex_place_pending: false,
     loaded: false,
     loading: false,
     needs_reload: false,
@@ -111,6 +113,9 @@ struct State {
   mut right_visible : Bool
   mut editor_visible : Bool
   codex : @codexchat.State
+  mut startup_applied : Bool
+  mut codex_catalog_error : String?
+  mut codex_effort : String?
   mut codex_model : String?
   mut resync_needed : Bool
   chats : Map[ChatKey, Chat]
@@ -159,6 +164,9 @@ fn State::State(workspace : String?) -> State {
     right_visible: true,
     editor_visible: true,
     codex: @codexchat.State(),
+    startup_applied: false,
+    codex_catalog_error: None,
+    codex_effort: None,
     codex_model: None,
     resync_needed: false,
     chats: Map([(active.key, active)]),

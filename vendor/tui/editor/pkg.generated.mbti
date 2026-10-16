@@ -18,7 +18,7 @@ pub fn Editor::clear(Self) -> Unit
 pub fn Editor::delete_after(Self) -> Unit
 pub fn Editor::delete_before(Self) -> Unit
 pub fn Editor::delete_word_before(Self) -> Unit
-pub fn Editor::draw(Self, @tui.Frame, @tui.Rect, style? : @tui.Style, focused? : Bool, highlight? : (String) -> Array[@tui.Span], line_numbers? : @tui.Style, current_line? : @tui.Style) -> Unit
+pub fn Editor::draw(Self, @tui.Frame, @tui.Rect, style? : @tui.Style, focused? : Bool, highlight? : (String) -> Array[@tui.Span], line_numbers? : @tui.Style, current_line? : @tui.Style, line_style? : (Int) -> @tui.Style) -> Unit
 pub fn Editor::height(Self, width~ : Int, max? : Int) -> Int
 pub fn Editor::insert(Self, StringView) -> Unit
 pub fn Editor::is_empty(Self) -> Bool

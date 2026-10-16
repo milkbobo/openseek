@@ -1,6 +1,7 @@
 ///|
 fn context() -> @workbench.Context {
   {
+    codex_thread: None,
     session: "conversation-1",
     workspace: Some("/projects/work"),
     model: "deepseek-v4-pro",
@@ -257,4 +258,16 @@ test "all feature families have typed operations" {
   for (input, expected) in cases {
     assert_eq(@workbench.plan(input, context()).command_name(), expected)
   }
+}
+
+///|
+test "Codex worktree creation carries only the Codex owner" {
+  let plan = @workbench.plan("/worktree create", {
+    ..context(),
+    session: "thread",
+    codex_thread: Some("thread"),
+  })
+  let payload : @protocol.WorktreeCreatePayload = @json.from_json(plan.params())
+  assert_eq(payload.session, None)
+  assert_eq(payload.codex_thread, Some("thread"))
 }

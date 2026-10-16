@@ -93,6 +93,8 @@ Use `/help` for the full command catalog. Paths and arguments in workbench comma
 | Export and share | `/export`, `/share`; the standalone server needs visualizer assets for HTML export |
 | Terminal | Interactive shell, resize, keyboard/mouse input, scrollback, full-screen programs, terminal editors |
 
+For OpenSeek, `/thinking off|high|max` selects reasoning. For Codex, use `/thinking none|minimal|low|medium|high|xhigh`; accepted efforts depend on the selected model.
+
 File and code operations follow the conversation's registered worktree placement. Git comparison uses the server's immutable task baseline and preserves rename source paths. Search requests have monotonically increasing generations so a stale search cannot replace a newer query.
 
 `/attach SERVER_PATH` attaches a file already on the server. `/upload LOCAL_PATH` uploads a client-local image or document, including when connected to a different server. `/attachments` lists the draft attachments; `/detach NUMBER` removes one. Images travel in the model image input, while PDFs, DOCX and XLSX originals retain file references. Attachments remain in the composer when a send fails.

@@ -1,7 +1,6 @@
 ///|
 priv struct Tab {
   path : String
-  root : String
   context : @workbench.Context
   editor : @editor.Editor
   original : @editor.Editor
@@ -124,8 +123,11 @@ async fn checkout(
   if reply.worktrees
     .iter()
     .find_first(tree => {
-      tree.sessions.contains(context.session) ||
-      tree.codex_thread == Some(context.session)
+      if context.codex_thread is Some(id) {
+        tree.codex_thread == Some(id)
+      } else {
+        tree.sessions.contains(context.session)
+      }
     })
     is Some(tree) {
     guard tree.present else {
@@ -200,19 +202,43 @@ pub async fn State::open(
   diff~ : Bool = false,
 ) -> Unit {
   let root = checkout(client, context)
-  let reply = client.call(@commands.fs_read_file, @protocol.ReadFilePayload::{
-    path,
-    root: if path.has_prefix("/") {
-      None
-    } else {
-      Some(root)
-    },
+  let relative = path
+    .strip_prefix(root.trim_end(chars="/").to_owned() + "/")
+    .map(part => part.to_owned())
+    .unwrap_or(path)
+  let changes = if diff {
+    Some(
+      client.call(@commands.git_changes, {
+        session: context.session,
+        workspace: context.workspace,
+      }),
+    )
+  } else {
+    None
+  }
+  let change = changes.bind(changes => {
+    changes.changes.iter().find_first(change => change.path == relative)
   })
-  let (content, absolute) = match reply {
-    Content(content~, absolute~, ..) => (content, absolute)
-    Binary | BinaryContent(..) =>
-      fail("This file is binary; use its desktop preview or a terminal viewer")
-    Oversized => fail("This file exceeds the editor's text preview limit")
+  let deleted = change is Some({ kind: "deleted", .. })
+  let (content, absolute) = if deleted {
+    ("", root.trim_end(chars="/").to_owned() + "/" + relative)
+  } else {
+    let reply = client.call(@commands.fs_read_file, @protocol.ReadFilePayload::{
+      path,
+      root: if path.has_prefix("/") {
+        None
+      } else {
+        Some(root)
+      },
+    })
+    match reply {
+      Content(content~, absolute~, ..) => (content, absolute)
+      Binary | BinaryContent(..) =>
+        fail(
+          "This file is binary; use its desktop preview or a terminal viewer",
+        )
+      Oversized => fail("This file exceeds the editor's text preview limit")
+    }
   }
   let tab = if self.tabs.search_by(tab => tab.path == absolute) is Some(index) {
     self.active = index
@@ -222,11 +248,14 @@ pub async fn State::open(
     editor.move_to_start()
     let tab : Tab = {
       path: absolute,
-      root,
       context,
       editor,
       original: @editor.Editor(preserve_text=true),
-      baseline: Some(content),
+      baseline: if deleted {
+        None
+      } else {
+        Some(content)
+      },
       external_changed: false,
       diff: false,
       unified: false,
@@ -239,15 +268,17 @@ pub async fn State::open(
     tab
   }
   if diff {
-    let relative = absolute
-      .strip_prefix(tab.root.trim_end(chars="/").to_owned() + "/")
-      .map(part => part.to_owned())
-      .unwrap_or(path)
     let original = client.call(@commands.git_original_file, @protocol.GitOriginalFilePayload::{
       session: context.session,
       workspace: context.workspace,
-      path: relative,
-      revision: None,
+      path: change.bind(change => change.original_path).unwrap_or(relative),
+      revision: changes.bind(changes => {
+        if changes.baseline is Some(base) {
+          Some(base)
+        } else {
+          changes.head
+        }
+      }),
     })
     let source = match original {
       OriginalContent(text) => text
@@ -353,7 +384,6 @@ pub async fn State::key(
       let path = root.trim_end(chars="/").to_owned() + "/" + name
       self.tabs.push({
         path,
-        root,
         context,
         editor: @editor.Editor(preserve_text=true),
         original: @editor.Editor(preserve_text=true),
@@ -423,6 +453,13 @@ pub async fn State::key(
         self.message = "New file path, relative to project root"
       }
       _ => return false
+    }
+    let height = (self.tree_area.height - 1).max(0)
+    if self.selected < self.top {
+      self.top = self.selected
+    }
+    if self.selected >= self.top + height && height > 0 {
+      self.top = self.selected - height + 1
     }
     return true
   }
@@ -572,12 +609,7 @@ pub fn State::draw_tree(
     ),
   )
   let height = (area.height - 1).max(0)
-  if self.selected < self.top {
-    self.top = self.selected
-  }
-  if self.selected >= self.top + height && height > 0 {
-    self.top = self.selected - height + 1
-  }
+  self.top = self.top.min((self.tree.length() - height).max(0))
   for index in self.top..<(self.top + height).min(self.tree.length()) {
     let item = self.tree[index]
     let expanded = self.tree

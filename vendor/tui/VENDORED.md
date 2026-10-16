@@ -19,3 +19,5 @@ Local changes:
   and other source text while retaining the existing composer defaults.
 - Added opt-in `Frame(inherit_colors=true)` so text can retain painted panel
   colors instead of reverting to the outer terminal's default palette.
+- Added optional `Editor.draw(line_style~)` to color zero-based source lines
+  correctly across wrapping and scrolling, including duplicate line text.

@@ -822,6 +822,7 @@ pub fn Editor::layout(self : Editor, width~ : Int32, height~ : Int32) -> Layout 
 ///   laid over `style`.
 /// - `line_numbers` shows a column of line numbers in that style on the left.
 ///   Rows that continue a wrapped line have no number.
+/// - `line_style` colors a zero-based source line, including wrapped rows.
 /// - `current_line` is laid over `style` on the rows of the line the cursor
 ///   is on, typically to give them a different background.
 pub fn Editor::draw(
@@ -833,6 +834,7 @@ pub fn Editor::draw(
   highlight? : (String) -> Array[@tui.Span],
   line_numbers? : @tui.Style,
   current_line? : @tui.Style,
+  line_style? : (Int32) -> @tui.Style,
 ) -> Unit {
   // The last row's line is the last line, so it gives the widest number.
   let unwrapped = self.rows(0)
@@ -872,6 +874,12 @@ pub fn Editor::draw(
       width=text.width,
       height=1,
     )
+    let style = if line_style is Some(line_style) {
+      merge(style, line_style(row.line))
+    } else {
+      style
+    }
+    frame.fill(row_area, style~)
     let base = if current_line is Some(current) && row.line == cursor_line {
       let base = merge(style, current)
       frame.fill(row_area, style=base)

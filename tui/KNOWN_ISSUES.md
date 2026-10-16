@@ -41,14 +41,22 @@ The following issues are implemented and covered by regressions. They are needed
   benchmark with 20, 200 and 1,000 mixed Chinese/English messages. This measures
   view construction, excluding terminal output and the terminal emulator.
 
+## Review follow-ups
+
+- Startup page/session selection is consumed after successful initialization; reconnect preserves later navigation.
+- Explorer wheel scrolling no longer snaps back to the selected row. Keyboard navigation still reveals its selection.
+- Native diff tabs use the task baseline, renamed source paths and deleted-file originals. Split-pane colors use source line numbers, including CRLF and repeated lines.
+- Codex reasoning effort is sent explicitly. New Codex chats honor worktree placement, stop on creation failure and refresh the selected explorer. Manual worktree creation uses Codex ownership.
+- Codex archive catalogs and notifications preserve read-only identity, including reconnect and stale-list races.
+- Local uploads extract filenames from both Windows and POSIX paths. The CLI uses core argparse.
+
 ## Remaining observations
 
 - In a wide diff editor, the original pane remains at its own scroll position while moving through the editable pane. The unified preview has one scroll position. A later improvement can map corresponding lines through the diff hunks and synchronize both panes without changing file contents.
 - Files outside the selected checkout and files in inactive checkout tabs are saved with the same conflict checks, but the current connection's explorer watcher follows the selected checkout. Those tabs refresh when their checkout is selected; an explicit reload/revert action would improve inspection of inactive external changes.
-- An explicit startup `--page` or `--session` is reapplied on reconnect. A user who navigates elsewhere after launching with either option can return to that startup selection when the connection is repaired. A later improvement should consume these options after the first successful initialization and preserve subsequent user navigation.
 
 ## Verification
 
-Verified on Linux with the repository's native and JavaScript targets: `just check`, `just test`, and `just build` passed. The full suite passed 4,425 native tests, 4,265 JavaScript tests, 84 CLI documentation cases, and the offline CLI lifecycle/workflow integration checks. Fixture Git commits were run with signing disabled through a temporary `git` wrapper on the test process's `PATH`; no global Git configuration was changed. The first cold run of external pinned `moonx` CLI tools exceeded existing background-job test polling budgets; those tests passed with the tools cached.
+The original implementation was verified on Linux with the repository's native and JavaScript targets: `just check`, `just test`, and `just build` passed. The full suite passed 4,425 native tests, 4,265 JavaScript tests, 84 CLI documentation cases, and the offline CLI lifecycle/workflow integration checks. Fixture Git commits were run with signing disabled through a temporary `git` wrapper on the test process's `PATH`; no global Git configuration was changed. The first cold run of external pinned `moonx` CLI tools exceeded existing background-job test polling budgets; those tests passed with the tools cached.
 
 A real PTY smoke session opened, edited, and saved a file; opened its Git diff; executed a command in the bottom terminal; resized the outer terminal; restarted the server with a new token and saved through the reconnected client; and quit cleanly. No live model call was needed. Listener cleanup regressions assert on the original closed handles rather than racing to rebind released ephemeral ports.

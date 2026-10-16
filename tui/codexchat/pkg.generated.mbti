@@ -3,6 +3,7 @@ package "moonbitlang/seekmoon_tui/codexchat"
 
 import {
   "moonbitlang/core/debug",
+  "moonbitlang/core/set",
   "moonbitlang/seekmoon_tui/client",
   "openseek_desktop/protocol",
 }
@@ -42,7 +43,7 @@ pub fn State::apply_request(Self, Json) -> Bool
 pub fn State::apply_request_snapshot(Self, @protocol.CodexServerRequestsReply) -> Unit
 pub fn State::begin_connection(Self) -> Unit
 pub async fn State::interrupt(Self, @client.Client, String) -> Unit
-pub async fn State::list(Self, @client.Client, archived? : Bool) -> Array[Thread]
+pub async fn State::list(Self, @client.Client, archived? : Bool, only? : @set.Set[String]) -> Array[Thread]
 pub async fn State::read(Self, @client.Client, String) -> Thread
 pub fn State::requests(Self) -> Array[PendingRequest]
 pub async fn State::respond(Self, @client.Client, String, Json) -> Unit
@@ -59,6 +60,7 @@ pub struct Thread {
   cwd : String?
   project_root : String?
   status : String
+  archived : Bool
   turn_id : String?
   messages : Array[Message]
 }

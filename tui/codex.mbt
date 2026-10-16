@@ -17,15 +17,24 @@ fn State::install_codex(
   let key : ChatKey = {
     session: "codex:" + thread.id,
     workspace,
-    archived: false,
+    archived: thread.archived,
   }
   let chat = self.chats
-    .get(key)
-    .unwrap_or_else(() => {
-      let chat = Chat(key, title=thread.title)
-      self.chats[key] = chat
-      chat
-    })
+    .values()
+    .iter()
+    .find_first(chat => chat.codex_id() == Some(thread.id))
+    .unwrap_or_else(() => Chat(key, title=thread.title))
+  let old_key = chat.key
+  self.chats.remove(old_key)
+  chat.key = key
+  self.chats[key] = chat
+  self.sidebar = self.sidebar.map(item => {
+    if item == old_key {
+      key
+    } else {
+      item
+    }
+  })
   chat.rows.clear()
   for message in thread.messages {
     chat.rows.push({
@@ -86,6 +95,7 @@ async fn State::codex_command(
         model?=self.codex_model,
       )
       self.install_codex(thread, select=true)
+      self.active.codex_place_pending = true
       self.refresh_selected_workspace(client)
     }
     "open" => {

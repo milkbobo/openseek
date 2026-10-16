@@ -187,7 +187,7 @@ fn State::view(self : State, size : @tui.Size) -> @tui.Frame {
   frame.line(
     regions.tabs,
     @tui.Line::from_text(
-      " Chat · \{provider} / \{model}  ·  \{self.thinking.wire()}",
+      " Chat · \{provider} / \{model}  ·  \{if self.active.codex_id() is Some(_) { self.codex_effort.unwrap_or("default") } else { self.thinking.wire() }}",
       style=muted(),
     ),
   )

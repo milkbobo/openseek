@@ -15,6 +15,7 @@ pub struct Thread {
   cwd : String?
   project_root : String?
   status : String
+  archived : Bool
   turn_id : String?
   messages : Array[Message]
 }
@@ -80,6 +81,7 @@ fn empty_thread(id : String) -> Thread {
     cwd: None,
     project_root: None,
     status: "idle",
+    archived: false,
     turn_id: None,
     messages: [],
   }
@@ -293,6 +295,13 @@ pub fn decode_thread(value : Json) -> Thread? {
 
 ///|
 fn State::install(self : State, incoming : Thread, preserve~ : Bool) -> Thread {
+  let incoming = {
+    ..incoming,
+    archived: self.threads
+    .get(incoming.id)
+    .map(thread => thread.archived)
+    .unwrap_or(incoming.archived),
+  }
   let incoming = if self.threads.get(incoming.id) is Some(previous) && preserve {
     let mut messages = incoming.messages
     for live in previous.messages {

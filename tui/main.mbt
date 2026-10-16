@@ -24,72 +24,57 @@ struct Options {
 }
 
 ///|
-fn options(args : Array[String]) -> Options raise {
-  let mut connect = None
-  let mut token = @env.get_env_var("SEEKMOON_SERVER_TOKEN")
-  let mut server_file = None
-  let mut page = None
-  let mut workspace = @env.current_dir()
-  let mut session = None
-  let mut engine = @env.get_env_var("OPENSEEK_ENGINE").unwrap_or("openseek")
-  let mut frontend = None
-  let mut entry = "index.html"
-  let mut demo = false
-  let mut snapshot = false
-  let mut help = false
-  let mut index = 1
-  while index < args.length() {
-    let arg = args[index]
-    match arg {
-      "--demo" => demo = true
-      "--snapshot" => {
-        demo = true
-        snapshot = true
-      }
-      "--help" | "-h" => help = true
-      "--connect"
-      | "--token"
-      | "--server-file"
-      | "--workspace"
-      | "--session"
-      | "--engine"
-      | "--frontend"
-      | "--entry"
-      | "--page" => {
-        index += 1
-        guard args.get(index) is Some(value) else {
-          fail("Missing value for \{arg}")
-        }
-        match arg {
-          "--connect" => connect = Some(value)
-          "--token" => token = Some(value)
-          "--server-file" => server_file = Some(value)
-          "--workspace" => workspace = Some(value)
-          "--session" => session = Some(value)
-          "--engine" => engine = value
-          "--frontend" => frontend = Some(value)
-          "--entry" => entry = value
-          "--page" => page = Some(value)
-          _ => ()
-        }
-      }
-      _ => fail("Unknown option \{arg}; use --help")
-    }
-    index += 1
+let command : @argparse.Command = Command(
+  "seekmoon-tui",
+  about="SeekMoon terminal client. Starts a shared backend unless --connect or --server-file is supplied.",
+  disable_help_flag=true,
+  options=[
+    OptionArg("connect", long="connect"),
+    OptionArg("token", long="token", env="SEEKMOON_SERVER_TOKEN"),
+    OptionArg("server-file", long="server-file"),
+    OptionArg("page", long="page"),
+    OptionArg("workspace", long="workspace"),
+    OptionArg("session", long="session"),
+    OptionArg("engine", long="engine", env="OPENSEEK_ENGINE", default_values=[
+      "openseek",
+    ]),
+    OptionArg("frontend", long="frontend"),
+    OptionArg("entry", long="entry", default_values=["index.html"]),
+  ],
+  flags=[
+    FlagArg("demo", long="demo"),
+    FlagArg("snapshot", long="snapshot"),
+    FlagArg("help", long="help", short='h'),
+  ],
+)
+
+///|
+fn options(
+  args : Array[String],
+  env~ : Map[String, String] = @env.get_env_vars(),
+) -> Options raise {
+  let matches = command.parse(argv=args[1:], env~)
+  fn value(name : String) -> String? {
+    matches.values.get(name).bind(values => values.get(0))
   }
   {
-    connect,
-    token,
-    server_file,
-    page,
-    workspace,
-    session,
-    engine,
-    frontend,
-    entry,
-    demo,
-    snapshot,
-    help,
+    connect: value("connect"),
+    token: value("token"),
+    server_file: value("server-file"),
+    page: value("page"),
+    workspace: if value("workspace") is Some(path) {
+      Some(path)
+    } else {
+      @env.current_dir()
+    },
+    session: value("session"),
+    engine: value("engine").unwrap_or("openseek"),
+    frontend: value("frontend"),
+    entry: value("entry").unwrap_or("index.html"),
+    demo: matches.flags.get("demo").unwrap_or(false) ||
+    matches.flags.get("snapshot").unwrap_or(false),
+    snapshot: matches.flags.get("snapshot").unwrap_or(false),
+    help: matches.flags.get("help").unwrap_or(false),
   }
 }
 
@@ -149,9 +134,7 @@ fn demo_state() -> State {
 async fn main {
   let opts = options(@env.args())
   if opts.help {
-    println(
-      "SeekMoon terminal client\n\nseekmoon-tui [--workspace PATH] [--session ID] [--engine PATH]\n  --connect WS_URL --token TOKEN    Join an existing shared server\n  --server-file PATH               Read the server's readiness file\n  --frontend PATH [--entry FILE]    Serve desktop/browser frontend too\n  --demo                           Interactive offline example\n  --snapshot                       Print the offline example as text\n\nWithout --connect, starts a shared server for this TUI's lifetime.\nUse just seekmoon-server for a persistent server shared by multiple clients.",
-    )
+    println(command.render_help())
     return
   }
   if opts.demo {
@@ -334,23 +317,7 @@ async fn run_connection(
       }
       try {
         state.resync(client)
-        if opts.page is Some(name) {
-          state.show_page(
-            client,
-            Some(
-              match name {
-                "skills" => @pages.Skills
-                "settings" => @pages.Settings
-                "schedules" => @pages.Schedules
-                _ => fail("--page must be skills, settings, or schedules")
-              },
-            ),
-          )
-        }
-        if opts.session is Some(session) &&
-          state.unique_session(session) is Some(chat) {
-          state.load_chat(client, chat)
-        }
+        state.apply_startup(client, opts)
         if state.resync_needed {
           state.resync_needed = false
           state.resync(client)
@@ -487,4 +454,32 @@ fn[G] State::run_action(
     self.busy = false
     events.put(Redraw)
   })
+}
+
+///|
+async fn State::apply_startup(
+  self : State,
+  client : @client.Client,
+  opts : Options,
+) -> Unit {
+  if !self.startup_applied {
+    if opts.page is Some(name) {
+      self.show_page(
+        client,
+        Some(
+          match name {
+            "skills" => @pages.Skills
+            "settings" => @pages.Settings
+            "schedules" => @pages.Schedules
+            _ => fail("--page must be skills, settings, or schedules")
+          },
+        ),
+      )
+    }
+    if opts.session is Some(session) &&
+      self.unique_session(session) is Some(chat) {
+      self.load_chat(client, chat)
+    }
+    self.startup_applied = true
+  }
 }

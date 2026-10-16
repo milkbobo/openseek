@@ -2,6 +2,7 @@
 /// The selected conversation supplies authority and default scope for commands.
 pub(all) struct Context {
   session : String
+  codex_thread : String?
   workspace : String?
   model : String
   run_id : String?
@@ -285,8 +286,11 @@ async fn checkout_root(client : @client.Client, context : Context) -> String {
   if reply.worktrees
     .iter()
     .find_first(tree => {
-      tree.sessions.contains(context.session) ||
-      tree.codex_thread == Some(context.session)
+      if context.codex_thread is Some(id) {
+        tree.codex_thread == Some(id)
+      } else {
+        tree.sessions.contains(context.session)
+      }
     })
     is Some(tree) {
     guard tree.present else {

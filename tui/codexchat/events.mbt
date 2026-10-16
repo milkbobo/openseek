@@ -107,8 +107,9 @@ pub fn State::apply(self : State, notification : Json) -> Thread? {
         },
       }
     }
-    "thread/archived" => { ..previous, status: "archived", turn_id: None, }
-    "thread/unarchived" => { ..previous, status: "idle", }
+    "thread/archived" =>
+      { ..previous, status: "archived", archived: true, turn_id: None, }
+    "thread/unarchived" => { ..previous, status: "idle", archived: false, }
     "error" | "warning" => {
       let message = if text(params, "message") is Some(message) {
         message

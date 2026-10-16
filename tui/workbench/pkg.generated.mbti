@@ -28,6 +28,7 @@ pub fn InputError::to_repr(Self) -> @debug.Repr
 // Types and methods
 pub(all) struct Context {
   session : String
+  codex_thread : String?
   workspace : String?
   model : String
   run_id : String?

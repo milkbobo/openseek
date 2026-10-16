@@ -293,7 +293,15 @@ fn worktree(args : Array[String], context : Context) -> Plan raise InputError {
     "create" | "repair" =>
       request(
         @commands.worktree_create,
-        { workspace: path, session: Some(context.session), codex_thread: None, },
+        {
+          workspace: path,
+          session: if context.codex_thread is Some(_) {
+            None
+          } else {
+            Some(context.session)
+          },
+          codex_thread: context.codex_thread,
+        },
         "Conversation worktree",
         refresh=true,
       )

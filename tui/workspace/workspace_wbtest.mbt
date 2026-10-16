@@ -1,6 +1,7 @@
 ///|
 async fn with_workspace_client(
   body : async (@client.Client, Ref[String]) -> Unit,
+  deleted~ : Bool = false,
 ) -> Unit {
   let server = @http.Server(@socket.Addr::parse("127.0.0.1:0"))
   defer server.close()
@@ -28,14 +29,41 @@ async fn with_workspace_client(
               @protocol.ReadDirReply::{
                 entries: [{ name: "main.mbt", is_dir: false, }],
               }.to_json()
-            "fs.read_file" =>
+            "fs.read_file" => {
+              assert_true(!deleted)
               @protocol.ReadFileReply::Content(
                 content=disk.val,
                 absolute="/workspace/main.mbt",
                 sig="test",
               ).to_json()
-            "git.original_file" =>
+            }
+            "git.changes" =>
+              @protocol.GitChangesReply::{
+                repository: true,
+                head: Some("new-head"),
+                baseline: Some("task-base"),
+                changes: [
+                  {
+                    path: "main.mbt",
+                    original_path: Some("before.mbt"),
+                    index_status: "R",
+                    worktree_status: " ",
+                    kind: if deleted {
+                      "deleted"
+                    } else {
+                      "renamed"
+                    },
+                  },
+                ],
+              }.to_json()
+            "git.original_file" => {
+              let payload : @protocol.GitOriginalFilePayload = @json.from_json(
+                params,
+              )
+              assert_eq(payload.revision, Some("task-base"))
+              assert_eq(payload.path, "before.mbt")
               @protocol.GitOriginalFileReply::OriginalContent("old\n").to_json()
+            }
             "fs.watch" => {
               let payload : @protocol.WatchWorkspacePayload = @json.from_json(
                 params,
@@ -87,6 +115,7 @@ async fn with_workspace_client(
 ///|
 fn fixture_context() -> @workbench.Context {
   {
+    codex_thread: None,
     session: "chat",
     workspace: Some("/workspace"),
     model: "deepseek-flash",
@@ -197,4 +226,46 @@ test "offline workspace fixture draws the code diff and explorer" {
   assert_true(frame.to_text().contains("Working tree"))
   assert_true(frame.to_text().contains("greeting"))
   assert_true(frame.to_text().contains("main.mbt"))
+}
+
+///|
+async test "deleted files open against the task baseline without reading missing disk content" {
+  with_workspace_client(
+    (client, _) => {
+      let state = State()
+      state.open(client, fixture_context(), "main.mbt", diff=true)
+      assert_eq(state.tabs[0].original.text(), "old\n")
+      assert_eq(state.tabs[0].editor.text(), "")
+      assert_eq(state.tabs[0].baseline, None)
+    },
+    deleted=true,
+  )
+}
+
+///|
+async test "explorer wheel stays scrolled after draw and keyboard reveals selection" {
+  with_workspace_client((client, _) => {
+    let state = State()
+    state.tree = Array::makei(30, index => {
+      path: "/workspace/\{index}",
+      name: "file\{index}",
+      depth: 0,
+      is_dir: false,
+    })
+    let frame = @tui.Frame(width=30, height=8)
+    state.draw_tree(frame, frame.area())
+    ignore(
+      state.mouse(
+        client,
+        @input.MouseEvent::new(Scroll(Down), 3, 3),
+        fixture_context(),
+      ),
+    )
+    state.draw_tree(frame, frame.area())
+    assert_eq(state.top, 3)
+    assert_true(!frame.to_text().contains("file0"))
+    ignore(state.key(client, @input.KeyEvent::new(Home)))
+    state.draw_tree(frame, frame.area())
+    assert_eq(state.top, 0)
+  })
 }

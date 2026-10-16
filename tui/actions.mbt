@@ -18,6 +18,7 @@ fn local_help() -> Array[String] {
     "/queue [on|off] · /queue edit <id> <text> · /queue remove <id> · /queue steer <id>",
     "/approvals · /approve <id> · /deny <id>",
     "/mode codex|openseek · /codex list|new|open <id> · /codex requests",
+    "Codex: /thinking none|minimal|low|medium|high|xhigh (model-dependent)",
     "/attach <server path> · /upload <local path> · /attachments · /detach <number|all>",
     "FILES",
     "/edit <file> · /file <file> · /read <file> · /diff <file> open native editor tabs.",
@@ -179,9 +180,7 @@ async fn State::execute(
       let chat = if number > 0 {
         self.sidebar.get(number - 1).bind(key => self.chats.get(key))
       } else {
-        self.chats
-        .values()
-        .find_first(candidate => candidate.key.session == rest)
+        self.unique_session(rest)
       }
       guard chat is Some(chat) else {
         fail("Chat not found; use /sessions and /open <number>")
@@ -206,6 +205,15 @@ async fn State::execute(
       self.notice = "Model: \{rest}"
     }
     "/thinking" => {
+      if chat.codex_id() is Some(_) {
+        guard rest is ("none" | "minimal" | "low" | "medium" | "high" | "xhigh") else {
+          fail(
+            "Usage: /thinking none|minimal|low|medium|high|xhigh (model support varies)",
+          )
+        }
+        self.codex_effort = Some(rest)
+        return
+      }
       guard @protocol.OpenSeekThinking::parse(
           if rest == "off" {
             "no"
@@ -426,6 +434,12 @@ async fn State::execute(
       self.panel(output.title, output.lines)
       if output.refresh {
         self.refresh_sessions(client)
+        if command == "/worktree" {
+          if chat.codex_id() is Some(id) {
+            self.install_codex(self.codex.read(client, id))
+          }
+          self.refresh_selected_workspace(client)
+        }
       }
     }
   }

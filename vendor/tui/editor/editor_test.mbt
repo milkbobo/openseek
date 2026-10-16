@@ -976,3 +976,30 @@ test "joining lines can join glyphs across the old line break" {
   editor.move_right()
   @debug.assert_eq(editor.position(), (0, 1))
 }
+
+///|
+test "source line styles survive wrapping and viewport scrolling" {
+  let editor = @editor.Editor(text="same\n012345678\nsame", preserve_text=true)
+  let red = @tui.Style(bg=Rgb(40, 0, 0))
+  editor.move_to_start()
+  let frame = @tui.Frame(width=6, height=5)
+  editor.draw(frame, frame.area(), focused=false, line_style=line => {
+    if line == 2 {
+      red
+    } else {
+      @tui.Style()
+    }
+  })
+  @debug.assert_eq(frame.style_at(row=0, col=0), @tui.Style())
+  @debug.assert_eq(frame.style_at(row=3, col=0), red)
+  editor.move_to_end()
+  let frame = @tui.Frame(width=6, height=2)
+  editor.draw(frame, frame.area(), focused=false, line_style=line => {
+    if line == 2 {
+      red
+    } else {
+      @tui.Style()
+    }
+  })
+  @debug.assert_eq(frame.style_at(row=1, col=0), red)
+}

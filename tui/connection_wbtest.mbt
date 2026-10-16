@@ -116,8 +116,9 @@ async test "reconnect reads a Codex turn completed offline before ordinary submi
     socket => {
       for
         method_ in [
-          "session.list", "workspace.list", "agent.runs", "settings.get", "codex.thread.read",
-          "codex.server_request.list", "codex.thread.resume", "codex.turn.start",
+          "session.list", "workspace.list", "agent.runs", "settings.get", "codex.thread.list",
+          "codex.thread.list", "codex.thread.read", "codex.server_request.list",
+          "codex.thread.resume", "codex.turn.start",
         ] {
         let (id, _) = terminal_request(socket, method_)
         let result : Json = match method_ {
@@ -132,6 +133,7 @@ async test "reconnect reads a Codex turn completed offline before ordinary submi
               settled: [],
             }.to_json()
           "settings.get" => epoch_settings(0, "deepseek").to_json()
+          "codex.thread.list" => ({ "data": [], "nextCursor": null } : Json)
           "codex.thread.read" | "codex.thread.resume" =>
             @protocol.CodexCommandSuccess(@protocol.CodexThreadReply::{
               thread: completed,
