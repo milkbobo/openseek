@@ -50,29 +50,26 @@ async test "shared endpoints persist preferences and drafts without a window" {
 }
 
 ///|
-async test "shared endpoints resolve previews and report signed-out sharing" {
-  let dir = @fs.tmpdir(prefix="seekmoon-shared-preview-")
+async test "shared endpoints report signed-out sharing" {
+  let dir = @fs.tmpdir(prefix="seekmoon-shared-share-")
   defer @fs.rmdir(dir, recursive=true)
-  let file = "\{dir}/preview.pdf"
-  @fs.write_file(file, "%PDF-1.7\n%%EOF\n")
   let state = @api.ApiState(engine="unused-test-engine")
-  let payload : Json = { "session": "preview-test", "path": file }
-  let preview : @protocol.OpenPathReply = @json.from_json(
-    invoke_shared(state, "host.open_path_preview", payload),
-  )
-  assert_true(preview is Editor(_))
-  @fs.remove(file)
-  let missing : @protocol.OpenPathReply = @json.from_json(
-    invoke_shared(state, "host.open_path_preview", payload),
-  )
-  assert_true(missing is Refused(_))
   let share : @protocol.SessionShareReply = @json.from_json(
     invoke_shared(state, "session.share", {
-      "session": "preview-test",
+      "session": "share-test",
       "workspace": dir,
       "title": "Shared session",
       "archived": false,
     }),
   )
   assert_true(share is SignInRequired)
+}
+
+///|
+test "window-local path previews are absent from the shared catalog" {
+  let state = @api.ApiState(engine="unused-test-engine")
+  let endpoints = @api.endpoints(state, HostConnection())
+  assert_true(
+    !endpoints.any(endpoint => endpoint.name() == "host.open_path_preview"),
+  )
 }
