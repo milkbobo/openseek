@@ -1,0 +1,17 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitlang/seekmoon_tui/markdown"
+
+import {
+  "moonbit-community/tui",
+}
+
+// Values
+pub fn render(String, Int, dim? : Bool) -> Array[@tui.Line]
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits

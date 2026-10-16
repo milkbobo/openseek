@@ -21,3 +21,5 @@ Local changes:
   colors instead of reverting to the outer terminal's default palette.
 - Added optional `Editor.draw(line_style~)` to color zero-based source lines
   correctly across wrapping and scrolling, including duplicate line text.
+- Added `Line.concat` to compose styled table cells and continuation prefixes
+  without flattening text styles.

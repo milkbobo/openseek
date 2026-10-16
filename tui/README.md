@@ -15,6 +15,7 @@ The default starts a shared backend for the TUI's lifetime. The OpenSeek engine 
 ```sh
 just seekmoon-tui --demo
 just seekmoon-tui --snapshot
+just seekmoon-tui --demo --page markdown
 just seekmoon-tui --demo --page skills
 just seekmoon-tui --snapshot --page settings
 ```
@@ -36,6 +37,18 @@ A client can also use `--connect ws://127.0.0.1:27184/v1/devices/host/ws --token
 The standalone server can serve the desktop browser frontend with `--root PATH --entry FILE`. Its engine processes, sessions, settings, Codex actor, and notifications belong to that server. Each connected client owns its own terminal sessions and filesystem watches. Disconnecting a client closes its PTYs; model work continues in the persistent server.
 
 The native Proton host and the standalone server both import the toolkit-independent `desktop/backend` library. The TUI's WebSocket client speaks the same authenticated JSON-RPC protocol as the desktop browser client; it does not start a second engine implementation.
+
+## Markdown
+
+Conversation text uses the existing CommonMark parser, with styled headings,
+emphasis, inline code, links, lists, quotes, fenced code and task lists. Tables
+use aligned columns when space permits and labeled records in narrow panes.
+Tool output and errors retain their original lines. Layouts remain cached while
+scrolling and are rebuilt for changed messages or terminal widths.
+
+Code blocks preserve literal text without syntax highlighting. Images show their
+alt text and target; math remains text, and strikethrough uses muted text because
+the terminal style API has no strike attribute.
 
 ## Controls
 

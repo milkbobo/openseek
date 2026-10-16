@@ -142,6 +142,36 @@ async fn main {
     let state = demo_state()
     if opts.page is Some(name) {
       match name {
+        "markdown" => {
+          state.active.rows.clear()
+          state.active.rows.push({
+            kind: Assistant,
+            label: "SeekMoon",
+            sequence: None,
+            text: (
+              #|## 验证 Validation
+              #|
+              #|**已完成**，使用 `moon check` 检查。
+              #|
+              #|| 门禁 | 结果 |
+              #|| :--- | ---: |
+              #|| `moon check --target native` | 通过 |
+              #|| `moon test --target js` | 3705/3705 |
+              #|
+              #|- 保留 **粗体** 和 *强调*
+              #|- [x] 中文与 English 自动换行
+              #|
+              #|> 缩放终端后，表格和正文会重新排版。
+              #|
+              #|```moonbit
+              #|let message = "Hello 中文"
+              #|println(message)
+              #|```
+              #|
+              #|[MoonBit](https://www.moonbitlang.com)
+            ),
+          })
+        }
         "diff" => state.workspace.set_demo(diff=true)
         "editor" => state.workspace.set_demo()
         "terminal" => {

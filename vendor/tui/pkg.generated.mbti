@@ -67,6 +67,7 @@ pub fn Layout::vertical(Array[Constraint], spacing? : Int, margin? : Int, flex? 
 
 type Line derive(@debug.Debug)
 pub fn Line::Line(Array[Span]) -> Self
+pub fn Line::concat(Self, Self) -> Self
 pub fn Line::equal(Self, Self) -> Bool
 pub fn Line::from_text(StringView, style? : Style) -> Self
 pub fn Line::to_text(Self) -> String

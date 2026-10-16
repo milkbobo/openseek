@@ -3,6 +3,7 @@ name = "moonbitlang/seekmoon_tui"
 version = "0.1.0"
 
 import {
+  "moonbit-community/cmark@0.4.11",
   "moonbitlang/async@0.22.4",
   "moonbit-community/tui@0.1.0",
   "moonbit-community/tty@0.5.0",

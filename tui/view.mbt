@@ -26,30 +26,7 @@ fn markdown_lines(
   width : Int32,
   dim~ : Bool = false,
 ) -> Array[@tui.Line] {
-  let lines : Array[@tui.Line] = []
-  let mut code = false
-  for raw in text.split("\n") {
-    if raw.has_prefix("```") {
-      code = !code
-      lines.push(@tui.Line::from_text(raw, style=muted()))
-      continue
-    }
-    let style = if dim {
-      muted()
-    } else if code {
-      @tui.Style(fg=Rgb(210, 200, 166), bg=Rgb(25, 31, 41))
-    } else if raw.has_prefix("#") {
-      accent()
-    } else if raw.has_prefix("+") {
-      @tui.Style(fg=Rgb(126, 221, 185))
-    } else if raw.has_prefix("-") {
-      @tui.Style(fg=Rgb(235, 161, 159))
-    } else {
-      @tui.Style()
-    }
-    lines.append(@tui.Line::from_text(raw, style~).wrap(width.max(1)))
-  }
-  lines
+  @markdown.render(text, width, dim~)
 }
 
 ///|
@@ -109,7 +86,14 @@ fn Chat::lines(self : Chat, width : Int32) -> Array[@tui.Line] {
           "\{row.label}\{sequence}",
           style=row_style(row.kind),
         ),
-        ..markdown_lines(row.text, width, dim=row.kind is Reasoning),
+        ..if row.kind is Tool || row.kind is Error {
+          row.text
+          .split("\n")
+          .flat_map(raw => @tui.Line::from_text(raw).wrap(width.max(1)).iter())
+          .collect()
+        } else {
+          markdown_lines(row.text, width, dim=row.kind is Reasoning)
+        },
         @tui.Line::from_text(""),
       ]
     }
