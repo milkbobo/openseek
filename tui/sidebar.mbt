@@ -197,7 +197,11 @@ async fn State::sidebar_mouse(
   }
   guard contains_point(regions.left_chats, row, col) else { return false }
   if mouse.kind is Scroll(direction) {
-    self.sidebar_move(if direction is Up { -3 } else { 3 })
+    match direction {
+      Up => self.sidebar_move(-3)
+      Down => self.sidebar_move(3)
+      Left | Right => ()
+    }
     return true
   }
   if mouse.kind is Press(Left) {

@@ -477,11 +477,15 @@ pub async fn State::mouse(
       self.safe_action(client, hit.action, context)
     }
   } else if event.kind is Scroll(direction) {
+    let delta = match direction {
+      Up => -3
+      Down => 3
+      Left | Right => return true
+    }
     if self.page is Some(Settings) || self.form is Some(_) {
-      self.page_offset = (self.page_offset +
-      (if direction is Up { -3 } else { 3 })).max(0)
+      self.page_offset = (self.page_offset + delta).max(0)
     } else {
-      self.scroll.scroll_by(if direction is Up { -3 } else { 3 })
+      self.scroll.scroll_by(delta)
     }
   }
   true

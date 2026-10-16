@@ -42,6 +42,11 @@ The following issues are implemented and covered by regressions. They are needed
   benchmark with 20, 200 and 1,000 mixed Chinese/English messages. This measures
   view construction, excluding terminal output and the terminal emulator.
 
+- **Slow wheel scrolling bouncing vertically — fixed.** Chat, help panels,
+  sidebar lists and management pages handle vertical and horizontal wheel axes
+  separately. Left/right wheel events no longer fall through to a three-line
+  downward scroll. Mouse-routing regressions exercise the actual pane handlers.
+
 ## Review follow-ups
 
 - Startup page/session selection is consumed after successful initialization; reconnect preserves later navigation.

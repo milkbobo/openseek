@@ -346,7 +346,11 @@ async fn State::mouse(
     return
   }
   if mouse.kind is Scroll(direction) {
-    let delta = if direction is Up { -3 } else { 3 }
+    let delta = match direction {
+      Up => -3
+      Down => 3
+      Left | Right => return
+    }
     if self.panel_title is Some(_) {
       self.panel_scroll.scroll_by(delta)
     } else {

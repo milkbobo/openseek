@@ -336,7 +336,7 @@ async test "one-based mouse cells reach first and last terminal cells only" {
 }
 
 ///|
-async test "sidebar navigation uses first and last one-based cells without spilling" {
+async test "sidebar navigation respects pane bounds and wheel events preserve vertical axes" {
   with_terminal_peer(
     socket => {
       let (id, _) = terminal_request(socket, "terminal.close")
@@ -384,6 +384,76 @@ async test "sidebar navigation uses first and last one-based cells without spill
         ),
       )
       assert_eq(state.panel_title, Some("Outside"))
+      // A horizontal component must not undo a slow vertical wheel gesture.
+      state.panel_title = None
+      for index in 0..<80 {
+        state.active.notice("Line \{index}: 中文 text")
+      }
+      ignore(state.view(state.size))
+      state.active.scroll.to_top()
+      state.active.scroll.scroll_by(12)
+      let chat = state.regions(state.size).chat
+      for direction in [@input.MouseScroll::Left, @input.MouseScroll::Right] {
+        let before = state.view(state.size).to_text()
+        let offset = state.active.scroll.offset()
+        state.mouse(
+          client,
+          None,
+          @input.MouseEvent::new(Scroll(direction), chat.row + 1, chat.col + 1),
+        )
+        assert_eq(state.active.scroll.offset(), offset)
+        assert_eq(state.view(state.size).to_text(), before)
+      }
+      state.mouse(
+        client,
+        None,
+        @input.MouseEvent::new(Scroll(Up), chat.row + 1, chat.col + 1),
+      )
+      assert_eq(state.active.scroll.offset(), 9)
+      state.mouse(
+        client,
+        None,
+        @input.MouseEvent::new(Scroll(Down), chat.row + 1, chat.col + 1),
+      )
+      assert_eq(state.active.scroll.offset(), 12)
+      state.panel("Help", Array::makei(80, i => "Help line \{i}"))
+      ignore(state.view(state.size))
+      state.panel_scroll.scroll_by(12)
+      for direction in [@input.MouseScroll::Left, @input.MouseScroll::Right] {
+        state.mouse(
+          client,
+          None,
+          @input.MouseEvent::new(Scroll(direction), chat.row + 1, chat.col + 1),
+        )
+        assert_eq(state.panel_scroll.offset(), 12)
+      }
+      for _ in 0..<20 {
+        state.new_chat(None)
+      }
+      state.sidebar_cursor = 5
+      let sidebar = state.regions(state.size).left_chats
+      for direction in [@input.MouseScroll::Left, @input.MouseScroll::Right] {
+        state.mouse(
+          client,
+          None,
+          @input.MouseEvent::new(
+            Scroll(direction),
+            sidebar.row + 1,
+            sidebar.col + 1,
+          ),
+        )
+        assert_eq(state.sidebar_cursor, 5)
+      }
+      state.pages.set_demo(@pages.Settings)
+      for direction in [@input.MouseScroll::Left, @input.MouseScroll::Right] {
+        let before = state.view(state.size).to_text()
+        state.mouse(
+          client,
+          None,
+          @input.MouseEvent::new(Scroll(direction), chat.row + 1, chat.col + 1),
+        )
+        assert_eq(state.view(state.size).to_text(), before)
+      }
       state.close_terminals(client)
     },
   )
