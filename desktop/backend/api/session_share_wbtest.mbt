@@ -31,7 +31,7 @@ async test "share refusal retires the captured login and preserves a newer one" 
       Stale => { ..current, device_token: "old-token", }
       Current | Retired => current
     }
-    let state = @api.ApiState(engine="unused-test-engine", auth=store)
+    let state = ApiState(engine="unused-test-engine", auth=store)
     let notifications : @async.Queue[@protocol.Notification] = Queue(
       kind=Blocking(8),
     )

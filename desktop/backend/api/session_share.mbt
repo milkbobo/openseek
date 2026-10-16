@@ -2,7 +2,7 @@
 /// Capture the issuer and credential together before rendering or uploading.
 /// A settings switch must never send an old token to a newly selected server.
 priv struct SessionShare {
-  state : @api.ApiState
+  state : ApiState
   payload : @protocol.SessionExportPayload
 }
 
@@ -35,6 +35,7 @@ async fn SessionShare::publish(
     )
     self.upload(snapshot, config)
   } catch {
+    error if @async.is_being_cancelled() => raise error
     @shares.EmptyTitle
     | @shares.EntropyUnavailable
     | @shares.Oversized as refusal => Failed(message="\{refusal}")

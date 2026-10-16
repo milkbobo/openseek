@@ -358,28 +358,12 @@ pub async fn DesktopBridgeActor::notify_system_appearance_changed(
 
 ///|
 pub fn openseek_capability(
-  runtime_dir? : String,
   state : @api.ApiState,
   bridge : DesktopBridgeActor,
   views : BrowserViews,
 ) -> @proton_extension.RendererCapability {
   let endpoints = @api.endpoints(state, bridge.host_connection)
   let window_only = [
-    WindowEndpoint(@commands.github_drafts_get, (_, payload) => {
-      @host.read_github_drafts(runtime_dir, payload)
-    }),
-    WindowEndpoint(@commands.github_drafts_set, (_, payload) => {
-      @host.write_github_drafts(runtime_dir, payload)
-    }),
-    WindowEndpoint(@commands.app_language_get, (_, _) => {
-      @host.read_ui_language(runtime_dir)
-    }),
-    WindowEndpoint(@commands.app_language_set, (_, payload) => {
-      @host.write_ui_language(runtime_dir, payload)
-    }),
-    WindowEndpoint(@commands.host_open_path_preview, (_, payload) => {
-      @host.open_path_preview(payload)
-    }),
     WindowEndpoint(@commands.host_connect, (context, _) => {
       // A reloaded page allocates browser ids from scratch; the previous
       // page's native views must not survive its attachment.
@@ -396,9 +380,6 @@ pub fn openseek_capability(
     }),
     WindowEndpoint(@commands.host_pick_attachment, (context, _) => {
       pick_attachment(context)
-    }),
-    WindowEndpoint(@commands.session_share, (_, payload) => {
-      SessionShare::{ state, payload, }.publish()
     }),
   ]
   for endpoint in window_endpoints(views) {
