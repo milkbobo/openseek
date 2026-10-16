@@ -7,7 +7,7 @@ network.
 
 ## Build and run
 
-Build the helper as WASI linear-memory Wasm (`--target wasm`, not `wasm-gc`)
+Build the helper as linear-memory Wasm (`--target wasm`, not `wasm-gc`)
 and build the matching visualizer assets from the same checkout:
 
 ```sh
@@ -23,8 +23,10 @@ The build inputs and outputs are:
 | Visualizer shell | `web/index.html` |
 | Visualizer bundle | `_build/js/release/build/moonbitlang/openseek-viz-app/openseek-viz-app.js` |
 
-Run the compiled module with `moonrun` or a compatible host with stdin, stdout,
-and stderr. Stdin is one UTF-8 JSON object, read to EOF:
+Run the compiled module with `moonrun` or a host implementing Moonrun's async
+host ABI and its other MoonBit imports; a generic WASI runtime is insufficient.
+The host must provide stdin, stdout, and stderr. Stdin is one UTF-8 JSON object,
+read to EOF:
 
 ```json
 {"session_id":"session-id","title":"Conversation","messages":[{"kind":"user","data":{"content":"Hello"},"created_at":100}],"shell_html":"<html><script src=\"/viz_app.js\"></script></html>","bundle_js":"/* compiled viz_app */"}
