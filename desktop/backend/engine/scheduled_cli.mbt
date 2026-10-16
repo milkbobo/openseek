@@ -131,7 +131,7 @@ async fn[G] Schedules::run_cli(
   let env = engine_process_env(
     config,
     self.manager.runtime_dir,
-    host_mcp?=self.manager.host_mcp,
+    host_mcp?=self.manager.mcp.server,
     source=self.manager.moonbit,
   )
   let args = ["run", "--session=\{run.session}", "--dir=.", "--approval=never"]
@@ -139,9 +139,14 @@ async fn[G] Schedules::run_cli(
     args.push("--session-root=\{root.to_string()}")
   }
   // A scheduled run uses the same MCP servers a conversation does.
-  if resolved_mcp_config() is Some(mcp) {
-    args.push("--mcp-config=\{mcp.path.to_string()}")
-  }
+  args.append(
+    engine_mcp_args(
+      resolved_mcp_config(),
+      self.manager.runtime_dir,
+      env,
+      host_mcp=self.manager.mcp.server is Some(_),
+    ),
+  )
   args.append(["--", spec.task])
   if self.stopped.contains(run.id) {
     return 0
