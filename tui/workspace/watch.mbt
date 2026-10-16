@@ -1,6 +1,7 @@
 ///|
 async fn State::watch(self : State, client : @client.Client) -> Unit {
   guard self.root is Some(root) else { return }
+  self.generation += 1
   let generation = "tui-workspace-\{self.generation}"
   self.watch_generation = Some(generation)
   let prefix = root.trim_end(chars="/").to_owned() + "/"
@@ -14,8 +15,15 @@ async fn State::watch(self : State, client : @client.Client) -> Unit {
     client.call(@commands.fs_watch, @protocol.WatchWorkspacePayload::{
       path: root,
       files,
-      directories: [""],
-      recursive: Some(true),
+      directories: [""]..append(
+        self.expanded
+        .iter()
+        .filter_map(path => {
+          path.strip_prefix(prefix).map(relative => relative.to_owned())
+        })
+        .collect(),
+      ),
+      recursive: Some(false),
       generation,
     }),
   )
@@ -44,21 +52,7 @@ async fn State::refresh_tree(self : State, client : @client.Client) -> Unit {
   guard self.root is Some(root) else { return }
   let generation = self.generation
   let selected = self.tree.get(self.selected).map(item => item.path)
-  let expanded = self.tree
-    .mapi((index, item) => {
-      if item.is_dir &&
-        self.tree
-        .get(index + 1)
-        .map(next => next.depth > item.depth)
-        .unwrap_or(false) {
-        Some(item.path)
-      } else {
-        None
-      }
-    })
-    .iter()
-    .filter_map(item => item)
-    .collect()
+  let expanded = self.expanded.to_array()
   let rows = expanded_children(client, root, 0, expanded)
   if generation != self.generation {
     return
@@ -176,6 +170,7 @@ pub fn State::clear(self : State) -> Unit {
   self.root = None
   self.context = None
   self.tree = []
+  self.expanded.clear()
   self.selected = 0
   self.top = 0
   self.creating = false

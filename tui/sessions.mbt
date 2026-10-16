@@ -240,11 +240,15 @@ async fn State::prepare_workspace(
     Drives(..) =>
       fail("Choose a directory inside a drive for this conversation")
   }
-  let attached = client.call(@commands.workspace_add, @protocol.WorkspacePayload::{
-    path: requested,
-  })
-  if attached is WorkspaceError(message) {
-    fail(message)
+  // Existing projects need no registry write or WorkspaceChanged broadcast.
+  if !self.projects.contains(workspace) {
+    match
+      client.call(@commands.workspace_add, @protocol.WorkspacePayload::{
+        path: workspace,
+      }) {
+      WorkspaceError(message) => fail(message)
+      Workspaces(paths, ..) => self.projects = paths
+    }
   }
   let settings = client.call(@commands.workspace_settings_get, @protocol.WorkspaceSettingsGetPayload::{
     workspace,

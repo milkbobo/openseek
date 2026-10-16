@@ -167,3 +167,101 @@ async test "reconnect reads a Codex turn completed offline before ordinary submi
     },
   )
 }
+
+///|
+async test "startup in a registered workspace does not write the registry again" {
+  with_terminal_peer(
+    socket => {
+      for
+        method_ in [
+          "session.list", "workspace.list", "agent.runs", "settings.get", "fs.browse",
+          "workspace.settings_get", "worktree.list", "fs.read_directory", "fs.watch",
+        ] {
+        let (id, params) = terminal_request(socket, method_)
+        let result : Json = match method_ {
+          "session.list" => @protocol.SessionsReply::{ groups: [], }.to_json()
+          "workspace.list" =>
+            @protocol.WorkspacesReply::Workspaces(
+              ["/workspace"],
+              chat_root=None,
+            ).to_json()
+          "agent.runs" =>
+            @protocol.RunsReply::{
+              approval_generation: 0,
+              approvals: [],
+              runs: [],
+              settled: [],
+            }.to_json()
+          "settings.get" => epoch_settings(0, "deepseek").to_json()
+          "fs.browse" =>
+            @protocol.BrowseDirectoryReply::Listing(
+              path="/workspace",
+              parent=Some("/"),
+              entries=[],
+            ).to_json()
+          "workspace.settings_get" =>
+            @protocol.WorkspaceSettingsPayload::{
+              workspace: "/workspace",
+              worktree_mode: false,
+              checkout_submodules: false,
+              submodule_checkout_timeout_seconds: 60,
+            }.to_json()
+          "worktree.list" =>
+            @protocol.WorktreesReply::{ worktrees: [], }.to_json()
+          "fs.read_directory" =>
+            @protocol.ReadDirReply::{ entries: [], }.to_json()
+          "fs.watch" => {
+            let watch : @protocol.WatchWorkspacePayload = @json.from_json(
+              params,
+            )
+            assert_eq(watch.recursive, Some(false))
+            @protocol.EmptyReply::Acknowledged.to_json()
+          }
+          _ => fail("unexpected startup request")
+        }
+        selection_reply(socket, id, result)
+      }
+    },
+    client => {
+      let state = State(Some("/workspace"))
+      state.resync(client)
+      assert_eq(state.notice, "Connected")
+      assert_true(!state.resync_needed)
+    },
+  )
+}
+
+///|
+async test "Enter during startup is retained and runs once after loading" {
+  with_terminal_peer(socket => ignore(socket.recv()), client => {
+    @async.with_task_group(group => {
+      let state = State(None)
+      let events : @aqueue.Queue[Event] = Queue(kind=Blocking(8))
+      state.busy = true
+      state.loading_connection = true
+      state.active.draft.set_text("/help")
+      state.run_action(group, events, client, "/help")
+      state.run_action(group, events, client, "/help")
+      assert_true(state.startup_submission is Some(_))
+      state.busy = false
+      state.loading_connection = false
+      guard state.take_startup_submission() is Some(text) else {
+        fail("lost Enter")
+      }
+      state.run_action(group, events, client, text)
+      assert_true(events.get() is Redraw)
+      assert_true(state.panel_title is Some(_))
+      assert_eq(state.active.draft.text(), "")
+      assert_true(state.take_startup_submission() is None)
+      state.active.draft.set_text("old")
+      state.defer_startup_submission("old")
+      state.active.draft.set_text("edited")
+      assert_true(state.take_startup_submission() is None)
+      assert_eq(state.active.draft.text(), "edited")
+      state.defer_startup_submission("edited")
+      state.new_chat(None)
+      assert_true(state.take_startup_submission() is None)
+      group.return_immediately(())
+    })
+  })
+}

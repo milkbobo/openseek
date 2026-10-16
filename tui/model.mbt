@@ -150,6 +150,8 @@ struct State {
   panel_selection : @tui.Selection
   mut notice : String
   mut busy : Bool
+  mut loading_connection : Bool
+  mut startup_submission : (Chat, String)?
   mut counter : Int32
   mut server_url : String
   mut size : @tui.Size
@@ -201,6 +203,8 @@ fn State::State(workspace : String?) -> State {
     panel_selection: @tui.Selection(),
     notice: "Connecting…",
     busy: false,
+    loading_connection: false,
+    startup_submission: None,
     counter: 0,
     server_url: "",
     size: @tui.Size(width=100, height=32),

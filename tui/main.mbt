@@ -3,6 +3,7 @@ enum Event {
   Input(@tty.Event)
   Notification(@protocol.Notification)
   Redraw
+  StartupReady
   Failure(String)
   Disconnected(String)
 }
@@ -205,6 +206,7 @@ async fn main {
     })
     return
   }
+  configure_logging()
   @async.with_task_group(group => {
     let (url, token) = if opts.server_file is Some(path) {
       let ready = @json.parse(@fs.read_file(path).text())
@@ -286,6 +288,8 @@ async fn run_connection(
   state.begin_connection()
   defer {
     state.busy = false
+    state.loading_connection = false
+    state.startup_submission = None
   }
   @async.with_task_group(ui => {
     let events : @aqueue.Queue[Event] = Queue(kind=Blocking(1024))
@@ -311,10 +315,8 @@ async fn run_connection(
       }
     })
     state.busy = true
+    state.loading_connection = true
     ui.spawn_bg(() => {
-      defer {
-        state.busy = false
-      }
       try {
         state.resync(client)
         state.apply_startup(client, opts)
@@ -323,11 +325,14 @@ async fn run_connection(
           state.resync(client)
         }
         state.busy = false
-        events.put(Redraw)
+        state.loading_connection = false
+        events.put(StartupReady)
       } catch {
         error if @async.is_being_cancelled() => raise error
         error => {
           state.busy = false
+          state.loading_connection = false
+          state.startup_submission = None
           events.put(Failure(error.to_string()))
         }
       }
@@ -396,7 +401,12 @@ async fn run_connection(
             state.notice = message
             state.active.notice(message, error=true)
           }
-          Redraw => ()
+          StartupReady | Redraw =>
+            if !state.busy &&
+              !state.loading_connection &&
+              state.take_startup_submission() is Some(text) {
+              state.run_action(ui, events, client, text)
+            }
         }
       } catch {
         error if @async.is_being_cancelled() => raise error
@@ -420,6 +430,8 @@ fn[G] State::run_action(
   if self.busy {
     if text == "/resync-internal" {
       self.resync_needed = true
+    } else if self.loading_connection {
+      self.defer_startup_submission(text)
     }
     return
   }

@@ -9,8 +9,10 @@ import {
   "moonbit-community/pty@0.4.3",
   "moonbit-community/moondiff@0.0.10",
   "tonyfettes/ghostty@0.5.1",
+  "tonyfettes/xlog@0.4.2",
   "moonbitlang/openseek_protocol@0.3.1",
   "openseek_desktop@0.1.5",
+  "openseek_desktop/backend@0.1.5",
   "openseek_desktop/server@0.1.5",
 }
 

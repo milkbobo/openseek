@@ -2,6 +2,8 @@
 async fn with_workspace_client(
   body : async (@client.Client, Ref[String]) -> Unit,
   deleted~ : Bool = false,
+  watches~ : Array[@protocol.WatchWorkspacePayload] = [],
+  directories~ : Bool = false,
 ) -> Unit {
   let server = @http.Server(@socket.Addr::parse("127.0.0.1:0"))
   defer server.close()
@@ -27,7 +29,15 @@ async fn with_workspace_client(
               @protocol.WorktreesReply::{ worktrees: [], }.to_json()
             "fs.read_directory" =>
               @protocol.ReadDirReply::{
-                entries: [{ name: "main.mbt", is_dir: false, }],
+                entries: if directories {
+                  if params is { "path": "/workspace/empty", .. } {
+                    []
+                  } else {
+                    [{ name: "empty", is_dir: true, }]
+                  }
+                } else {
+                  [{ name: "main.mbt", is_dir: false, }]
+                },
               }.to_json()
             "fs.read_file" => {
               assert_true(!deleted)
@@ -69,7 +79,8 @@ async fn with_workspace_client(
                 params,
               )
               assert_eq(payload.path, "/workspace")
-              assert_eq(payload.recursive, Some(true))
+              assert_eq(payload.recursive, Some(false))
+              watches.push(payload)
               @protocol.EmptyReply::Acknowledged.to_json()
             }
             "fs.write_file" => {
@@ -268,4 +279,29 @@ async test "explorer wheel stays scrolled after draw and keyboard reveals select
     state.draw_tree(frame, frame.area())
     assert_eq(state.top, 0)
   })
+}
+
+///|
+async test "shallow watch follows empty expanded directories and opened files" {
+  let watches : Array[@protocol.WatchWorkspacePayload] = []
+  with_workspace_client(
+    (client, _) => {
+      let state = State()
+      state.browse(client, fixture_context())
+      assert_eq(watches.length(), 1)
+      assert_eq(watches[0].directories, [""])
+      state.activate_tree(client, fixture_context())
+      assert_eq(watches[1].directories, ["", "empty"])
+      // Empty directories remain expanded and watched for their first child.
+      state.refresh_tree(client)
+      assert_true(state.expanded.contains("/workspace/empty"))
+      state.activate_tree(client, fixture_context())
+      assert_eq(watches[2].directories, [""])
+      state.open(client, fixture_context(), "main.mbt")
+      assert_eq(watches[3].files, ["main.mbt"])
+      assert_true(watches[3].generation != watches[2].generation)
+    },
+    watches~,
+    directories=true,
+  )
 }

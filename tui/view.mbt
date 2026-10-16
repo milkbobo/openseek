@@ -263,6 +263,12 @@ fn State::view(self : State, size : @tui.Size) -> @tui.Frame {
     " Codex needs an answer · /codex requests"
   } else if self.approvals.iter().any(approval => !approval.answered) {
     " Approval required · /approvals"
+  } else if self.loading_connection {
+    if self.startup_submission is Some(_) {
+      " Loading… · input queued · Ctrl+C cancel · Ctrl+Q quit"
+    } else {
+      " Loading conversations… · you can type · Ctrl+Q quit"
+    }
   } else if self.busy {
     " Working… · Ctrl+Q quit"
   } else {

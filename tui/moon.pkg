@@ -12,6 +12,8 @@ import {
   "moonbit-community/tty",
   "moonbit-community/tty/input",
   "openseek_desktop/commands",
+  "openseek_desktop/backend/host" @backend_host,
+  "tonyfettes/xlog",
   "openseek_desktop/protocol",
   "openseek_desktop/server/host",
   "moonbitlang/openseek_protocol" @agent_protocol,

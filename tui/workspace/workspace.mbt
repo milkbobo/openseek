@@ -27,6 +27,7 @@ struct State {
   tabs : Array[Tab]
   mut active : Int32
   mut tree : Array[TreeItem]
+  expanded : Set[String]
   mut selected : Int32
   mut top : Int32
   mut root : String?
@@ -47,6 +48,7 @@ pub fn State::State() -> State {
     tabs: [],
     active: 0,
     tree: [],
+    expanded: Set([]),
     selected: 0,
     top: 0,
     root: None,
@@ -185,6 +187,7 @@ pub async fn State::browse(
   self.root = Some(root)
   self.context = Some(context)
   self.tree = rows
+  self.expanded.clear()
   self.selected = 0
   self.top = 0
   self.message = root
@@ -292,6 +295,7 @@ pub async fn State::open(
     tab.diff = true
     tab.unified = false
   }
+  self.watch(client)
   self.tree_focused = false
   self.message = if diff {
     "Diff · Ctrl+D preview/edit · Ctrl+S save"
@@ -331,12 +335,19 @@ async fn State::activate_tree(
     while end < self.tree.length() && self.tree[end].depth > item.depth {
       end += 1
     }
-    if end > start {
+    if self.expanded.contains(item.path) {
       self.tree = [..self.tree[:start], ..self.tree[end:]]
+      for path in self.expanded.to_array() {
+        if path == item.path || path.has_prefix(item.path + "/") {
+          self.expanded.remove(path)
+        }
+      }
     } else {
       let nested = children(client, item.path, item.depth + 1)
+      self.expanded.add(item.path)
       self.tree = [..self.tree[:start], ..nested, ..self.tree[start:]]
     }
+    self.watch(client)
   } else {
     self.open(client, context, item.path)
   }
@@ -399,6 +410,7 @@ pub async fn State::key(
       self.creating = false
       self.tree_focused = false
       self.message = "New file · Ctrl+S creates " + path
+      self.watch(client)
       return true
     }
     return self.naming.key(key)
@@ -474,6 +486,7 @@ pub async fn State::key(
     } else {
       ignore(self.tabs.remove(self.active))
       self.active = self.active.min((self.tabs.length() - 1).max(0))
+      self.watch(client)
     }
     return true
   }

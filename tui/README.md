@@ -10,7 +10,7 @@ From the repository root:
 just seekmoon-tui --workspace /absolute/path/to/project
 ```
 
-The default starts a shared backend for the TUI's lifetime. The OpenSeek engine is built by the launcher. To inspect the interface without credentials or a model call:
+The default starts a shared backend for the TUI's lifetime. The OpenSeek engine is built by the launcher. Backend logs are written to `seekmoon-tui.log` in the host runtime directory (`~/Library/Application Support/SeekMoon` on macOS), so warnings do not overwrite the terminal screen. During initial loading you can type and press Enter; one submission is retained until loading finishes. Ctrl+C cancels it, and changing the draft or conversation requires pressing Enter again. To inspect the interface without credentials or a model call:
 
 ```sh
 just seekmoon-tui --demo
@@ -94,6 +94,8 @@ Use `/help` for the full command catalog. Paths and arguments in workbench comma
 | Terminal | Interactive shell, resize, keyboard/mouse input, scrollback, full-screen programs, terminal editors |
 
 For OpenSeek, `/thinking off|high|max` selects reasoning. For Codex, use `/thinking none|minimal|low|medium|high|xhigh`; accepted efforts depend on the selected model.
+
+The explorer watches the currently expanded directories and open files. Expanding even an empty directory updates its watch scope, so new children appear without recursively scanning the entire checkout at startup.
 
 File and code operations follow the conversation's registered worktree placement. Git comparison uses the server's immutable task baseline and preserves rename source paths. Search requests have monotonically increasing generations so a stale search cannot replace a newer query.
 

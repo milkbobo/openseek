@@ -158,6 +158,7 @@ async fn State::key(
         return false
       }
       Char('c') => {
+        self.startup_submission = None
         if self.active.run_id is Some(_) {
           self.execute(client, "/stop")
         } else {
