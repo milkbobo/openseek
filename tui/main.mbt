@@ -99,7 +99,15 @@ fn demo_state() -> State {
       sequence: Some(2),
     },
     {
-      kind: Tool,
+      kind: Tool(
+        @toolcall.Call(
+          "demo-test",
+          "shell",
+          arguments="{\"description\":\"Run terminal tests\",\"command\":\"moon test tui --target native\"}",
+          output="All terminal, transport, and transcript tests passed.",
+          status=Succeeded,
+        ),
+      ),
       label: "shell_exec",
       text: "$ moon test tui --target native\nAll terminal, transport, and transcript tests passed.",
       sequence: Some(3),
@@ -207,14 +215,24 @@ async fn main {
     }
     @tui.with_terminal(mouse=true, term => {
       for ;; {
-        term.draw(state.view(term.size()))
+        state.size = term.size()
+        term.draw(state.view(state.size))
         match term.read_event() {
           Input(Key(key)) => {
-            if key.code is Escape ||
+            if (key.code is Escape && !(state.focus is Transcript)) ||
               (key.modifiers.ctrl() && key.code is Char('q')) {
               break
             }
-            if key.modifiers.ctrl() && key.code is Char('1') {
+            if key.code is F6 {
+              state.focus = if state.focus is Transcript {
+                Composer
+              } else {
+                Transcript
+              }
+              state.active.select_tool(0, state.regions(state.size).chat.height)
+            } else if state.tool_key(key) {
+              ()
+            } else if key.modifiers.ctrl() && key.code is Char('1') {
               state.pages.close()
             } else if key.modifiers.ctrl() && key.code is Char('2') {
               state.pages.set_demo(@pages.Skills)
@@ -230,6 +248,15 @@ async fn main {
               ignore(state.active.draft.key(key))
             }
           }
+          Input(Mouse(mouse)) =>
+            if !state.tool_mouse(mouse) {
+              if mouse.kind is Scroll(Up) {
+                state.active.scroll.scroll_by(-3)
+              }
+              if mouse.kind is Scroll(Down) {
+                state.active.scroll.scroll_by(3)
+              }
+            }
           _ => ()
         }
       }

@@ -5,6 +5,7 @@ import {
   "moonbitlang/core/debug",
   "moonbitlang/core/set",
   "moonbitlang/seekmoon_tui/client",
+  "moonbitlang/seekmoon_tui/toolcall",
   "openseek_desktop/protocol",
 }
 
@@ -23,6 +24,7 @@ pub struct Message {
   role : String
   text : String
   complete : Bool
+  tool : @toolcall.Call?
 }
 
 pub struct PendingRequest {

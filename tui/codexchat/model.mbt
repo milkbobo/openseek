@@ -6,6 +6,7 @@ pub struct Message {
   role : String
   text : String
   complete : Bool
+  tool : @toolcall.Call?
 }
 
 ///|
@@ -181,7 +182,39 @@ fn decode_item(value : Json, turn : String, complete~ : Bool) -> Message? {
       text(value, "review").unwrap_or(kind)
     _ => value.stringify(indent=2)
   }
+  let item_status = text(value, "status").unwrap_or("")
+  let complete = complete ||
+    item_status is ("completed" | "failed" | "declined")
+  let tool = if role == "tool" {
+    let status = if item_status is ("failed" | "declined") ||
+      (field(value, "exitCode") is Some(Number(code, ..)) && code != 0) {
+      @toolcall.Failed
+    } else if complete {
+      @toolcall.Succeeded
+    } else {
+      @toolcall.Pending
+    }
+    let name = match kind {
+      "commandExecution" => "shell"
+      "mcpToolCall" | "dynamicToolCall" => text(value, "tool").unwrap_or(kind)
+      _ => kind
+    }
+    Some(
+      @toolcall.Call(
+        turn + "/" + id,
+        name,
+        arguments?=field(value, "arguments").map(value => {
+          value.stringify(indent=2)
+        }),
+        output=body,
+        status~,
+      ),
+    )
+  } else {
+    None
+  }
   Some({
+    tool,
     id: turn + "/" + id,
     role,
     text: body,
@@ -224,7 +257,11 @@ fn with_turn(thread : Thread, turn : Json, complete~ : Bool) -> Thread {
   let mut messages = if !active {
     thread.messages.map(message => {
       if message.id.has_prefix(turn_id + "/") {
-        { ..message, complete: true, }
+        {
+          ..message,
+          complete: true,
+          tool: message.tool.map(call => call.interrupt()),
+        }
       } else {
         message
       }
@@ -243,6 +280,7 @@ fn with_turn(thread : Thread, turn : Json, complete~ : Bool) -> Thread {
     messages = replace_message(messages, {
       id: turn_id + "/error",
       role: "error",
+      tool: None,
       text: message,
       complete: true,
     })

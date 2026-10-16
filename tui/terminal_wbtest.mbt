@@ -343,6 +343,37 @@ async test "sidebar navigation respects pane bounds and wheel events preserve ve
       terminal_reply(socket, id)
     },
     client => {
+      let tools = demo_state()
+      tools.size = @tui.Size(width=120, height=40)
+      tools.active.draft.set_text("unsent draft")
+      ignore(tools.view(tools.size))
+      let area = tools.regions(tools.size).chat
+      let layout = tools.active.layout.unwrap()
+      let (_, header) = layout.tool_headers[0]
+      let y = header - tools.active.scroll.offset() + area.row + 1
+      let x = area.col + 2
+      tools.mouse(client, None, @input.MouseEvent::new(Press(Left), y, x))
+      tools.mouse(client, None, @input.MouseEvent::new(Release(Left), y, x))
+      assert_true(tools.active.expanded_tools.contains("demo-test"))
+      assert_true(tools.focus is Transcript)
+      assert_true(tools.view(tools.size).to_text().contains("Arguments"))
+      assert_true(!tools.key(client, @input.KeyEvent::new(Enter)))
+      assert_true(!tools.active.expanded_tools.contains("demo-test"))
+      assert_eq(tools.active.draft.text(), "unsent draft")
+      ignore(tools.view(tools.size))
+      // Dragging over a header is selection, not expansion, even if it ends
+      // back at the original cell.
+      tools.mouse(client, None, @input.MouseEvent::new(Press(Left), y, x))
+      tools.mouse(client, None, @input.MouseEvent::new(Drag(Left), y, x + 3))
+      tools.mouse(client, None, @input.MouseEvent::new(Release(Left), y, x))
+      assert_true(!tools.active.expanded_tools.contains("demo-test"))
+      tools.focus = Composer
+      assert_true(!tools.key(client, @input.KeyEvent::new(F6)))
+      assert_true(tools.focus is Transcript)
+      assert_true(!tools.key(client, @input.KeyEvent::new(Enter)))
+      assert_true(tools.active.expanded_tools.contains("demo-test"))
+      assert_true(!tools.key(client, @input.KeyEvent::new(Escape)))
+      assert_true(tools.focus is Composer)
       let state = State(None)
       state.size = @tui.Size(width=120, height=40)
       state.terminals.push({

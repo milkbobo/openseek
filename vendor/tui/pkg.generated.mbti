@@ -87,6 +87,7 @@ pub fn Rect::equal(Self, Self) -> Bool
 type Scroll
 pub fn Scroll::Scroll(stick_to_bottom? : Bool) -> Self
 pub fn Scroll::at_bottom(Self) -> Bool
+pub fn Scroll::hold(Self) -> Unit
 pub fn Scroll::offset(Self) -> Int
 pub fn Scroll::page_down(Self) -> Unit
 pub fn Scroll::page_up(Self) -> Unit

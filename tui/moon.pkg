@@ -1,4 +1,5 @@
 import {
+  "moonbitlang/seekmoon_tui/toolcall",
   "moonbitlang/seekmoon_tui/markdown",
   "moonbitlang/core/env",
   "moonbitlang/core/argparse",

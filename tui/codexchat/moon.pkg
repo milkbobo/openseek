@@ -1,4 +1,5 @@
 import {
+  "moonbitlang/seekmoon_tui/toolcall",
   "moonbitlang/seekmoon_tui/client",
   "openseek_desktop/commands",
   "openseek_desktop/protocol",

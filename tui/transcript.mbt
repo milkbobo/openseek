@@ -34,7 +34,9 @@ fn Chat::append_item(self : Chat, event : @protocol.SessionEvent) -> Unit {
       }
       for call in message.tool_calls.unwrap_or([]) {
         self.rows.push({
-          kind: Tool,
+          kind: Tool(
+            @toolcall.Call(call.id, call.name, arguments=call.arguments),
+          ),
           label: call.name,
           text: call.arguments,
           sequence,
@@ -43,18 +45,42 @@ fn Chat::append_item(self : Chat, event : @protocol.SessionEvent) -> Unit {
       self.live_answer = ""
       self.live_reasoning = ""
     }
-    @protocol.ToolResult(result) =>
-      self.rows.push({
-        kind: if result.is_error {
-          Error
-        } else {
-          Tool
-        },
-        label: result.tool_name,
-        text: result.brief.map(brief => brief + "\n").unwrap_or("") +
-        result.content.text(),
-        sequence,
-      })
+    @protocol.ToolResult(result) => {
+      let status = if result.is_error {
+        @toolcall.Failed
+      } else {
+        @toolcall.Succeeded
+      }
+      let mut matched = false
+      for index, row in self.rows {
+        if row.kind is Tool(call) && call.id == result.tool_call_id {
+          self.rows[index] = {
+            ..row,
+            kind: Tool(
+              call.finish(result.content.text(), brief?=result.brief, status~),
+            ),
+          }
+          matched = true
+          break
+        }
+      }
+      if !matched {
+        self.rows.push({
+          kind: Tool(
+            @toolcall.Call(
+              result.tool_call_id,
+              result.tool_name,
+              output=result.content.text(),
+              brief?=result.brief,
+              status~,
+            ),
+          ),
+          label: result.tool_name,
+          text: "",
+          sequence,
+        })
+      }
+    }
     @protocol.RuntimeNotice(notice) => {
       if notice.content.strip_prefix("[goal]\n") is Some(goal) {
         self.goal = Some(goal.to_owned())
@@ -76,6 +102,11 @@ fn Chat::append_item(self : Chat, event : @protocol.SessionEvent) -> Unit {
         sequence,
       })
     @protocol.Terminal(terminal) => {
+      for index, row in self.rows {
+        if row.kind is Tool(call) {
+          self.rows[index] = { ..row, kind: Tool(call.interrupt()), }
+        }
+      }
       match terminal {
         Finished(answer) | ContextYield(answer) if !answer.is_empty() =>
           self.rows.push({

@@ -10,7 +10,7 @@ enum RowKind {
   User
   Assistant
   Reasoning
-  Tool
+  Tool(@toolcall.Call)
   Notice
   Error
 } derive(Eq)
@@ -29,6 +29,9 @@ struct Chat {
   mut title : String
   mut session_root : String?
   rows : Array[Row]
+  expanded_tools : Set[String]
+  mut selected_tool : String?
+  mut pressed_tool : (String, Int32, Int32)?
   mut layout : ChatLayout?
   draft : @editor.Editor
   attachments : @attachments.Draft
@@ -62,6 +65,9 @@ fn Chat::Chat(key : ChatKey, title~ : String = "New chat") -> Chat {
     session_root: None,
     rows: [],
     layout: None,
+    expanded_tools: Set([]),
+    selected_tool: None,
+    pressed_tool: None,
     draft: @editor.Editor(),
     attachments: @attachments.Draft(),
     scroll: @tui.Scroll(stick_to_bottom=true),
@@ -90,6 +96,7 @@ fn Chat::Chat(key : ChatKey, title~ : String = "New chat") -> Chat {
 ///|
 enum Focus {
   Composer
+  Transcript
   Sidebar
   Terminal
   Workspace

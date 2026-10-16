@@ -206,6 +206,35 @@ test "tool output retains its command and raw chunk boundaries" {
     ),
   )
   assert_eq(thread.messages[0].text, "echo hi\nhello")
+  assert_true(
+    thread.messages[0].tool
+    is Some(
+      {
+        id: "one/c",
+        name: "shell",
+        status: Pending,
+        output: Some("echo hi\nhello"),
+        ..
+      }
+    ),
+  )
+  let done = require_thread(
+    state.apply(
+      event("item/completed", {
+        "threadId": "t",
+        "turnId": "one",
+        "item": {
+          "id": "c",
+          "type": "commandExecution",
+          "command": "echo hi",
+          "aggregatedOutput": "failed",
+          "exitCode": 1,
+          "status": "completed",
+        },
+      }),
+    ),
+  )
+  assert_true(done.messages[0].tool is Some({ status: Failed, .. }))
 }
 
 ///|

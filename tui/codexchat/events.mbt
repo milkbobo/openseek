@@ -81,6 +81,16 @@ pub fn State::apply(self : State, notification : Json) -> Thread? {
           role,
           text: content,
           complete: false,
+          tool: if role == "tool" {
+            Some(
+              current
+              .bind(item => item.tool)
+              .unwrap_or_else(() => @toolcall.Call(item_key, "shell"))
+              .finish(content, status=Pending),
+            )
+          } else {
+            None
+          },
         }),
       }
     }
@@ -125,6 +135,7 @@ pub fn State::apply(self : State, notification : Json) -> Thread? {
           {
             id: "notice/\{self.revisions.get(id).unwrap_or(0)}",
             role: "error",
+            tool: None,
             text: message,
             complete: true,
           },

@@ -1,0 +1,6 @@
+import {
+  "moonbitlang/core/json",
+  "moonbit-community/tui",
+}
+
+supported_targets = "native"

@@ -40,6 +40,9 @@ async fn State::key(
         Composer
       },
     ]
+    if self.pages.page() is None && self.panel_title is None {
+      panes.push(Transcript)
+    }
     if self.pages.page() is None &&
       (self.editor_visible || regions.tree.width > 0) {
       panes.push(Workspace)
@@ -53,6 +56,9 @@ async fn State::key(
     let current = panes.search(self.focus).unwrap_or(0)
     let delta = if key.modifiers.shift() { -1 } else { 1 }
     self.focus = panes[(current + delta + panes.length()) % panes.length()]
+    if self.focus is Transcript {
+      self.active.select_tool(0, regions.chat.height)
+    }
     if self.focus is Workspace {
       if self.editor_visible {
         self.workspace.focus_editor()
@@ -185,6 +191,9 @@ async fn State::key(
     }
     return false
   }
+  if self.tool_key(key) {
+    return false
+  }
   if self.sidebar_key(client, key) {
     return false
   }
@@ -260,6 +269,10 @@ async fn State::mouse(
   // tty reports one-based cells; layout and Screen use zero-based cells.
   let row = mouse.row - 1
   let col = mouse.col - 1
+  if self.tool_mouse(mouse) {
+    self.terminal_focus(client, false)
+    return
+  }
   if mouse.kind is Press(Left) &&
     regions.left.width > 0 &&
     row == regions.left.row &&

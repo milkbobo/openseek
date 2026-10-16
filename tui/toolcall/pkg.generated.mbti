@@ -1,0 +1,39 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitlang/seekmoon_tui/toolcall"
+
+import {
+  "moonbit-community/tui",
+}
+
+// Values
+
+// Errors
+
+// Types and methods
+pub struct Call {
+  id : String
+  name : String
+  arguments : String?
+  output : String?
+  caption : String
+  status : Status
+} derive(Eq)
+pub fn Call::Call(String, String, arguments? : String, output? : String, brief? : String, status? : Status) -> Self
+pub fn Call::equal(Self, Self) -> Bool
+pub fn Call::finish(Self, String, brief? : String, status~ : Status) -> Self
+pub fn Call::interrupt(Self) -> Self
+pub fn Call::lines(Self, Int, expanded? : Bool, selected? : Bool) -> Array[@tui.Line]
+pub fn Call::not_equal(Self, Self) -> Bool
+
+pub(all) enum Status {
+  Pending
+  Succeeded
+  Failed
+  Interrupted
+} derive(Eq)
+pub fn Status::equal(Self, Self) -> Bool
+pub fn Status::not_equal(Self, Self) -> Bool
+
+// Type aliases
+
+// Traits

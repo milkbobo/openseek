@@ -14,7 +14,7 @@ fn row_style(kind : RowKind) -> @tui.Style {
     User => @tui.Style(fg=Rgb(126, 221, 185), bold=true)
     Assistant => accent()
     Reasoning => muted()
-    Tool => @tui.Style(fg=Rgb(219, 192, 132))
+    Tool(_) => @tui.Style(fg=Rgb(219, 192, 132))
     Notice => muted()
     Error => @tui.Style(fg=Rgb(255, 136, 145))
   }
@@ -36,6 +36,9 @@ priv struct ChatLayout {
   width : Int32
   rows : Array[Row]
   row_lines : Array[Array[@tui.Line]]
+  tool_headers : Array[(String, Int32)]
+  expanded_tools : Set[String]
+  selected_tool : String?
   goal : String?
   live_reasoning : String
   live_answer : String
@@ -49,6 +52,8 @@ fn Chat::lines(self : Chat, width : Int32) -> Array[@tui.Line] {
   let cached = self.layout.filter(layout => layout.width == width)
   if cached is Some(layout) &&
     layout.rows == self.rows &&
+    layout.expanded_tools == self.expanded_tools &&
+    layout.selected_tool == self.selected_tool &&
     layout.goal == self.goal &&
     layout.live_reasoning == self.live_reasoning &&
     layout.live_answer == self.live_answer &&
@@ -58,6 +63,7 @@ fn Chat::lines(self : Chat, width : Int32) -> Array[@tui.Line] {
   }
   let lines : Array[@tui.Line] = []
   let row_lines : Array[Array[@tui.Line]] = []
+  let tool_headers : Array[(String, Int32)] = []
   if self.goal is Some(goal) {
     lines.append(markdown_lines("Goal · \{goal}", width))
     lines.push(@tui.Line::from_text(""))
@@ -76,8 +82,19 @@ fn Chat::lines(self : Chat, width : Int32) -> Array[@tui.Line] {
     }
   }
   for index, row in self.rows {
-    let wrapped = if cached is Some(layout) &&
-      layout.rows.get(index) == Some(row) {
+    let wrapped = if row.kind is Tool(call) {
+      tool_headers.push((call.id, lines.length()))
+      let expanded = self.expanded_tools.contains(call.id)
+      let selected = self.selected_tool == Some(call.id)
+      if cached is Some(layout) &&
+        layout.rows.get(index) == Some(row) &&
+        layout.expanded_tools.contains(call.id) == expanded &&
+        (layout.selected_tool == Some(call.id)) == selected {
+        layout.row_lines[index]
+      } else {
+        call.lines(width, expanded~, selected~)
+      }
+    } else if cached is Some(layout) && layout.rows.get(index) == Some(row) {
       layout.row_lines[index]
     } else {
       let sequence = row.sequence.map(n => " · #\{n}").unwrap_or("")
@@ -86,7 +103,7 @@ fn Chat::lines(self : Chat, width : Int32) -> Array[@tui.Line] {
           "\{row.label}\{sequence}",
           style=row_style(row.kind),
         ),
-        ..if row.kind is Tool || row.kind is Error {
+        ..if row.kind is Error {
           row.text
           .split("\n")
           .flat_map(raw => @tui.Line::from_text(raw).wrap(width.max(1)).iter())
@@ -119,6 +136,9 @@ fn Chat::lines(self : Chat, width : Int32) -> Array[@tui.Line] {
     width,
     rows: self.rows.copy(),
     row_lines,
+    tool_headers,
+    expanded_tools: self.expanded_tools.copy(),
+    selected_tool: self.selected_tool,
     goal: self.goal,
     live_reasoning: self.live_reasoning,
     live_answer: self.live_answer,
@@ -239,6 +259,8 @@ fn State::view(self : State, size : @tui.Size) -> @tui.Frame {
   }
   let footer = if self.focus is Terminal {
     " Ctrl+T hide terminal · Ctrl+←/→ tabs · Alt+W close · F6 focus chat"
+  } else if self.focus is Transcript {
+    " ↑/↓ tool · Enter expand/fold · PgUp/PgDn scroll · Esc composer"
   } else if self.focus is Workspace {
     " Ctrl+S save · Ctrl+W close tab · F6 next pane · Ctrl+T terminal"
   } else if self.pages.page() is Some(_) {

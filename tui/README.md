@@ -60,7 +60,8 @@ the terminal style API has no strike attribute.
 | Ctrl+1 / Ctrl+2 / Ctrl+3 / Ctrl+4 | Chat / Skills / Scheduled tasks / Settings |
 | Ctrl+E | Toggle the editor |
 | Ctrl+R | Toggle the right Files and Review sidebar |
-| F6 | Cycle focus through the visible panes |
+| F6 | Cycle focus through visible panes, including transcript tools |
+| Up / Down, Enter / Space (transcript focus) | Select a tool and expand or fold its details |
 | Ctrl+B | Toggle and focus the sidebar |
 | Ctrl+P / F1 | Show commands |
 | Ctrl+T | Open the terminal pane or return to chat |
@@ -145,3 +146,10 @@ The built-in graphical browser and element picker have no TUI equivalent. Graphi
 - `desktop/server`: a standalone host for the shared backend.
 
 Run `just seekmoon-tui-test` for the TUI/client/server checks, and the root `just check`, `just test`, and `just build` integration gates for the complete workspace.
+
+Tool calls use a compact single-line view by default: name, description or brief,
+and running/success/failure status. Click a header to expand its full arguments
+and output; click again to fold. F6 focuses transcript tools, Up/Down selects a
+call, Enter or Space toggles it, and Esc returns to the composer. Details remain
+selectable for copying. Calls and results are paired by call ID; expanding a call
+preserves the current viewport. The offline demo supports these controls too.

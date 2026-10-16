@@ -102,6 +102,89 @@ test "canonical assistant commit settles live preview without duplication" {
   assert_eq(chat.live_answer, "")
   assert_eq(chat.live_reasoning, "")
   assert_eq(chat.rows.map(row => row.text), ["reason", "complete"])
+  let calls : @protocol.SessionEvent = {
+    sequence: 2,
+    ts: None,
+    item: Assistant({
+      content: "",
+      reasoning_content: None,
+      is_replay: None,
+      tool_calls: Some([
+        {
+          id: "one",
+          name: "read",
+          arguments: "{\"description\":\"First file\"}",
+        },
+        {
+          id: "two",
+          name: "read",
+          arguments: "{\"description\":\"Second file\"}",
+        },
+      ]),
+    }),
+  }
+  let result : @protocol.SessionEvent = {
+    sequence: 3,
+    ts: None,
+    item: ToolResult({
+      tool_call_id: "two",
+      tool_name: "read",
+      content: @agent_protocol.Content([Text("SECOND OUTPUT")]),
+      is_error: true,
+      brief: Some("Failed second"),
+      data: None,
+    }),
+  }
+  chat.append_item(calls)
+  chat.append_item(result)
+  assert_eq(chat.rows.length(), 4)
+  assert_true(chat.rows[2].kind is Tool({ id: "one", status: Pending, .. }))
+  assert_true(chat.rows[3].kind is Tool({ id: "two", status: Failed, .. }))
+  let collapsed = chat.lines(80).map(line => line.to_text()).join("\n")
+  assert_true(!collapsed.contains("SECOND OUTPUT"))
+  chat.toggle_tool("two")
+  assert_true(
+    chat
+    .lines(80)
+    .map(line => line.to_text())
+    .join("\n")
+    .contains("SECOND OUTPUT"),
+  )
+  chat.snapshot({
+    session: {
+      version: Some(1),
+      id: Some("same-id"),
+      system_prompt: None,
+      events: Some([calls, result]),
+    },
+    watermark: Some(3),
+    prediction: None,
+  })
+  assert_eq(chat.rows.length(), 2)
+  assert_true(
+    chat
+    .lines(80)
+    .map(line => line.to_text())
+    .join("\n")
+    .contains("SECOND OUTPUT"),
+  )
+  chat.append_item({
+    sequence: 4,
+    ts: None,
+    item: Terminal(Interrupted("Stopped")),
+  })
+  assert_true(chat.rows[0].kind is Tool({ status: Interrupted, .. }))
+  // Result-only history remains inspectable when the call is absent.
+  let orphan = test_chat("/orphan")
+  orphan.append_item(result)
+  orphan.toggle_tool("two")
+  assert_true(
+    orphan
+    .lines(80)
+    .map(line => line.to_text())
+    .join("\n")
+    .contains("SECOND OUTPUT"),
+  )
 }
 
 ///|

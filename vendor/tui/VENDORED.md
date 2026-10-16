@@ -23,3 +23,5 @@ Local changes:
   correctly across wrapping and scrolling, including duplicate line text.
 - Added `Line.concat` to compose styled table cells and continuation prefixes
   without flattening text styles.
+- Added `Scroll.hold` to keep the current viewport when expanding transcript
+  details, instead of following the newly extended bottom.

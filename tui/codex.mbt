@@ -43,7 +43,18 @@ fn State::install_codex(
         "assistant" => Assistant
         "reasoning" => Reasoning
         "error" => Error
-        _ => Tool
+        "tool" =>
+          Tool(
+            message.tool.unwrap_or_else(() => {
+              @toolcall.Call(
+                message.id,
+                "tool",
+                output=message.text,
+                status=if message.complete { Succeeded } else { Pending },
+              )
+            }),
+          )
+        _ => Notice
       },
       label: if message.role == "assistant" {
         "Codex"
