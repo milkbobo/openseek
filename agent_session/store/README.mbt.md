@@ -420,9 +420,11 @@ giving CLI, TUI, serve mode, and visualization code one shared durable boundary.
 
 ## Image attachments
 
-Images are saved in the user-level `~/.openseek/attachments` store before the
-JSONL references them. `SessionStore::migrate_images` explicitly converts legacy
+Callers admit images to the user-level `~/.openseek/attachments` store before
+constructing session items. Append, snapshot writes, forks, and tail repair
+preserve supplied content without converting images.
+`SessionStore::migrate_images` explicitly converts legacy
 inline images while preserving sequence numbers and timestamps. Reads never
 rewrite history. Forks retain shared references; deletion does not collect
-shared objects. The optional `attachment_home` constructor argument supplies an
-isolated user-data root for tests and embedded hosts.
+shared objects. Migration accepts an optional `attachment_home` argument for an isolated
+user-data root in tests and embedded hosts.

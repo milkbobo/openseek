@@ -21,7 +21,7 @@ pub async fn SessionStore::create(
   with_session_lock(self, session.id(), Exclusive, () => {
     write_text_atomic(
       self.session_file_path(session.id()),
-      self.session_file_text(session),
+      session_file_text(session),
       dirs=self.session_dir_chain(session.id()),
     )
     record_mark(self, session)

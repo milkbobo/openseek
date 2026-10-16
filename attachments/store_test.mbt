@@ -15,7 +15,7 @@ async test "immutable images deduplicate across writers and verify missing or co
       Text("after"),
       Image(image),
     ])
-    let persisted = @attachments.persist(content, home~)
+    let persisted = @attachments.admit(content, home~)
     assert_true(
       persisted.0 is [Text("before"), ImageRef(a), Text("after"), ImageRef(b)] &&
       a == b,

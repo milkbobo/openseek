@@ -6,13 +6,13 @@ import {
 }
 
 // Values
+pub async fn admit(@openseek_protocol.Content, home? : String) -> @openseek_protocol.Content
+
 pub fn default_home() -> String raise
 
 pub fn digest(Bytes) -> String
 
 pub fn path(@openseek_protocol.ImageRef, home? : String) -> String raise
-
-pub async fn persist(@openseek_protocol.Content, home? : String) -> @openseek_protocol.Content
 
 pub async fn read(@openseek_protocol.ImageRef, home? : String) -> @openseek_protocol.Image
 

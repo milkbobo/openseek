@@ -19,7 +19,7 @@ pub fn SessionListing::last_active_unix_seconds(Self) -> Int64?
 pub fn SessionListing::title(Self) -> String?
 
 type SessionStore derive(@debug.Debug)
-pub fn SessionStore::SessionStore(String, attachment_home? : String) -> Self
+pub fn SessionStore::SessionStore(String) -> Self
 pub async fn SessionStore::append(Self, @agent_session.Session, @agent_session.SessionItem) -> @agent_session.Session
 pub async fn SessionStore::compact(Self, @agent_session.Session, content~ : String, from_sequence~ : Int, to_sequence~ : Int) -> @agent_session.Session
 pub async fn SessionStore::create(Self, @agent_session.Session) -> Unit
@@ -30,7 +30,7 @@ pub async fn SessionStore::latest(Self) -> @agent_session.SessionId?
 pub async fn SessionStore::list(Self) -> Array[@agent_session.SessionId]
 pub async fn SessionStore::listings(Self) -> Array[SessionListing]
 pub async fn SessionStore::load(Self, @agent_session.SessionId) -> @agent_session.Session
-pub async fn SessionStore::migrate_images(Self, @agent_session.SessionId) -> @agent_session.Session
+pub async fn SessionStore::migrate_images(Self, @agent_session.SessionId, attachment_home? : String) -> @agent_session.Session
 pub async fn SessionStore::prediction(Self, @agent_session.SessionId) -> @openseek_protocol.PredictionRecord?
 pub fn SessionStore::root(Self) -> String
 pub async fn SessionStore::save_prediction(Self, @agent_session.Session, @openseek_protocol.PredictionRecord) -> Unit

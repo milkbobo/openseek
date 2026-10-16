@@ -1,7 +1,7 @@
 ///|
 async fn new_store() -> @store.SessionStore {
   let root = @fs.tmpdir(prefix="openseek-session-store-")
-  SessionStore(root, attachment_home=root + "/user")
+  SessionStore(root)
 }
 
 ///|
@@ -1130,8 +1130,7 @@ async test "legacy JSONL can append and replay embedded images and text" {
   )
   let _ = store.append(appended, Tool(result))
   let written = @fs.read_file(session_file(store, "mixed")).text()
-  assert_true(written.contains(legacy.split_once("\n").unwrap().1))
-  assert_true(written.has_prefix("{\"version\":2"))
+  assert_true(written.has_prefix(legacy))
   let event = @json.parse(written.split("\n").to_array()[5].to_owned())
   assert_true(
     event is { "item": { "payload": { "content": Array(_), .. }, .. }, .. },
@@ -1140,20 +1139,16 @@ async test "legacy JSONL can append and replay embedded images and text" {
   guard resumed.events()[4].item() is User(actual) else {
     fail("expected mixed user")
   }
-  assert_true(
-    actual.content().0
-    is [Text("compare "), ImageRef(_), Text(" with "), ImageRef(_)],
-  )
+  assert_eq(actual.content(), user.content())
   assert_eq(actual.submission_id(), Some("new-submission"))
   let messages = resumed.chat_messages()
   assert_eq(
     messages[messages.length() - 3].content.0,
-    @agent_session.to_deepseek_parts(actual.content()),
+    @agent_session.to_deepseek_parts(user.content()),
   )
-  assert_true(
-    messages[messages.length() - 1].content.0
-    is [Text("result: "), ImageUrl(url~)] &&
-    url.has_prefix("openseek-attachment:"),
+  assert_eq(
+    messages[messages.length() - 1].content.0,
+    @agent_session.to_deepseek_parts(result.content()),
   )
   assert_true(messages[messages.length() - 1].role is Tool("image-call"))
 }

@@ -32,7 +32,6 @@ let title_file_name : String = "session-title"
 /// `Session` carrying its id.
 struct SessionStore {
   root : String
-  attachment_home : String?
   // The last session value this store instance loaded from or persisted to
   // disk, per id, with the file fingerprint at that moment. Purely an
   // optimization: it lets the stale-snapshot check skip re-reading the whole
@@ -70,11 +69,8 @@ priv struct FileFingerprint {
 /// created lazily by `create`, `append`, or `compact`. Read-only operations
 /// treat a missing `root/sessions` directory as an empty store where that makes
 /// sense.
-pub fn SessionStore::SessionStore(
-  root : String,
-  attachment_home? : String,
-) -> SessionStore {
-  { root, attachment_home, marks: Map([]), }
+pub fn SessionStore::SessionStore(root : String) -> SessionStore {
+  { root, marks: Map([]), }
 }
 
 ///|
@@ -157,11 +153,7 @@ fn events_jsonl(events : @vector.Vector[@agent_session.SessionEvent]) -> String 
 ///|
 /// The complete durable form of a session: one header line followed by one
 /// line per event.
-async fn SessionStore::session_file_text(
-  self : SessionStore,
-  session : @agent_session.Session,
-) -> String {
-  let session = self.persist_images(session)
+fn session_file_text(session : @agent_session.Session) -> String {
   "\{header_line(session)}\{events_jsonl(session.events())}"
 }
 
@@ -347,8 +339,7 @@ async fn ensure_session_is_current(
   }
   let persisted = parsed.session
   if persisted.system_prompt() != session.system_prompt() ||
-    events_jsonl(store.persist_images(persisted).events()) !=
-    events_jsonl(store.persist_images(session).events()) {
+    events_jsonl(persisted.events()) != events_jsonl(session.events()) {
     fail("stale session snapshot for \{session.id().value()}")
   }
   parsed.needs_tail_repair
@@ -370,7 +361,7 @@ async fn persist_event(
   session : @agent_session.Session,
   event : @agent_session.SessionEvent,
   repair_tail~ : Bool,
-) -> @agent_session.Session {
+) -> Unit {
   let path = store.session_file_path(session.id())
   let upgrade = if event.item().has_image_refs() && @fs.exists(path) {
     let file = @fs.open(path, mode=ReadOnly)
@@ -396,15 +387,12 @@ async fn persist_event(
       append=true,
       sync=Data,
     )
-    session
   } else {
-    let session = store.persist_images(session)
     write_text_atomic(
       path,
-      "\{header_line(session)}\{events_jsonl(session.events())}",
+      session_file_text(session),
       dirs=store.session_dir_chain(session.id()),
     )
-    session
   }
 }
 
@@ -576,9 +564,7 @@ pub async fn SessionStore::fork(
   through? : Int32,
   system_prompt~ : String,
 ) -> @agent_session.Session {
-  let copy = self.persist_images(
-    self.load(source).fork(fork, system_prompt~, through?),
-  )
+  let copy = self.load(source).fork(fork, system_prompt~, through?)
   let title = self.title(source)
   @fs.mkdir(self.session_dir(fork), recursive=true) catch {
     @os_error.OSError(_) as error if error.is_EEXIST() =>
@@ -597,7 +583,7 @@ pub async fn SessionStore::fork(
     if title is Some(title) {
       write_text_atomic(self.title_path(fork), title, dirs~)
     }
-    write_text_atomic(path, self.session_file_text(copy), dirs~)
+    write_text_atomic(path, session_file_text(copy), dirs~)
     record_mark(self, copy)
   })
   copy
@@ -893,9 +879,6 @@ pub async fn SessionStore::append(
   session : @agent_session.Session,
   item : @agent_session.SessionItem,
 ) -> @agent_session.Session {
-  let item = item.map_content(content => {
-    @attachments.persist(content, home?=self.attachment_home)
-  })
   ensure_session_dir(self, session.id())
   with_session_lock(self, session.id(), Exclusive, () => {
     let repair_tail = ensure_session_is_current(self, session)
@@ -903,7 +886,7 @@ pub async fn SessionStore::append(
       item,
       unix_ms=@env.now().reinterpret_as_int64(),
     )
-    let next = persist_event(self, next, event, repair_tail~)
+    persist_event(self, next, event, repair_tail~)
     record_mark(self, next)
     next
   })
@@ -935,7 +918,7 @@ pub async fn SessionStore::compact(
       session.summary_item(content~, from_sequence~, to_sequence~),
       unix_ms=@env.now().reinterpret_as_int64(),
     )
-    let next = persist_event(self, next, event, repair_tail~)
+    persist_event(self, next, event, repair_tail~)
     record_mark(self, next)
     next
   })
@@ -972,27 +955,20 @@ pub async fn SessionStore::scratch_dir(
 }
 
 ///|
-async fn SessionStore::persist_images(
-  self : SessionStore,
-  session : @agent_session.Session,
-) -> @agent_session.Session {
-  session.map_content(content => {
-    @attachments.persist(content, home?=self.attachment_home)
-  })
-}
-
-///|
 /// Explicitly migrate legacy inline images while holding the session write lock.
 /// Event sequences and timestamps are preserved; normal reads never rewrite.
 pub async fn SessionStore::migrate_images(
   self : SessionStore,
   id : @agent_session.SessionId,
+  attachment_home? : String,
 ) -> @agent_session.Session {
   with_existing_session_lock(self, id, Exclusive, () => {
-    let session = self.persist_images(read_session_file(self, id).session)
+    let session = read_session_file(self, id).session.map_content(content => {
+      @attachments.admit(content, home?=attachment_home)
+    })
     write_text_atomic(
       self.session_file_path(id),
-      self.session_file_text(session),
+      session_file_text(session),
       dirs=self.session_dir_chain(id),
     )
     record_mark(self, session)

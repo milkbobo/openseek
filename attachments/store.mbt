@@ -122,7 +122,7 @@ pub async fn read(
 
 ///|
 /// Admit inline images to durable storage while preserving mixed-content order.
-pub async fn persist(
+pub async fn admit(
   content : @protocol.Content,
   home? : String,
 ) -> @protocol.Content {

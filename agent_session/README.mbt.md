@@ -33,8 +33,10 @@ Appending never mutates the receiver. It returns a new session that shares the
 old log structure.
 
 User and tool content uses ordered `Text`, inline `Image`, and durable
-`ImageRef` parts. Text extraction excludes images. The session store converts
-inline images into immutable local attachments before committing an event.
+`ImageRef` parts. Text extraction excludes images. The agent admits initial
+input, steering input, and tool results through the attachment store before
+constructing their session items. The admitted content is shared by history
+and the live model-request buffer; session append never transforms it.
 Images retain their original PNG/JPEG/GIF/WebP bytes and the existing 5 MiB
 limit; this path does not resize or transcode them.
 

@@ -65,6 +65,12 @@ snapshot. Filesystem-backed callers use this to persist progress even if a later
 model call or tool execution fails. Callers that only need an in-memory result
 can return `session.append(item)` from the callback.
 
+Initial input, steering input, and tool results admit image bytes to the
+attachment store before constructing their session items. The persistence hook
+receives references and records the supplied content unchanged. The same
+admitted content enters the live request buffer without reading back the
+last session event.
+
 `run_turn_in_scope` is the long-lived engine API. The caller owns the
 `AgentRuntime`, `AgentTaskScope`, and usually a `Tools` registry built once with
 `build_tools`. This is the API used by serve mode so stateful tools and queued

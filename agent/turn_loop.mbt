@@ -1,6 +1,7 @@
 ///|
 priv struct AgentLoop {
   runtime : @agent_runtime.AgentRuntime
+  attachment_home : String?
   client : @client.Client
   /// Client for auto-compaction checkpoint summaries: thinking=No where the
   /// model honors the control — a handoff summary needs no reasoning budget.
@@ -39,10 +40,12 @@ fn AgentLoop::AgentLoop(
   tools~ : @agent_tool.Tools,
   append_item~ : async (@agent_session.Session, @agent_session.SessionItem) -> @agent_session.Session,
   session~ : @agent_session.Session,
+  attachment_home? : String,
   on_goal_met? : async (String, @agent_session.GoalBaseline?) -> String?,
 ) -> AgentLoop {
   {
     runtime,
+    attachment_home,
     client,
     summary_client,
     tools,
@@ -409,13 +412,15 @@ async fn AgentLoop::apply_steer_inputs(
 ) -> @agent_session.Session {
   for input in inputs; current = session {
     let steer : SteerMessage = match input {
-      Prompt(content, submission_id~) =>
+      Prompt(content, submission_id~) => {
+        let content = @attachments.admit(content, home?=self.attachment_home)
         {
           kind: "prompt",
           content,
           submission_id,
           item: User(UserMessage(content, submission_id?)),
         }
+      }
       Notice(text) =>
         {
           kind: "notice",
@@ -434,17 +439,15 @@ async fn AgentLoop::apply_steer_inputs(
       @agent_session.parse_goal_baseline(text) is Some(_) {
       continue next
     }
-    let content = if next.events().peek() is Some(event) &&
-      event.item() is User(message) {
-      message.content()
-    } else {
-      steer.content
-    }
     self.messages.push(
-      ChatMessage(User, content=@agent_session.to_deepseek_parts(content)),
+      ChatMessage(User, content=@agent_session.to_deepseek_parts(steer.content)),
     )
     @emit.emit(
-      SteerApplied(kind=steer.kind, content~, submission_id=steer.submission_id),
+      SteerApplied(
+        kind=steer.kind,
+        content=steer.content,
+        submission_id=steer.submission_id,
+      ),
     )
     if input is Notice(text) {
       self.goal_cadence.observe_notice(text)
@@ -1162,29 +1165,28 @@ async fn AgentLoop::record_tool_result(
   brief? : String,
   data? : Json,
 ) -> @agent_session.Session {
-  let parts : Array[@protocol.ContentPart] = [
-    Text(clamp_tool_result_content(content)),
-    ..images.map(image => @protocol.ContentPart::Image(image)),
-  ]
+  let content = @attachments.admit(
+    Content(
+      [
+        Text(clamp_tool_result_content(content)),
+        ..images.map(image => @protocol.ContentPart::Image(image)),
+      ],
+    ),
+    home?=self.attachment_home,
+  )
   let session = self.append(
     session,
     Tool(
       ToolResult(
         tool_call_id~,
         tool_name~,
-        content=parts,
+        content=content.0,
         is_error~,
         brief?,
         data?,
       ),
     ),
   )
-  let content = if session.events().peek() is Some(event) &&
-    event.item() is Tool(result) {
-    result.content()
-  } else {
-    Content(parts)
-  }
   self.messages.push(
     ChatMessage(
       Tool(tool_call_id),

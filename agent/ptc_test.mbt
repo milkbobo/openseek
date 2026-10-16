@@ -72,6 +72,8 @@ async test "agent PTC stores nested calls while only selected output reaches the
 
 ///|
 async test "agent cancellation persists completed images and interrupted PTC metadata before terminal" {
+  let home = @fs.tmpdir(prefix="openseek-cancel-image-")
+  defer @fs.rmdir(home, recursive=true)
   @async.with_task_group(group => {
     let bodies : Array[String] = []
     guard goal_check_test_server(group, bodies, [
@@ -121,6 +123,7 @@ async test "agent cancellation persists completed images and interrupted PTC met
         api_key="offline",
         model=Deepseek(V4Flash),
         api_url=url,
+        attachment_home=home,
         session=Session(SessionId("ptc-cancel"), system_prompt="system"),
         content=Content([Text("block")]),
         max_steps=3,
@@ -139,8 +142,7 @@ async test "agent cancellation persists completed images and interrupted PTC met
     assert_true(
       items.any(item => {
         item is Tool(result) &&
-        result.content().0 is [Text(_), Image(saved)] &&
-        saved == image &&
+        result.content().0 is [Text(_), ImageRef(_)] &&
         result.data()
         is Some(
           {
