@@ -1,6 +1,7 @@
 ///|
 async test "direct and unprinted PTC image results reach the next request and replay after source deletion" {
   let root = @fs.tmpdir(prefix="openseek-image-turn-")
+  let attachments = @attachments.AttachmentStore(root + "/attachments")
   defer @fs.rmdir(root, recursive=true)
   let bytes = @fs.read_file("deepseek/client/testdata/two-colors.png").binary()
   for ptc in [false, true] {
@@ -28,12 +29,17 @@ async test "direct and unprinted PTC image results reach the next request and re
         image_bytes=bytes.length(),
       )
       let session = @agent.run_turn_in_scope(
+        client=Client(
+          api_key="offline",
+          model=Deepseek(V4Flash),
+          api_url=url,
+          attachments~,
+          upload_index_dir=root + "/deepseek",
+          thinking=Max,
+        ),
+        admit_content=content => attachments.admit(content),
         runtime=AgentRuntime(workspace_root=root),
         scope=AgentTaskScope(group),
-        api_key="offline",
-        model=Deepseek(V4Flash),
-        api_url=url,
-        attachment_home=root + "/attachments",
         session=Session(SessionId("read-image"), system_prompt="system"),
         content=Content([Text("inspect picture")]),
         max_steps=3,
@@ -57,12 +63,17 @@ async test "direct and unprinted PTC image results reach the next request and re
       }
       ignore(
         @agent.run_turn_in_scope(
+          client=Client(
+            api_key="offline",
+            model=Deepseek(V4Flash),
+            api_url=url,
+            attachments~,
+            upload_index_dir=root + "/deepseek",
+            thinking=Max,
+          ),
+          admit_content=content => attachments.admit(content),
           runtime=AgentRuntime(workspace_root=root),
           scope=AgentTaskScope(group),
-          api_key="offline",
-          model=Deepseek(V4Flash),
-          api_url=url,
-          attachment_home=root + "/attachments",
           session=replay,
           content=Content([Text("inspect again")]),
           max_steps=1,
@@ -78,6 +89,7 @@ async test "direct and unprinted PTC image results reach the next request and re
 ///|
 async test "tool text is bounded before durable and API content parts are assembled" {
   let root = @fs.tmpdir(prefix="openseek-tool-admission-")
+  let attachments = @attachments.AttachmentStore(root + "/attachments")
   defer @fs.rmdir(root, recursive=true)
   let image = @agent_session.Image::from_bytes(b"\x89PNG\r\n\x1a\n")
   // The emoji straddles the truncation boundary; neither durable nor wire text
@@ -103,13 +115,18 @@ async test "tool text is bounded before durable and API content parts are assemb
       ),
     ])
     let session = @agent.run_turn_in_scope(
+      client=Client(
+        api_key="offline",
+        model=Deepseek(V4Flash),
+        api_url=url,
+        attachments~,
+        upload_index_dir=root + "/deepseek",
+        thinking=Max,
+      ),
+      admit_content=content => attachments.admit(content),
       runtime~,
       scope~,
       tools~,
-      api_key="offline",
-      model=Deepseek(V4Flash),
-      api_url=url,
-      attachment_home=root,
       session=Session(SessionId("bounded-tool-images"), system_prompt="system"),
       content=Content([Text("inspect")]),
       max_steps=3,
@@ -124,7 +141,7 @@ async test "tool text is bounded before durable and API content parts are assemb
       fail("expected text followed by both images")
     }
     assert_eq(first, second)
-    assert_eq(@attachments.read(first, home=root), image)
+    assert_eq(attachments.read(first), image)
     assert_true(saved_text.length() <= 60000)
     assert_true(saved_text.has_suffix(marker))
     assert_false(saved_text.contains("😀"))

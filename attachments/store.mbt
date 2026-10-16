@@ -1,4 +1,25 @@
 ///|
+/// Immutable image storage. The root is the attachments directory itself.
+pub struct AttachmentStore {
+  priv root : String
+} derive(Debug)
+
+///|
+pub extend AttachmentStore with @debug.Debug::{to_repr}
+
+///|
+/// Bind all attachment operations to a directory; creates files only on save.
+pub fn AttachmentStore::AttachmentStore(root : String) -> AttachmentStore {
+  { root, }
+}
+
+///|
+/// Construct the executing host's user-level attachment store.
+pub fn AttachmentStore::default() -> AttachmentStore raise {
+  AttachmentStore(default_home() + "/attachments")
+}
+
+///|
 /// Resolve the host's user-level OpenSeek data directory.
 pub fn default_home() -> String raise {
   let home = if @async.platform is Windows {
@@ -24,10 +45,12 @@ pub fn digest(bytes : Bytes) -> String {
 
 ///|
 /// Locate a validated reference below the host's attachment store.
-pub fn path(reference : @protocol.ImageRef, home? : String) -> String raise {
-  let home = home.unwrap_or_else(() => default_home())
+pub fn AttachmentStore::path(
+  self : AttachmentStore,
+  reference : @protocol.ImageRef,
+) -> String {
   let hash = reference.attachment_id.strip_prefix("sha256:").unwrap_or("")
-  "\{home}/attachments/v1/objects/\{hash[:2]}/\{hash}"
+  "\{self.root}/v1/objects/\{hash[:2]}/\{hash}"
 }
 
 ///|
@@ -65,23 +88,22 @@ pub async fn write_atomic(path : String, data : Bytes) -> Unit {
 
 ///|
 /// Save immutable original bytes before publishing a reference in any session.
-pub async fn save(
+pub async fn AttachmentStore::save(
+  self : AttachmentStore,
   image : @protocol.Image,
-  home? : String,
 ) -> @protocol.ImageRef {
-  let home = home.unwrap_or_else(() => default_home())
   let reference = @protocol.ImageRef::ImageRef(
     attachment_id="sha256:\{digest(image.bytes)}",
     media_type=image.media_type,
     bytes=image.bytes.length(),
   )
-  let file_path = path(reference, home~)
+  let file_path = self.path(reference)
   let hash = digest(image.bytes)
-  let objects = "\{home}/attachments/v1/objects"
+  let objects = "\{self.root}/v1/objects"
   let shard = "\{objects}/\{hash[:2]}"
   @fs.mkdir(shard, recursive=true, allow_exist=true, permission=0o700)
   if @fs.exists(file_path) {
-    ignore(read(reference, home~))
+    ignore(self.read(reference))
   } else {
     write_atomic(file_path, image.bytes)
   }
@@ -89,9 +111,9 @@ pub async fn save(
     directory in [
       shard,
       objects,
-      "\{home}/attachments/v1",
-      "\{home}/attachments",
-      home,
+      "\{self.root}/v1",
+      self.root,
+      self.root + "/..",
     ] {
     sync_directory(directory)
   }
@@ -100,11 +122,11 @@ pub async fn save(
 
 ///|
 /// Read bounded bytes and verify digest and metadata before display or upload.
-pub async fn read(
+pub async fn AttachmentStore::read(
+  self : AttachmentStore,
   reference : @protocol.ImageRef,
-  home? : String,
 ) -> @protocol.Image {
-  let file = @fs.open(path(reference, home?), mode=ReadOnly)
+  let file = @fs.open(self.path(reference), mode=ReadOnly)
   defer file.close()
   guard file.size() == reference.bytes.to_int64() else {
     fail("image attachment size mismatch: \{reference.attachment_id}")
@@ -122,17 +144,17 @@ pub async fn read(
 
 ///|
 /// Admit inline images to durable storage while preserving mixed-content order.
-pub async fn admit(
+pub async fn AttachmentStore::admit(
+  self : AttachmentStore,
   content : @protocol.Content,
-  home? : String,
 ) -> @protocol.Content {
   let parts : Array[@protocol.ContentPart] = []
   for part in content.0 {
     parts.push(
       match part {
-        Image(image) => ImageRef(save(image, home?))
+        Image(image) => ImageRef(self.save(image))
         ImageRef(reference) => {
-          ignore(read(reference, home?))
+          ignore(self.read(reference))
           part
         }
         Text(_) => part
@@ -144,15 +166,15 @@ pub async fn admit(
 
 ///|
 /// Restore bytes only for a deliberately portable export, never normal history.
-pub async fn restore(
+pub async fn AttachmentStore::restore(
+  self : AttachmentStore,
   content : @protocol.Content,
-  home? : String,
 ) -> @protocol.Content {
   let parts : Array[@protocol.ContentPart] = []
   for part in content.0 {
     parts.push(
       match part {
-        ImageRef(reference) => Image(read(reference, home?))
+        ImageRef(reference) => Image(self.read(reference))
         _ => part
       },
     )

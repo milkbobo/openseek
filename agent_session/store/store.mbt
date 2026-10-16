@@ -960,11 +960,11 @@ pub async fn SessionStore::scratch_dir(
 pub async fn SessionStore::migrate_images(
   self : SessionStore,
   id : @agent_session.SessionId,
-  attachment_home? : String,
+  attachments~ : @attachments.AttachmentStore,
 ) -> @agent_session.Session {
   with_existing_session_lock(self, id, Exclusive, () => {
     let session = read_session_file(self, id).session.map_content(content => {
-      @attachments.admit(content, home?=attachment_home)
+      attachments.admit(content)
     })
     write_text_atomic(
       self.session_file_path(id),

@@ -3,6 +3,7 @@ async test "image admission precedes append and migration is explicit" {
   let root = @fs.tmpdir(prefix="openseek-image-log-")
   defer @fs.rmdir(root, recursive=true)
   let home = root + "/user"
+  let attachments = @attachments.AttachmentStore(home + "/attachments")
   let store = @store.SessionStore(root)
   let image = @agent_session.Image::from_bytes(b"\x89PNG\r\n\x1a\nfixture")
   let raw : @agent_session.Content = Content([Text("see"), Image(image)])
@@ -18,7 +19,7 @@ async test "image admission precedes append and migration is explicit" {
   assert_true(legacy.contains("\"data\":"))
   assert_eq(store.load(original.id()), original)
   assert_eq(@fs.read_file(path).text(), legacy)
-  let admitted = @attachments.admit(raw, home~)
+  let admitted = attachments.admit(raw)
   let next = store.append(original, User(UserMessage(admitted)))
   assert_eq(next.events()[0], original.events()[0])
   assert_true(
@@ -36,7 +37,7 @@ async test "image admission precedes append and migration is explicit" {
   assert_eq(fork.events()[0], original.events()[0])
   assert_eq(store.load(fork.id()), fork)
   // Only the explicit migration rewrites old inline bytes.
-  let migrated = store.migrate_images(original.id(), attachment_home=home)
+  let migrated = store.migrate_images(original.id(), attachments~)
   assert_eq(migrated.events()[0].sequence(), original.events()[0].sequence())
   assert_eq(migrated.events()[0].unix_ms(), original.events()[0].unix_ms())
   assert_true(
@@ -44,7 +45,7 @@ async test "image admission precedes append and migration is explicit" {
     message.content() == admitted,
   )
   assert_eq(migrated.events()[1], next.events()[1])
-  assert_eq(store.migrate_images(original.id(), attachment_home=home), migrated)
+  assert_eq(store.migrate_images(original.id(), attachments~), migrated)
   assert_false(@fs.read_file(path).text().contains("\"data\":"))
   let reopened = @store.SessionStore(root)
   let appended = reopened.append(migrated, User(UserMessage(admitted)))

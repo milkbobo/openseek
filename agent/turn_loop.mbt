@@ -1,7 +1,7 @@
 ///|
 priv struct AgentLoop {
   runtime : @agent_runtime.AgentRuntime
-  attachment_home : String?
+  admit_content : async (@agent_session.Content) -> @agent_session.Content
   client : @client.Client
   /// Client for auto-compaction checkpoint summaries: thinking=No where the
   /// model honors the control — a handoff summary needs no reasoning budget.
@@ -40,12 +40,12 @@ fn AgentLoop::AgentLoop(
   tools~ : @agent_tool.Tools,
   append_item~ : async (@agent_session.Session, @agent_session.SessionItem) -> @agent_session.Session,
   session~ : @agent_session.Session,
-  attachment_home? : String,
+  admit_content~ : async (@agent_session.Content) -> @agent_session.Content,
   on_goal_met? : async (String, @agent_session.GoalBaseline?) -> String?,
 ) -> AgentLoop {
   {
     runtime,
-    attachment_home,
+    admit_content,
     client,
     summary_client,
     tools,
@@ -413,7 +413,7 @@ async fn AgentLoop::apply_steer_inputs(
   for input in inputs; current = session {
     let steer : SteerMessage = match input {
       Prompt(content, submission_id~) => {
-        let content = @attachments.admit(content, home?=self.attachment_home)
+        let content = (self.admit_content)(content)
         {
           kind: "prompt",
           content,
@@ -1165,14 +1165,13 @@ async fn AgentLoop::record_tool_result(
   brief? : String,
   data? : Json,
 ) -> @agent_session.Session {
-  let content = @attachments.admit(
+  let content = (self.admit_content)(
     Content(
       [
         Text(clamp_tool_result_content(content)),
         ..images.map(image => @protocol.ContentPart::Image(image)),
       ],
     ),
-    home?=self.attachment_home,
   )
   let session = self.append(
     session,

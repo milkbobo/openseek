@@ -1523,6 +1523,7 @@ async test "locate_bundle prefers the freshest artifact; explicit wins" {
 ///|
 /// Standalone exports carry referenced bytes so they survive moving off-host.
 async fn portable_session_text(text : String) -> String {
+  let attachments = @attachments.AttachmentStore::default()
   let lines : Array[String] = []
   for line in text.split("\n") {
     let event : @agent_session.SessionEvent = @json.from_json(@json.parse(line)) catch {
@@ -1532,7 +1533,7 @@ async fn portable_session_text(text : String) -> String {
       }
     }
     lines.push(
-      Json(event.map_content(content => @attachments.restore(content))).stringify(),
+      Json(event.map_content(content => attachments.restore(content))).stringify(),
     )
   }
   lines.join("\n")

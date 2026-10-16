@@ -426,5 +426,5 @@ preserve supplied content without converting images.
 `SessionStore::migrate_images` explicitly converts legacy
 inline images while preserving sequence numbers and timestamps. Reads never
 rewrite history. Forks retain shared references; deletion does not collect
-shared objects. Migration accepts an optional `attachment_home` argument for an isolated
-user-data root in tests and embedded hosts.
+shared objects. Migration requires an `attachments` store supplied by the caller;
+its root determines where converted image bytes are saved.

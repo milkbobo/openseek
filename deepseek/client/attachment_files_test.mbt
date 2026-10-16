@@ -1,11 +1,9 @@
 ///|
 async test "persistent upload index survives clients, isolates credentials and refreshes rejected files" {
   let home = @fs.tmpdir(prefix="openseek-upload-index-")
+  let attachments = @attachments.AttachmentStore(home + "/image-data")
   defer @fs.rmdir(home, recursive=true)
-  let reference = @attachments.save(
-    @protocol.Image::from_bytes(b"GIF87a"),
-    home~,
-  )
+  let reference = attachments.save(@protocol.Image::from_bytes(b"GIF87a"))
   @async.with_task_group() <| group => {
     let server = @http.Server(@socket.Addr::parse("127.0.0.1:0"))
     group.add_defer(() => server.close())
@@ -50,16 +48,20 @@ async test "persistent upload index survives clients, isolates credentials and r
     let api_url = "http://127.0.0.1:\{server.addr.port()}/chat/completions"
     let client = @client.Client(
       api_key="first-secret",
+      thinking=Max,
       api_url~,
       model=Deepseek(V4Flash),
-      attachment_home=home,
+      attachments~,
+      upload_index_dir=home + "/deepseek",
     )
     assert_eq(client.upload_attachment(reference), "file-1")
     let resumed = @client.Client(
       api_key="first-secret",
+      thinking=Max,
       api_url~,
       model=Deepseek(V4Flash),
-      attachment_home=home,
+      attachments~,
+      upload_index_dir=home + "/deepseek",
     )
     assert_eq(resumed.upload_attachment(reference), "file-1")
     assert_eq(uploads.length(), 1)
@@ -67,7 +69,8 @@ async test "persistent upload index survives clients, isolates credentials and r
       api_key="other-secret",
       api_url~,
       model=Deepseek(V4Flash),
-      attachment_home=home,
+      attachments~,
+      upload_index_dir=home + "/deepseek",
     )
     assert_eq(other.upload_attachment(reference), "file-2")
     let messages = [
@@ -78,7 +81,9 @@ async test "persistent upload index survives clients, isolates credentials and r
         ImageUrl(url=reference.url()),
       ]),
     ]
-    ignore(resumed.chat(messages))
+    let summary_client = resumed.with_thinking(No)
+    assert_eq(summary_client.thinking, No)
+    ignore(summary_client.chat(messages))
     assert_eq(uploads.length(), 2)
     assert_true(
       chats[0]
@@ -127,7 +132,8 @@ async test "persistent upload index survives clients, isolates credentials and r
       api_key="first-secret",
       api_url="http://127.0.0.1:\{server.addr.port()}/v2/chat/completions",
       model=Deepseek(V4Flash),
-      attachment_home=home,
+      attachments~,
+      upload_index_dir=home + "/deepseek",
     )
     assert_eq(endpoint.upload_attachment(reference), "file-5")
   }
@@ -136,9 +142,10 @@ async test "persistent upload index survives clients, isolates credentials and r
 ///|
 async test "different uploads overlap and commits merge under the short index lock" {
   let home = @fs.tmpdir(prefix="openseek-parallel-upload-")
+  let attachments = @attachments.AttachmentStore(home + "/image-data")
   defer @fs.rmdir(home, recursive=true)
-  let first = @attachments.save(@protocol.Image::from_bytes(b"GIF87aa"), home~)
-  let second = @attachments.save(@protocol.Image::from_bytes(b"GIF87ab"), home~)
+  let first = attachments.save(@protocol.Image::from_bytes(b"GIF87aa"))
+  let second = attachments.save(@protocol.Image::from_bytes(b"GIF87ab"))
   @async.with_task_group() <| group => {
     let server = @http.Server(@socket.Addr::parse("127.0.0.1:0"))
     group.add_defer(() => server.close())
@@ -177,13 +184,15 @@ async test "different uploads overlap and commits merge under the short index lo
       api_key="key",
       api_url~,
       model=Deepseek(V4Flash),
-      attachment_home=home,
+      attachments~,
+      upload_index_dir=home + "/deepseek",
     )
     let b = @client.Client(
       api_key="key",
       api_url~,
       model=Deepseek(V4Flash),
-      attachment_home=home,
+      attachments~,
+      upload_index_dir=home + "/deepseek",
     )
     let ta = group.spawn(() => a.upload_attachment(first))
     let tb = group.spawn(() => b.upload_attachment(second))
@@ -200,7 +209,7 @@ async test "different uploads overlap and commits merge under the short index lo
     assert_true(
       index is { "records": Array(records), .. } && records.length() == 2,
     )
-    let same = @attachments.save(@protocol.Image::from_bytes(b"GIF87ac"), home~)
+    let same = attachments.save(@protocol.Image::from_bytes(b"GIF87ac"))
     let left = group.spawn(() => a.upload_attachment(same))
     let right = group.spawn(() => b.upload_attachment(same))
     assert_eq(left.wait(), right.wait())

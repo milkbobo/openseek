@@ -245,7 +245,10 @@ fn required_positive_int(input : String, label : String) -> Int32 raise {
 async fn sessions_migrate_images(matches : @argparse.Matches) -> Unit {
   let workspace_root = @setup.prepare_workspace_root(matches, log_created=false)
   let store = @store.SessionStore(@setup.session_root(matches, workspace_root~))
-  let session = store.migrate_images(sessions_target_id(matches))
+  let session = store.migrate_images(
+    sessions_target_id(matches),
+    attachments=@attachments.AttachmentStore::default(),
+  )
   println(
     "migrated images for session \{session.id().value()}; last_sequence=\{session.last_sequence()}",
   )

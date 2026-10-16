@@ -60,15 +60,17 @@ pub async fn Client::upload_attachment(
   reference : @protocol.ImageRef,
 ) -> String {
   guard self.supports_image_input() else { raise UnsupportedProvider }
-  let home = self.attachment_home.unwrap_or_else(() => {
-    @attachments.default_home()
+  let directory = self.upload_index_dir.unwrap_or_else(() => {
+    @attachments.default_home() + "/deepseek"
   })
-  let directory = "\{home}/deepseek"
   let path = "\{directory}/files-v1.json"
   let scope = self.upload_scope()
   // Verify the durable source even on cache hits; corrupt/missing local history
   // must not silently become dependent on a temporary provider file.
-  let image = @attachments.read(reference, home~)
+  let store = self.attachments.unwrap_or_else(() => {
+    @attachments.AttachmentStore::default()
+  })
+  let image = store.read(reference)
   if read_upload_index(path).lookup(scope, reference.attachment_id)
     is Some(record) {
     return record.file_id
@@ -111,7 +113,7 @@ pub async fn Client::upload_attachment(
   let next : UploadIndex = { version: 1, records, }
   @attachments.write_atomic(path, @utf8.encode(Json(next).stringify() + "\n"))
   @attachments.sync_directory(directory)
-  @attachments.sync_directory(home)
+  @attachments.sync_directory(directory + "/..")
   uploaded.id
 }
 
@@ -201,10 +203,9 @@ async fn Client::invalidate_uploads(
   if ids.is_empty() {
     return
   }
-  let home = self.attachment_home.unwrap_or_else(() => {
-    @attachments.default_home()
+  let directory = self.upload_index_dir.unwrap_or_else(() => {
+    @attachments.default_home() + "/deepseek"
   })
-  let directory = "\{home}/deepseek"
   let path = "\{directory}/files-v1.json"
   @fs.mkdir(directory, recursive=true, allow_exist=true, permission=0o700)
   let lock = @fs.open(
