@@ -1,4 +1,5 @@
 import {
+  "moonbitlang/seekmoon_tui/highlight",
   "moonbit-community/tui",
   "moonbit-community/tui/editor",
   "moonbit-community/tty/input",

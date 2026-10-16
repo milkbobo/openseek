@@ -157,3 +157,9 @@ preserves the current viewport. The offline demo supports these controls too.
 The file editor supports vertical mouse-wheel browsing over text and line numbers.
 Scrolling leaves the caret and file contents unchanged; clicking places the caret
 in the visible text, and editing or cursor navigation reveals the caret again.
+
+MoonBit `.mbt`, `.mbti`, and `.mbtx` files use the shared editor lexer for syntax
+colors, including keywords, types, functions, strings, escapes, numbers, and
+comments. Normal editing, split diffs, and unified diffs retain syntax colors;
+diff additions and removals keep their background colors. This is lexical
+highlighting, independent of language-server availability.

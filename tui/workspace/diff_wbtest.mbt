@@ -5,6 +5,22 @@ test "unified diff preserves additions removals and Unicode text" {
   assert_true(text.contains("-old 🌙"))
   assert_true(text.contains("+new 中文"))
   assert_true(text.contains("@@"))
+  let colored = unified_lines(
+    "let before = 1",
+    "let after = 2",
+    path="main.mbt",
+  )
+  let frame = @tui.Frame(width=30, height=colored.length())
+  frame.lines(frame.area(), colored)
+  for index, line in colored {
+    if line.to_text().has_prefix("-let") {
+      assert_true(frame.style_at(row=index, col=1).fg is Rgb(86, 156, 214))
+      assert_true(frame.style_at(row=index, col=1).bg is Rgb(48, 27, 32))
+    } else if line.to_text().has_prefix("+let") {
+      assert_true(frame.style_at(row=index, col=1).fg is Rgb(86, 156, 214))
+      assert_true(frame.style_at(row=index, col=1).bg is Rgb(20, 45, 32))
+    }
+  }
 }
 
 ///|

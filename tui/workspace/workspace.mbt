@@ -716,6 +716,7 @@ pub fn State::draw_editor(
         frame,
         body,
         focused=focused && !self.tree_focused,
+        highlight?=@highlight.for_path(tab.path),
         line_numbers=@tui.Style(fg=Rgb(88, 105, 127)),
         current_line=@tui.Style(bg=Rgb(26, 34, 46)),
       )

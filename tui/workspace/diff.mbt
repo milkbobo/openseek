@@ -43,7 +43,11 @@ fn changed_lines(
 }
 
 ///|
-fn unified_lines(original : String, modified : String) -> Array[@tui.Line] {
+fn unified_lines(
+  original : String,
+  modified : String,
+  path~ : String = "",
+) -> Array[@tui.Line] {
   let document = diff_document(original, modified)
   let lines = @unified.render_unified_hunks(document)
   if lines.is_empty() {
@@ -64,7 +68,12 @@ fn unified_lines(original : String, modified : String) -> Array[@tui.Line] {
     } else {
       @tui.Style()
     }
-    @tui.Line::from_text(line, style~)
+    if (line.has_prefix("+") || line.has_prefix("-") || line.has_prefix(" ")) &&
+      @highlight.for_path(path, base=style) is Some(highlight) {
+      @tui.Line([@tui.Span(line[:1], style~), ..highlight(line[1:].to_owned())])
+    } else {
+      @tui.Line::from_text(line, style~)
+    }
   })
 }
 
@@ -80,7 +89,7 @@ fn Tab::draw_diff(
   if self.unified {
     frame.lines(
       area,
-      unified_lines(original, modified),
+      unified_lines(original, modified, path=self.path),
       scroll=self.diff_scroll,
     )
     return
@@ -90,6 +99,7 @@ fn Tab::draw_diff(
       frame,
       area,
       focused~,
+      highlight?=@highlight.for_path(self.path),
       line_numbers=@tui.Style(fg=Rgb(116, 131, 150)),
     )
     return
@@ -129,6 +139,7 @@ fn Tab::draw_diff(
     frame,
     old_body,
     focused=false,
+    highlight?=@highlight.for_path(self.path),
     line_numbers=@tui.Style(fg=Rgb(116, 131, 150)),
     line_style=line => {
       if removed.contains(line) {
@@ -142,6 +153,7 @@ fn Tab::draw_diff(
     frame,
     new_body,
     focused~,
+    highlight?=@highlight.for_path(self.path),
     line_numbers=@tui.Style(fg=Rgb(116, 131, 150)),
     line_style=line => {
       if added.contains(line) {
