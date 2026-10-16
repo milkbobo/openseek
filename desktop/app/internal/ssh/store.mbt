@@ -133,7 +133,7 @@ async fn Store::write(
 }
 
 ///|
-async fn Store::save_locked(
+pub async fn Store::save(
   self : Store,
   input : @protocol.SshProfileWrite,
 ) -> @protocol.SshProfile {
@@ -171,7 +171,7 @@ async fn Store::save_locked(
 /// Commit the first observed identity before a window publishes Connected.
 /// Re-read under the lock: another process may have pinned or edited it while
 /// this window's SSH initialize was in flight.
-async fn Store::pin_locked(
+pub async fn Store::pin(
   self : Store,
   configured : @protocol.SshProfile,
   server_id : String,
@@ -206,27 +206,5 @@ async fn Store::pin_locked(
         }
       }),
     )
-  })
-}
-
-///|
-pub async fn Store::save(
-  self : Store,
-  input : @protocol.SshProfileWrite,
-) -> @protocol.SshProfile {
-  match input.id {
-    Some(id) => self.deployment_locked(id, () => self.save_locked(input))
-    None => self.save_locked(input)
-  }
-}
-
-///|
-pub async fn Store::pin(
-  self : Store,
-  configured : @protocol.SshProfile,
-  server_id : String,
-) -> Unit {
-  self.deployment_locked(configured.id, () => {
-    self.pin_locked(configured, server_id)
   })
 }

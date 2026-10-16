@@ -303,14 +303,6 @@ pub let ssh_connect : Command[@protocol.SshProfileTarget, @protocol.SshOperation
 
 pub let ssh_host_request : Command[@protocol.SshHostRequest, @protocol.SshReply]
 
-pub let ssh_prepare_begin : Command[@protocol.SshPreparationRequest, @protocol.SshOperation[@protocol.SshPreparationToken]]
-
-pub let ssh_prepare_cancel : Command[@protocol.SshPreparationToken, @protocol.EmptyReply]
-
-pub let ssh_prepare_execute : Command[@protocol.SshPreparationToken, @protocol.SshOperation[@protocol.SshProfile]]
-
-pub let ssh_prepare_progress : Command[@protocol.SshPreparationToken, @protocol.SshPreparationProgress]
-
 pub let ssh_profiles : Command[@protocol.EmptyPayload, @protocol.SshProfiles]
 
 pub let ssh_request : Command[@protocol.SshRequest, @protocol.SshReply]

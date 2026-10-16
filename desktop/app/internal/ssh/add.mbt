@@ -25,7 +25,7 @@ pub async fn Store::add(
 ) -> @protocol.SshProfile {
   guard !request.name.is_blank() else { raise SshError("Enter a display name") }
   let destination = ssh_destination(request.destination, request.port)
-  let (launcher, build_id, data_dir) = @headless_installer.discover(destination)
+  let (launcher, build_id, data_dir) = @host_client.discover(destination)
   self.save({
     id: None,
     name: request.name,

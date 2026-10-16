@@ -244,12 +244,11 @@ and epochs in one window alongside Local. Reconnection reloads durable state; it
 whose result is unknown. Native window, browser, clipboard and file-picker
 operations remain on the desktop, with explicit transfers for remote content.
 
-The native desktop installer verifies an explicitly selected local headless
-package, uploads it through SSH, and activates it only when the current service
-is idle. It saves the profile after build/protocol/identity checks succeed;
-busy or failed activation preserves the old association. A successful version
-change refreshes the corresponding host connection. Closing the desktop closes its SSH connections, watches and PTYs;
-the detached working-host daemon continues accepted Agent work and schedules.
-Local embedded service lifetime still follows the desktop. See the
+The remote host uses the ordinary native CLI release and `openseek setup`.
+SSH invokes that CLI's `app-server info`, daemon commands and loopback service;
+there is no separate headless package format or installation subsystem.
+Closing the desktop closes its SSH connections, watches and PTYs; the detached
+working-host daemon continues accepted Agent work and schedules. Local embedded
+service lifetime still follows the desktop. See the
 [desktop SSH guide](../desktop/README.md#remote-ssh) and
-[package and upgrade guide](../scripts/headless/README.md).
+[CLI lifecycle guide](../desktop/backend/cli/README.md).

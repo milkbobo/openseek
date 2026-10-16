@@ -1,4 +1,7 @@
 import {
+  "moonbitlang/openseek/env" @exe,
+  "moonbitlang/openseek/resources" @bundled_resources,
+  "moonbitlang/x/crypto",
   "moonbitlang/async/http",
   "openseek_desktop/backend/moonbit",
   "openseek_desktop/backend/host_client",

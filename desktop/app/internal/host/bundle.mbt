@@ -263,11 +263,3 @@ pub fn app_bundle_path(executable : String) -> String? {
     None
   }
 }
-
-///|
-/// Read the install bootstrap supplied by the desktop host.
-pub async fn ssh_installer_bootstrap(
-  resources : @resources.Resources,
-) -> String {
-  @fs.read_file(resources.dir.join("seekmoon/remote-install.py").to_string()).text()
-}

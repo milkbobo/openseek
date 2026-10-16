@@ -1,5 +1,21 @@
 # Working-host CLI
 
+Install the ordinary native CLI release on the remote host:
+
+```sh
+# In the extracted CLI release directory:
+./bin/openseek setup
+~/.openseek/bin/openseek app-server info
+~/.openseek/bin/openseek app-server daemon start
+```
+
+`info` reports JSON containing the absolute launcher path, the SHA-256 identity
+of the executing binary, protocol version and default data directory. It does
+not start a service or install anything. Desktop SSH invokes this same CLI;
+there is no separate headless archive or installer. `--engine` defaults to the
+executing CLI and `--build-id` defaults to its binary identity. Explicit overrides
+remain available for development launchers and Wasm tests.
+
 The foreground entry point runs the shared backend `ApiState` on native or wasm:
 
 ```sh

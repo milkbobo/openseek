@@ -6,6 +6,8 @@ import {
 }
 
 // Values
+pub async fn discover(String, ssh? : String) -> (String, String, String)
+
 pub fn terminal_args(destination~ : String, cwd~ : String, command? : String) -> Array[String] raise
 
 pub async fn[T] with_client(SshHost, async (Client) -> T) -> T

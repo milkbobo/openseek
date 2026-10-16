@@ -32,8 +32,6 @@ pub async fn resources(@resources.Resources) -> @openseek_desktop/backend/host.H
 
 pub fn[G] spawn_host_pumps(@async.TaskGroup[G], HostState, async (@protocol.Notification) -> Unit) -> Unit
 
-pub async fn ssh_installer_bootstrap(@resources.Resources) -> String
-
 pub fn viz_assets(@resources.Resources?) -> @openseek_desktop/backend/host.VizAssets raise
 
 pub async fn write_github_drafts(String?, @protocol.GithubDrafts) -> @protocol.EmptyReply

@@ -22,18 +22,6 @@ pub fn SshError::to_string(Self) -> String
 pub impl Show for SshError
 
 // Types and methods
-pub struct Preparation {
-  mut job : PreparationJob?
-}
-pub fn Preparation::Preparation() -> Self
-pub fn Preparation::begin(Self, @protocol.SshPreparationRequest) -> @protocol.SshPreparationToken raise
-pub async fn Preparation::cancel(Self, @protocol.SshPreparationToken) -> Unit
-pub async fn Preparation::close(Self) -> Unit
-pub async fn Preparation::execute(Self, @protocol.SshPreparationToken, async (@protocol.SshPreparationRequest, (String) -> Unit) -> @protocol.SshProfile) -> @protocol.SshProfile
-pub fn Preparation::progress(Self, @protocol.SshPreparationToken) -> @protocol.SshPreparationProgress
-
-type PreparationJob
-
 type PreviewCache
 
 pub struct Route {
@@ -59,7 +47,6 @@ pub async fn Store::cached_projects(Self, String) -> Array[String]?
 pub async fn Store::get(Self, String) -> @protocol.SshProfile
 pub async fn Store::list(Self) -> @protocol.SshProfiles
 pub async fn Store::pin(Self, @protocol.SshProfile, String) -> Unit
-pub async fn Store::prepare(Self, @protocol.SshPreparationRequest, String, (String) -> Unit) -> @protocol.SshProfile
 pub async fn Store::save(Self, @protocol.SshProfileWrite) -> @protocol.SshProfile
 
 // Type aliases

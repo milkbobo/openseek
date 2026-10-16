@@ -14,13 +14,6 @@ priv struct SshUi {
   data_dir : String
   build_id : String
   error : String?
-  preinstalled : Bool
-  directory : String
-  update_id : String?
-  preparation : @protocol.SshPreparationToken?
-  preparing : Bool
-  prepare_cancelled : Bool
-  notice : String?
 } derive(Eq)
 
 ///|
@@ -40,13 +33,6 @@ fn SshUi::empty() -> SshUi {
     data_dir: "",
     build_id: "",
     error: None,
-    preinstalled: false,
-    directory: "",
-    update_id: None,
-    preparation: None,
-    preparing: false,
-    prepare_cancelled: false,
-    notice: None,
   }
 }
 
@@ -58,7 +44,6 @@ priv enum SshField {
   Launcher
   DataDir
   BuildId
-  PackageDirectory
 }
 
 ///|
@@ -74,21 +59,6 @@ priv enum SshMsg {
   Opened(String, Result[Unit, String])
   SelectLocation(String)
   ToggleAdvanced
-  UsePreinstalled(Bool)
-  UpdateHost(String)
-  Prepare
-  PreparationBegun(@protocol.SshOperation[@protocol.SshPreparationToken])
-  PollPreparation(@protocol.SshPreparationToken)
-  PreparationProgress(
-    @protocol.SshPreparationToken,
-    Result[@protocol.SshPreparationProgress, String]
-  )
-  CancelPreparation
-  PreparationCancelReply(@protocol.SshPreparationToken, Result[Unit, String])
-  PreparationFinished(
-    @protocol.SshPreparationToken,
-    @protocol.SshOperation[@protocol.SshProfile]
-  )
 }
 
 ///|
@@ -137,10 +107,6 @@ fn update_ssh(
             },
             open: true,
             return_screen: Some(model.screen),
-            busy: ui.preparing,
-            preparing: ui.preparing,
-            prepare_cancelled: ui.preparing && ui.prepare_cancelled,
-            preparation: ui.preparation,
           },
         },
       )
@@ -154,20 +120,11 @@ fn update_ssh(
               ".ssh-add-remote"
             },
           ),
-          match ui.preparation {
-            Some(token) => ssh_cancel_prepare(dispatch, token)
-            None => @cmd.none
-          },
         ]),
         {
           ..model,
           screen: ui.return_screen.unwrap_or(model.screen),
-          ssh_ui: {
-            ..ui,
-            open: false,
-            return_screen: None,
-            prepare_cancelled: true,
-          },
+          ssh_ui: { ..ui, open: false, return_screen: None, },
         },
       )
     SelectLocation(value) => {
@@ -214,14 +171,13 @@ fn update_ssh(
         Launcher => { ..ui, launcher: value, }
         DataDir => { ..ui, data_dir: value, }
         BuildId => { ..ui, build_id: value, }
-        PackageDirectory => { ..ui, directory: value, }
       }
       (@cmd.none, { ..model, ssh_ui: ui, })
     }
     Loaded(Ok(result)) => {
       let mut next = {
         ..model,
-        ssh_ui: { ..ui, hosts: result.hosts, busy: ui.preparing, error: None, },
+        ssh_ui: { ..ui, hosts: result.hosts, busy: ui.busy, error: None, },
       }
       let cmds : Array[@cmd.Cmd] = []
       for host in result.hosts {
@@ -261,209 +217,10 @@ fn update_ssh(
     Loaded(Err(error)) =>
       (
         @cmd.none,
-        { ..model, ssh_ui: { ..ui, busy: ui.preparing, error: Some(error), }, },
+        { ..model, ssh_ui: { ..ui, busy: ui.busy, error: Some(error), }, },
       )
     ToggleAdvanced =>
       (@cmd.none, { ..model, ssh_ui: { ..ui, advanced: !ui.advanced, }, })
-    UsePreinstalled(value) => {
-      guard !ui.busy else { return (@cmd.none, model) }
-      (
-        @cmd.none,
-        {
-          ..model,
-          ssh_ui: {
-            ..ui,
-            preinstalled: value,
-            update_id: None,
-            error: None,
-            notice: None,
-          },
-        },
-      )
-    }
-    UpdateHost(id) => {
-      guard !ui.busy else { return (@cmd.none, model) }
-      guard ui.hosts.iter().find_first(host => host.id == id) is Some(host) else {
-        return (@cmd.none, model)
-      }
-      (
-        ssh_focus_after_render(".ssh-package-directory"),
-        {
-          ..model,
-          ssh_ui: {
-            ..ui,
-            preinstalled: false,
-            update_id: Some(id),
-            advanced: true,
-            open: true,
-            return_screen: Some(model.screen),
-            name: host.name,
-            destination: host.destination,
-            data_dir: host.data_dir,
-            error: None,
-            notice: None,
-          },
-        },
-      )
-    }
-    Prepare => {
-      guard !ui.busy else { return (@cmd.none, model) }
-      let destination = match ui.ssh_destination() {
-        Ok(value) => value
-        Err(error) =>
-          return (
-            @cmd.none,
-            { ..model, ssh_ui: { ..ui, error: Some(error), }, },
-          )
-      }
-
-      let request : @protocol.SshPreparationRequest = {
-        directory: ui.directory,
-        target: match ui.update_id {
-          Some(id) => Existing(id~)
-          None => New(name=ui.name, destination~, data_dir=ui.data_dir)
-        },
-      }
-      let cmd = @cmd.custom_cmd(scheduler => {
-        @js.Promise::from_async(() => {
-          let reply : @protocol.SshOperation[@protocol.SshPreparationToken] = @interop.bridge_request(
-            Local,
-            @commands.ssh_prepare_begin,
-            request,
-          ) catch {
-            error => SshFailed(@interop.bridge_error_text(error))
-          }
-          scheduler.add(dispatch(Ssh(PreparationBegun(reply))))
-        })
-        |> ignore
-      })
-      (
-        cmd,
-        {
-          ..model,
-          ssh_ui: {
-            ..ui,
-            busy: true,
-            preparing: true,
-            prepare_cancelled: false,
-            error: None,
-            notice: Some("Preparing…"),
-          },
-        },
-      )
-    }
-    PreparationBegun(SshFailed(error)) =>
-      (
-        @cmd.none,
-        {
-          ..model,
-          ssh_ui: {
-            ..ui,
-            busy: false,
-            preparing: false,
-            error: Some(error),
-            notice: None,
-          },
-        },
-      )
-    PreparationBegun(SshCompleted(token)) => {
-      if ui.prepare_cancelled || !ui.open {
-        return (
-          ssh_cancel_prepare(dispatch, token),
-          {
-            ..model,
-            ssh_ui: {
-              ..ui,
-              busy: false,
-              preparing: false,
-              preparation: None,
-              notice: None,
-            },
-          },
-        )
-      }
-      (
-        @cmd.batch([
-          ssh_execute_prepare(dispatch, token),
-          ssh_poll_prepare(dispatch, token),
-        ]),
-        { ..model, ssh_ui: { ..ui, preparation: Some(token), }, },
-      )
-    }
-    PollPreparation(token) => {
-      guard ui.preparation == Some(token) else { return (@cmd.none, model) }
-      let cmd = @cmd.custom_cmd(scheduler => {
-        @js.Promise::from_async(() => {
-          let result : Result[@protocol.SshPreparationProgress, String] = Ok(
-            @interop.bridge_request(
-              Local,
-              @commands.ssh_prepare_progress,
-              token,
-            ),
-          ) catch {
-            error => Err(@interop.bridge_error_text(error))
-          }
-          scheduler.add(dispatch(Ssh(PreparationProgress(token, result))))
-        })
-        |> ignore
-      })
-      (cmd, model)
-    }
-    PreparationProgress(token, result) => {
-      guard ui.preparation == Some(token) else { return (@cmd.none, model) }
-      let notice = match result {
-        Ok({ stage: Some(stage), }) => Some(preparation_stage(stage))
-        _ => ui.notice
-      }
-      (
-        ssh_poll_prepare(dispatch, token),
-        { ..model, ssh_ui: { ..ui, notice, }, },
-      )
-    }
-    CancelPreparation => {
-      let cmd = match ui.preparation {
-        Some(token) => ssh_cancel_prepare(dispatch, token)
-        None => @cmd.none
-      }
-      (
-        cmd,
-        {
-          ..model,
-          ssh_ui: {
-            ..ui,
-            prepare_cancelled: true,
-            notice: Some("Cancelling preparation…"),
-          },
-        },
-      )
-    }
-    PreparationFinished(token, result) => {
-      guard ui.preparation == Some(token) else { return (@cmd.none, model) }
-      let ui = { ..ui, preparation: None, busy: false, preparing: false, }
-      match result {
-        SshCompleted(profile) =>
-          ssh_saved(dispatch, { ..model, ssh_ui: ui, }, profile)
-        SshFailed(error) =>
-          (
-            @cmd.none,
-            { ..model, ssh_ui: { ..ui, error: Some(error), notice: None, }, },
-          )
-      }
-    }
-    PreparationCancelReply(token, result) => {
-      guard ui.preparation == Some(token) else { return (@cmd.none, model) }
-      match result {
-        Ok(_) => (@cmd.none, model)
-        Err(error) =>
-          (
-            @cmd.none,
-            {
-              ..model,
-              ssh_ui: { ..ui, error: Some(error), prepare_cancelled: false, },
-            },
-          )
-      }
-    }
     Save => {
       guard !ui.busy else { return (@cmd.none, model) }
       let destination = match ui.ssh_destination() {
@@ -506,13 +263,7 @@ fn update_ssh(
         })
         |> ignore
       })
-      (
-        cmd,
-        {
-          ..model,
-          ssh_ui: { ..ui, busy: true, prepare_cancelled: false, error: None, },
-        },
-      )
+      (cmd, { ..model, ssh_ui: { ..ui, busy: true, error: None, }, })
     }
     Saved(generation, result) => {
       if generation != ui.generation {
@@ -561,95 +312,37 @@ fn ssh_hosts_view(dispatch : @cmd.Emit[Msg], ui : SshUi) -> @html.Html {
         @icons.icon(@icons.icon_close),
       ),
     ]),
-    @html.p("Connect an SSH host to add its projects in this window."),
+    @html.p(
+      "Install the OpenSeek CLI release on the remote host and run openseek setup, then connect here.",
+    ),
   ]
-  if ui.advanced {
-    rows.push(
-      @html.div(class="ssh-host-modes", [
-        @html.button(
-          class="button secondary",
-          disabled=ui.busy,
-          on_click=dispatch(Ssh(UsePreinstalled(false))),
-          "Prepare from local package",
-        ),
-        @html.button(
-          class="button secondary",
-          disabled=ui.busy,
-          on_click=dispatch(Ssh(UsePreinstalled(true))),
-          "Add preinstalled host",
-        ),
-      ]),
-    )
-    rows.push(
-      @html.h3(
-        if ui.preinstalled {
-          "Add a preinstalled host"
-        } else if ui.update_id is Some(_) {
-          "Update this host"
-        } else {
-          "Prepare a working host"
-        },
-      ),
-    )
-    rows.push(
-      @html.p(
-        if ui.preinstalled {
-          "Use an SSH destination and the matching app-server installation on that host."
-        } else {
-          "Select a local headless package directory. Requires key-based SSH access, Linux, Python 3.8+ and glibc 2.35+. Running work keeps the current host active until you retry when it is idle."
-        },
-      ),
-    )
-  }
   let fields = [
     ("Name", Name, ui.name, "Development host"),
     ("SSH destination", Destination, ui.destination, "my-server"),
   ]
   fields.push(("SSH port (optional)", Port, ui.port, "22"))
   if ui.advanced {
-    fields.push(
+    fields.append([
+      ("Launcher", Launcher, ui.launcher, "/home/me/.openseek/bin/openseek"),
       (
         "Remote data directory",
         DataDir,
         ui.data_dir,
-        "/home/me/.local/share/seekmoon/remote-host",
+        "/home/me/.local/share/seekmoon",
       ),
-    )
-    if ui.preinstalled {
-      fields.append([
-        ("Launcher", Launcher, ui.launcher, "/opt/seekmoon/bin/openseek"),
-        ("Build ID", BuildId, ui.build_id, "Installed app-server build ID"),
-      ])
-    } else {
-      fields.push(
-        (
-          "Local package directory",
-          PackageDirectory,
-          ui.directory,
-          "/path/to/headless-linux-x64",
-        ),
-      )
-    }
+      ("Build ID", BuildId, ui.build_id, "From openseek app-server info"),
+    ])
   }
   for (label, field, value, placeholder) in fields {
     rows.push(
       @html.label(class="ssh-host-field", [
         @html.span(label),
         @html.input(
-          class=if field is PackageDirectory {
-            "ssh-package-directory"
-          } else {
-            "ssh-profile-field"
-          },
+          class="ssh-profile-field",
           value~,
           placeholder~,
           autofocus=field is Name,
-          attrs=@html.Attrs::build()
-            .aria_label(label)
-            .disabled(
-              ui.busy ||
-              (ui.update_id is Some(_) && !(field is PackageDirectory)),
-            ),
+          attrs=@html.Attrs::build().aria_label(label).disabled(ui.busy),
           on_input=dispatch.map(value => Ssh(Edit(field, value))),
         ),
       ]),
@@ -663,15 +356,6 @@ fn ssh_hosts_view(dispatch : @cmd.Emit[Msg], ui : SshUi) -> @html.Html {
       "Advanced",
     ),
   )
-  if ui.notice is Some(message) {
-    rows.push(
-      @html.p(
-        class="ssh-host-progress",
-        attrs=@html.Attrs::build().role("status").aria_live("polite"),
-        message,
-      ),
-    )
-  }
   if ui.error is Some(message) {
     rows.push(
       @html.p(
@@ -688,38 +372,19 @@ fn ssh_hosts_view(dispatch : @cmd.Emit[Msg], ui : SshUi) -> @html.Html {
       "Cancel",
     ),
   ]
-  if ui.preparing {
-    actions.push(
-      @html.button(
-        class="button secondary",
-        disabled=ui.prepare_cancelled,
-        on_click=dispatch(Ssh(CancelPreparation)),
-        "Cancel preparation",
-      ),
-    )
+  let required = if ui.advanced {
+    [ui.name, ui.destination, ui.launcher, ui.data_dir, ui.build_id]
   } else {
-    let required = if !ui.advanced {
-      [ui.name, ui.destination]
-    } else if ui.preinstalled {
-      [ui.name, ui.destination, ui.launcher, ui.data_dir, ui.build_id]
-    } else {
-      [ui.name, ui.destination, ui.data_dir, ui.directory]
-    }
-    actions.push(
-      @html.button(
-        class="button primary",
-        disabled=ui.busy || required.any(value => value.trim().is_empty()),
-        on_click=dispatch(
-          Ssh(if !ui.advanced || ui.preinstalled { Save } else { Prepare }),
-        ),
-        if !ui.advanced || ui.preinstalled {
-          "Save and continue"
-        } else {
-          "Prepare host"
-        },
-      ),
-    )
+    [ui.name, ui.destination]
   }
+  actions.push(
+    @html.button(
+      class="button primary",
+      disabled=ui.busy || required.any(value => value.trim().is_empty()),
+      on_click=dispatch(Ssh(Save)),
+      "Save and continue",
+    ),
+  )
   rows.push(@html.div(class="modal-actions", actions))
   @html.div(class="modal-backdrop", on_click=dispatch(Ssh(Close)), [
     @html.div(
@@ -753,144 +418,6 @@ extern "js" fn focus_ssh_control(selector : String) -> Unit =
 ///|
 fn ssh_focus_after_render(selector : String) -> @cmd.Cmd {
   @cmd.custom_cmd(_ => focus_ssh_control(selector), kind=@cmd.after_render)
-}
-
-///|
-fn ssh_cancel_prepare(
-  dispatch : @cmd.Emit[Msg],
-  token : @protocol.SshPreparationToken,
-) -> @cmd.Cmd {
-  @cmd.custom_cmd(scheduler => {
-    @js.Promise::from_async(() => {
-      let result : Result[Unit, String] = try {
-        ignore(
-          @interop.bridge_request(Local, @commands.ssh_prepare_cancel, token),
-        )
-        Ok(())
-      } catch {
-        error => Err(@interop.bridge_error_text(error))
-      }
-      scheduler.add(dispatch(Ssh(PreparationCancelReply(token, result))))
-    })
-    |> ignore
-  })
-}
-
-///|
-fn ssh_poll_prepare(
-  dispatch : @cmd.Emit[Msg],
-  token : @protocol.SshPreparationToken,
-) -> @cmd.Cmd {
-  @cmd.custom_cmd(scheduler => {
-    @base_browser.schedule_timeout(
-      () => scheduler.add(dispatch(Ssh(PollPreparation(token)))),
-      500,
-    )
-    |> ignore
-  })
-}
-
-///|
-fn ssh_execute_prepare(
-  dispatch : @cmd.Emit[Msg],
-  token : @protocol.SshPreparationToken,
-) -> @cmd.Cmd {
-  @cmd.custom_cmd(scheduler => {
-    @js.Promise::from_async(() => {
-      let reply : @protocol.SshOperation[@protocol.SshProfile] = @interop.bridge_request(
-        Local,
-        @commands.ssh_prepare_execute,
-        token,
-      ) catch {
-        error => SshFailed(@interop.bridge_error_text(error))
-      }
-      scheduler.add(dispatch(Ssh(PreparationFinished(token, reply))))
-    })
-    |> ignore
-  })
-}
-
-///|
-fn preparation_stage(stage : String) -> String {
-  match stage {
-    "reserved" => "Preparing…"
-    "verify_local" => "Verifying the local package…"
-    "probe" => "Checking the remote host…"
-    "inspect" => "Checking installed versions…"
-    "archive" => "Creating the upload archive…"
-    "upload" => "Uploading and verifying the package…"
-    "verified" => "Package verified."
-    "activate" => "Activating the host when it is idle…"
-    "save_profile" => "Saving the verified host…"
-    "cancelling" => "Cancelling preparation…"
-    _ => "Preparing the working host…"
-  }
-}
-
-///|
-test "closing preparation before its reservation arrives cannot launch it after reopening" {
-  let dispatch = @cmd.Emit(_ => @cmd.none)
-  let model = initial_model(desktop=true)
-  let (_, model) = update_ssh(dispatch, Open, model)
-  let model = { ..model, ssh_ui: { ..model.ssh_ui, busy: false, }, }
-  let (_, model) = update_ssh(dispatch, Prepare, model)
-  let (_, model) = update_ssh(
-    dispatch,
-    Loaded(Err("profile read failed")),
-    model,
-  )
-  assert_true(model.ssh_ui.busy)
-  let (_, model) = update_ssh(dispatch, Close, model)
-  let (_, model) = update_ssh(dispatch, Open, model)
-  let (_, model) = update_ssh(dispatch, Loaded(Ok({ hosts: [], })), model)
-  assert_true(model.ssh_ui.busy)
-  let (_, model) = update_ssh(
-    dispatch,
-    PreparationBegun(SshCompleted({ id: "old", })),
-    model,
-  )
-  assert_true(!model.ssh_ui.preparing)
-  assert_true(model.ssh_ui.preparation is None)
-  assert_true(!model.ssh_ui.busy)
-}
-
-///|
-test "retired preparation progress and completion cannot replace a new attempt" {
-  let dispatch = @cmd.Emit(_ => @cmd.none)
-  let model = initial_model(desktop=true)
-  let current : @protocol.SshPreparationToken = { id: "current", }
-  let old : @protocol.SshPreparationToken = { id: "old", }
-  let model = {
-    ..model,
-    ssh_ui: {
-      ..model.ssh_ui,
-      open: true,
-      busy: true,
-      preparing: true,
-      preparation: Some(current),
-      notice: Some("Uploading"),
-    },
-  }
-  let (_, next) = update_ssh(
-    dispatch,
-    PreparationProgress(old, Ok({ stage: Some("activate"), })),
-    model,
-  )
-  assert_true(next.ssh_ui == model.ssh_ui)
-  let (_, next) = update_ssh(
-    dispatch,
-    PreparationFinished(old, SshFailed("old failure")),
-    next,
-  )
-  assert_true(next.ssh_ui == model.ssh_ui)
-  let (_, next) = update_ssh(
-    dispatch,
-    PreparationFinished(current, SshFailed("busy host")),
-    next,
-  )
-  assert_true(!next.ssh_ui.busy)
-  assert_eq(next.ssh_ui.error, Some("busy host"))
-  assert_eq(next.ssh_ui.notice, None)
 }
 
 ///|
@@ -949,14 +476,12 @@ fn ssh_saved(
   let next = model.register_ssh_host(profile)
   // A save that finishes after Cancel may persist a host, but must not reopen
   // the picker, steal focus, or resurrect the dismissed settings form.
-  let (close, next) = if next.ssh_ui.open && !next.ssh_ui.prepare_cancelled {
+  let (close, next) = if next.ssh_ui.open {
     update_ssh(dispatch, Close, next)
   } else {
     (@cmd.none, next)
   }
-  let (pick, next) = if model.ssh_ui.open &&
-    !model.ssh_ui.prepare_cancelled &&
-    next.project_picker is Some(_) {
+  let (pick, next) = if model.ssh_ui.open && next.project_picker is Some(_) {
     update(dispatch, PickProject(Remote(profile.id)), next)
   } else {
     (@cmd.none, next)
@@ -991,11 +516,6 @@ fn ssh_settings_group(dispatch : @cmd.Emit[Msg], model : Model) -> @html.Html {
             class="button secondary",
             on_click=dispatch(Ssh(Connect(host.id))),
             "Reconnect",
-          ),
-          @html.button(
-            class="button secondary",
-            on_click=dispatch(Ssh(UpdateHost(host.id))),
-            "Update…",
           ),
         ],
         desc=host.destination,
@@ -1263,32 +783,5 @@ test "cancel then reopen allows a new successful save to return to the picker" {
   )
   assert_true(!saved.ssh_ui.open)
   assert_true(saved.screen == model.screen)
-  assert_eq(saved.project_picker.unwrap().channel(), Remote(profile.id))
-}
-
-///|
-test "a fresh save does not inherit a finished preparation cancellation" {
-  let emit : @cmd.Emit[Msg] = @cmd.Emit(_ => @cmd.none)
-  let (_, model) = update(emit, PickProject(Local), initial_model(desktop=true))
-  let (_, opened) = update_ssh(emit, Open, model)
-  let cancelled = {
-    ..opened,
-    ssh_ui: {
-      ..opened.ssh_ui,
-      preparing: false,
-      busy: false,
-      prepare_cancelled: true,
-      name: "new host",
-      destination: "dev",
-    },
-  }
-  let (_, saving) = update_ssh(emit, Save, cancelled)
-  let profile = remote_ux_test_profile()
-  let (_, saved) = update_ssh(
-    emit,
-    Saved(saving.ssh_ui.generation, Ok(profile)),
-    saving,
-  )
-  assert_true(!saved.ssh_ui.open)
   assert_eq(saved.project_picker.unwrap().channel(), Remote(profile.id))
 }

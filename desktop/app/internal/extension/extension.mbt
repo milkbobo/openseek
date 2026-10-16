@@ -333,7 +333,6 @@ const BridgeInboxCapacity = 4096
 /// request is awaited; window close joins that request's resource cleanup.
 struct DesktopBridgeActor {
   state : @api.DesktopState
-  preparation : @ssh.Preparation
   ssh_store : @ssh.Store?
   routes : Map[String, @ssh.Route]
   mut page_generation : Int32
@@ -359,7 +358,6 @@ pub fn DesktopBridgeActor::DesktopBridgeActor(
   {
     state,
     ssh_store,
-    preparation: Preparation(),
     routes: Map([]),
     page_generation: 0,
     host_methods: Set::from_array(names),
@@ -421,31 +419,6 @@ pub fn openseek_capability(
     }),
     WindowEndpoint(@commands.ssh_save, (_, payload) => {
       bridge.profile_store().save(payload)
-    }),
-    WindowEndpoint(@commands.ssh_prepare_begin, (_, payload) => {
-      SshCompleted(bridge.preparation.begin(payload)) catch {
-        error => SshFailed("\{error}")
-      }
-    }),
-    WindowEndpoint(@commands.ssh_prepare_execute, (_, payload) => {
-      SshCompleted(
-        bridge.preparation.execute(payload, (request, progress) => {
-          let bootstrap = @host.ssh_installer_bootstrap({
-            dir: @proton.resource_dir(),
-            packaged: @proton.is_packaged(),
-          })
-          bridge.profile_store().prepare(request, bootstrap, progress)
-        }),
-      ) catch {
-        error => SshFailed("\{error}")
-      }
-    }),
-    WindowEndpoint(@commands.ssh_prepare_progress, (_, payload) => {
-      bridge.preparation.progress(payload)
-    }),
-    WindowEndpoint(@commands.ssh_prepare_cancel, (_, payload) => {
-      bridge.preparation.cancel(payload)
-      Acknowledged
     }),
     WindowEndpoint(@commands.ssh_connect, (_, payload) => {
       try {
@@ -512,7 +485,6 @@ async fn DesktopBridgeActor::connect(
 ) -> @protocol.EmptyReply {
   // A reloaded page has no references to the previous page's emulator
   // instances, so its PTYs must not survive the new attachment.
-  self.preparation.close()
   self.host_connection.close_terminals()
   let reply : @async.Queue[Unit] = Queue(kind=Blocking(1))
   self.inbox.put(Control(PageConnected(context, reply)))
@@ -535,7 +507,6 @@ pub async fn DesktopBridgeActor::window_ready(
 pub async fn DesktopBridgeActor::window_closed(
   self : DesktopBridgeActor,
 ) -> Unit {
-  self.preparation.close()
   self.inbox.put(Control(WindowClosed))
 }
 
@@ -565,7 +536,6 @@ fn DesktopBridgeActor::subscribe(
 /// through its request-scoped sender; later notifications use the window-owned
 /// sender installed by Proton's lifecycle hook.
 pub async fn DesktopBridgeActor::run(self : DesktopBridgeActor) -> Unit {
-  defer self.preparation.close()
   @async.with_task_group(group => {
     let subscription = self.subscribe(group)
     defer subscription.close()

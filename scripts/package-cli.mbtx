@@ -8,7 +8,8 @@ import {
 }
 
 ///|
-/// Package the already-built native CLI. Run from the repository root.
+/// Package the native CLI and release viz bundle built from the same checkout.
+/// Run from the repository root after building both targets.
 async fn main {
   guard @env.args() is [_, platform, output] else {
     fail(
@@ -74,6 +75,12 @@ async fn main {
     @fs.chmod("\{root}/bin/rg", 0o755)
   }
   copy_tree("share", "\{root}/share")
+  @fs.mkdir("\{root}/share/viz", recursive=true, allow_exist=true)
+  @fs.write_file("\{root}/share/viz/index.html", @fs.read_file("web/index.html"))
+  @fs.write_file(
+    "\{root}/share/viz/viz_app.js",
+    @fs.read_file("_build/js/release/build/moonbitlang/openseek-viz-app/openseek-viz-app.js"),
+  )
   @fs.mkdir("\{root}/share/licenses/ripgrep", recursive=true)
   for license in ["LICENSE-MIT", "UNLICENSE"] {
     @fs.write_file(

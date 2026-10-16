@@ -79,11 +79,9 @@ OS operations stay local: remote file downloads/previews explicitly read bounded
 content from the host before invoking desktop facilities. Remote paths are not
 passed to a local opener. Codex browser login owns a private SSH callback tunnel
 and remote login ID; account state and CODEX_HOME belong to the selected host.
-Native package preparation verifies the selected artifact and identity before
-committing a profile. Busy activation keeps the current service and profile;
-reopening a window after upgrade adopts the new build. See
-[desktop usage](../desktop/README.md#remote-ssh) and
-[installation and recovery](../scripts/headless/README.md).
+Remote installation uses the ordinary CLI release and `openseek setup`.
+The desktop discovers it with `app-server info`; SSH only invokes the remote
+CLI. See [installation and recovery](../desktop/backend/cli/README.md).
 The host's notification hub publishes directly into each transport's bounded
 inbox. Registration supplies the destination and its notification mapping;
 the owner unregisters on exit, including cancellation. Desktop control,

@@ -5,6 +5,10 @@ pub fn command() -> @argparse.Command {
     about="Run the working-host service over loopback TCP.",
     subcommands=[
       Command(
+        "info",
+        about="Report this CLI installation and default working-host configuration as JSON.",
+      ),
+      Command(
         "remote",
         flags=[FlagArg("reconnect", long="reconnect")],
         about="Native SSH working-host JSONL client (explicit connection scope).",
@@ -188,8 +192,26 @@ pub async fn run(matches : @argparse.Matches) -> Unit {
     remote(config)
     return
   }
-  let engine = @fs.realpath(required(config, "engine"))
-  let build_id = required(config, "build-id")
+  let engine = @fs.realpath(
+    value(config, "engine").unwrap_or_else(@exe.current_exe),
+  )
+  let build_id = match value(config, "build-id") {
+    Some(value) => value
+    None => executable_build_id()
+  }
+  if matches.subcommand is Some(("info", _)) {
+    @stdio.stdout.write(
+      (
+        {
+          "launcher": engine,
+          "build_id": build_id,
+          "data_dir": value(config, "data-dir").unwrap_or_else(default_data_dir),
+          "protocol_version": @host_control.ProtocolVersion,
+        } : Json).stringify() +
+      "\n",
+    )
+    return
+  }
   let data_dir = private_directory(
     value(config, "data-dir").unwrap_or_else(default_data_dir),
   )
@@ -441,8 +463,29 @@ async fn foreground(
 }
 
 ///|
-fn foreground_resources(viz_dir : String?) -> @host.HostResources raise {
-  let resources = @host.HostResources::from_path()
+async fn foreground_resources(viz_dir : String?) -> @host.HostResources {
+  let bin = @pathx.Path(@fs.realpath(@exe.current_exe())).dirname()
+  let rg = bin
+    .join(if @async.platform is Windows { "rg.exe" } else { "rg" })
+    .to_string()
+  let resources = {
+    ..@host.HostResources::from_path(),
+    bin_dir: Some(bin.to_string()),
+    ripgrep: if @fs.exists(rg) {
+      Some(rg)
+    } else {
+      Some("rg")
+    },
+  }
+  let viz_dir = match viz_dir {
+    Some(directory) => Some(directory)
+    None =>
+      match @bundled_resources.directory() {
+        Some(root) if @fs.exists(root + "/viz/index.html") &&
+          @fs.exists(root + "/viz/viz_app.js") => Some(root + "/viz")
+        _ => None
+      }
+  }
   guard viz_dir is Some(directory) else { return resources }
   guard @pathx.Path(directory).is_host_absolute() else {
     fail("app-server --viz-dir must be absolute")
@@ -494,4 +537,16 @@ async fn configured_moonbit_source(
         "--moonbit-platform and --moonbit-seed-dir must be configured together",
       )
   }
+}
+
+///|
+/// Identify the executing CLI, including development builds without a release tag.
+async fn executable_build_id() -> String {
+  let file = @fs.open(@exe.current_exe(), mode=ReadOnly)
+  defer file.close()
+  let hash = @crypto.SHA256::new()
+  while file.read_some(max_len=65536) is Some(bytes) {
+    hash.update(bytes)
+  }
+  "sha256:" + @crypto.bytes_to_hex_string(hash.finalize())
 }

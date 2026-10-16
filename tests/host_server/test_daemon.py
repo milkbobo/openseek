@@ -1,6 +1,7 @@
 """Daemon ownership/recovery through real native and wasm launchers."""
 import concurrent.futures
 import json
+import hashlib
 import os
 import platform
 from pathlib import Path
@@ -58,6 +59,45 @@ class DaemonFixture(unittest.TestCase):
 
 
 class DaemonTests(DaemonFixture):
+    def test_setup_installed_native_cli_discovers_and_runs_without_launcher_overrides(self):
+        distribution = self.root / "CLI release with spaces"
+        (distribution / "bin").mkdir(parents=True)
+        shutil.copy2(NATIVE, distribution / "bin/openseek")
+        shutil.copy2(shutil.which("rg"), distribution / "bin/rg")
+        (distribution / "share/viz").mkdir(parents=True)
+        (distribution / "share/viz/index.html").write_text("<html></html>")
+        (distribution / "share/viz/viz_app.js").write_text("// fixture visualizer")
+        env = {k: v for k, v in self.env.items() if not k.startswith("OPENSEEK_HOST_")}
+        env["XDG_DATA_HOME"] = str(self.root / "service data")
+        # Use the real installed SDK, avoiding downloads in this offline test.
+        env["PATH"] = str(Path(shutil.which("moon")).parent) + ":" + env["PATH"]
+        setup = subprocess.run([str(distribution / "bin/openseek"), "setup"], env=env,
+                               capture_output=True, text=True, timeout=30)
+        self.assertEqual(setup.returncode, 0, setup.stderr)
+        installed = Path(env["HOME"]) / ".openseek/bin/openseek"
+        info = subprocess.run([str(installed), "app-server", "info"], env=env,
+                              capture_output=True, text=True, timeout=30)
+        self.assertEqual(info.returncode, 0, info.stderr)
+        info = json.loads(info.stdout)
+        self.assertEqual(info["launcher"], str(installed.resolve()))
+        self.assertEqual(info["build_id"], "sha256:" + hashlib.sha256(NATIVE.read_bytes()).hexdigest())
+        self.assertEqual(info["protocol_version"], 1)
+        self.assertEqual(info["data_dir"], env["XDG_DATA_HOME"] + "/seekmoon")
+        self.assertFalse(Path(info["data_dir"]).exists(), "discovery must not start or create a host")
+        host = ([str(installed), "app-server", "daemon"], Path(info["data_dir"]))
+        self.env = env
+        self.hosts.append(host)
+        ready = self.invoke(host, "start")
+        self.assertEqual(ready["build_id"], info["build_id"])
+        self.assertEqual(ready["status"], "ready")
+        peer = Peer(self.socket(host[1]))
+        self.addCleanup(peer.close)
+        reply = peer.request("server.initialize", {"build_id": info["build_id"], "protocol_version": 1})
+        self.assertEqual(reply["result"]["server_id"], ready["server_id"])
+        probe = self.root / "remote file.txt"
+        probe.write_text("ordinary installed CLI")
+        self.assertEqual(peer.request("fs.read_file", {"path": str(probe)})["result"]["content"], probe.read_text())
+
     def test_concurrent_start_ready_probe_and_restart_both_targets(self):
         for target in TARGETS:
             with self.subTest(target=target):

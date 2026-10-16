@@ -23,8 +23,8 @@ Inside them:
 - `backend/api/` — the shared embedded/headless service, with process-owned
   actors and connection-owned watches. `ApiState::start_services` supplies the
   common embedded startup; the daemon owns the headless lifecycle.
-- `backend/host_client/`, `backend/cli/`, `backend/headless_installer/` — SSH
-  connection, durable daemon lifecycle, and verified package preparation.
+- `backend/host_client/`, `backend/cli/` — SSH connections and the ordinary CLI
+  working-host daemon lifecycle.
 - `app/internal/ssh/` — desktop host profiles, reconnect state, and window routing.
 - `backend/engine/` — the native process owner: manages persistent
   engines, streaming, conversation storage, and workspace directories.
@@ -49,26 +49,24 @@ the frontend workspace member separately and consumes its generated bundle.
 
 Use **Add project** to choose Local, a saved SSH host, or **Add remote**.
 Local and remote projects appear together in the same window. **Save and
-continue** discovers an existing managed package on the SSH destination and
+continue** discovers an installed OpenSeek CLI on the SSH destination and
 returns to its directory picker. Cancelling returns to the originating picker
 and directory; switching locations restores each location's last directory.
 Saved remote projects remain in the sidebar while disconnected, with an
 explicit unavailable state and Retry instead of a stale directory listing.
 
-For a fresh host, expand **Advanced** and choose **Prepare from local package**.
-Supply a local headless package and a dedicated absolute remote data directory.
-Preparation verifies, uploads and activates the package, then saves the host
-only after it is Ready. Advanced settings also accept an existing absolute
-launcher path and exact build ID. Profiles can be managed from **SSH hosts**
-in Settings.
-The current preparation workflow uses local development artifacts; it does not
-download or publish a release. The working host needs Linux, glibc 2.35+,
-Python 3.8+, getconf, `/usr/bin/base64`, an executable login shell and key-based
-SSH access. OpenSSH config, known-host checking and ProxyJump/ProxyCommand remain
-in effect. Agent forwarding is disabled. Worktree/subtask operations also require
-Git with `worktree list --porcelain -z`; an unsupported Git is refused before
-creation. See [building and installing headless packages](../scripts/headless/README.md)
-for complete artifact and resource requirements.
+On the remote host, extract the ordinary native CLI release archive and run
+`./bin/openseek setup`. SSH discovers `~/.openseek/bin/openseek` first, then
+`openseek` on the login PATH, and invokes `app-server info` to obtain its executable
+path, build identity and default data directory. No separate host package,
+Python installer or desktop upload step is involved. Advanced settings accept
+an explicit CLI path, data directory and build identity from `app-server info`.
+
+The host needs key-based SSH access, `/usr/bin/base64` and an executable login
+shell. OpenSSH config, known-host checking and ProxyJump/ProxyCommand remain in
+effect; agent forwarding is disabled. Git worktree operations require
+`worktree list --porcelain -z`. See the [CLI guide](backend/cli/README.md) for
+service lifecycle and recovery commands.
 
 Models, tools, workspaces, Git, search, LSP, session history and
 schedules run on the selected host. Desktop windows, clipboard, browsers and
@@ -92,12 +90,9 @@ login requires account support; the browser sign-in action manages its callback
 tunnel, while manual browser login requires the displayed port forwarding.
 Click **Refresh** after terminal login. See [Codex integration](../docs/codex-app-server.md).
 
-**Update from package** installs a selected package and switches only an idle
-service. Finish or cancel active work before retrying Busy.
-After successful activation, the corresponding host connection adopts the new profile. Cancelling
-preparation after activation begins can leave the switch completed: inspect
-status and upgrade records before retrying. Reconnecting does not refresh an
-already running service's environment or change its selected Codex CLI.
+Install updated releases through the same CLI distribution. Daemon lifecycle
+changes remain explicit CLI operations; reconnecting does not refresh an already
+running service's environment or change its selected Codex CLI.
 
 On connection failure, inspect the displayed SSH diagnostic and check the same
 alias with system SSH. A changed saved server identity requires investigation;

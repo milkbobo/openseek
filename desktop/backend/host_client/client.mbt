@@ -67,21 +67,10 @@ fn remote_command(
 }
 
 ///|
-fn ssh_args(host : SshHost, command? : String) -> Array[String] {
+fn ssh_args(destination : String, command? : String) -> Array[String] {
   let args = [
-    "-T",
-    "-o",
-    "BatchMode=yes",
-    "-o",
-    "ConnectTimeout=10",
-    "-o",
-    "ServerAliveInterval=15",
-    "-o",
-    "ServerAliveCountMax=12",
-    "-o",
-    "ForwardAgent=no",
-    "--",
-    host.destination,
+    "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15",
+    "-o", "ServerAliveCountMax=12", "-o", "ForwardAgent=no", "--", destination,
   ]
   if command is Some(command) {
     args.push(command)
@@ -170,29 +159,24 @@ async fn[T, G] with_ssh_diagnostics(
 }
 
 ///|
-async fn control(host : SshHost, action : String) -> Json {
-  deadline("SSH daemon " + action, 25000, () => {
+async fn command_reply(
+  ssh : String,
+  destination : String,
+  phase : String,
+  command : (String) -> String,
+) -> Json {
+  deadline(phase, 25000, () => {
     @async.with_task_group(group => {
       let mark = "__seekmoon_" + @uuid.mint() + "__"
       let (reader, stdout) = @process.read_from_process()
       group.add_defer(() => reader.close())
       let (input, input_writer) = @process.write_to_process()
       input_writer.close()
-      with_ssh_diagnostics(group, "SSH daemon " + action, stderr => {
+      with_ssh_diagnostics(group, phase, stderr => {
         let process = @process.spawn(
           group,
-          host.ssh,
-          ssh_args(
-            host,
-            command=remote_command(host, mark, [
-              "daemon",
-              action,
-              "--data-dir",
-              host.data_dir,
-              "--build-id",
-              host.build_id,
-            ]),
-          ),
+          ssh,
+          ssh_args(destination, command=command(mark)),
           stdin=input,
           stdout~,
           stderr~,
@@ -201,11 +185,18 @@ async fn control(host : SshHost, action : String) -> Json {
         marker(reader, mark)
         let result = @json.parse(line(reader, 65536))
         guard process.wait() == 0 else {
-          raise HostClientError("SSH daemon " + action + " failed")
+          raise HostClientError(phase + " failed")
         }
         result
       })
     })
+  })
+}
+
+///|
+async fn control(host : SshHost, action : String) -> Json {
+  command_reply(host.ssh, host.destination, "SSH daemon " + action, mark => {
+    remote_command(host, mark, ["daemon", action, "--data-dir", host.data_dir])
   })
 }
 
@@ -263,7 +254,7 @@ async fn[T] with_tunnel(
       }
     })
     let (process, ws, connected) = with_ssh_diagnostics(group, "SSH tunnel", stderr => {
-      let args = ssh_args(host)
+      let args = ssh_args(host.destination)
       // Own this forwarder even if the user's alias enables multiplexing.
       args.insert(0, "ControlPath=none")
       args.insert(0, "-o")

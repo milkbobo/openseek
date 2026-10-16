@@ -3560,48 +3560,6 @@ pub fn[T : ToJson] SshOperation::to_json(Self[T]) -> Json
 pub impl[T : ToJson] ToJson for SshOperation[T]
 pub impl[T : @json.FromJson] @json.FromJson for SshOperation[T]
 
-pub(all) struct SshPreparationProgress {
-  stage : String?
-} derive(Eq)
-pub fn SshPreparationProgress::equal(Self, Self) -> Bool
-pub fn SshPreparationProgress::from_json(Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
-pub fn SshPreparationProgress::not_equal(Self, Self) -> Bool
-pub fn SshPreparationProgress::to_json(Self) -> Json
-pub impl ToJson for SshPreparationProgress
-pub impl @json.FromJson for SshPreparationProgress
-
-pub(all) struct SshPreparationRequest {
-  target : SshPreparationTarget
-  directory : String
-} derive(Eq)
-pub fn SshPreparationRequest::equal(Self, Self) -> Bool
-pub fn SshPreparationRequest::from_json(Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
-pub fn SshPreparationRequest::not_equal(Self, Self) -> Bool
-pub fn SshPreparationRequest::to_json(Self) -> Json
-pub impl ToJson for SshPreparationRequest
-pub impl @json.FromJson for SshPreparationRequest
-
-pub(all) enum SshPreparationTarget {
-  New(name~ : String, destination~ : String, data_dir~ : String)
-  Existing(id~ : String)
-} derive(Eq)
-pub fn SshPreparationTarget::equal(Self, Self) -> Bool
-pub fn SshPreparationTarget::from_json(Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
-pub fn SshPreparationTarget::not_equal(Self, Self) -> Bool
-pub fn SshPreparationTarget::to_json(Self) -> Json
-pub impl ToJson for SshPreparationTarget
-pub impl @json.FromJson for SshPreparationTarget
-
-pub(all) struct SshPreparationToken {
-  id : String
-} derive(Eq)
-pub fn SshPreparationToken::equal(Self, Self) -> Bool
-pub fn SshPreparationToken::from_json(Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
-pub fn SshPreparationToken::not_equal(Self, Self) -> Bool
-pub fn SshPreparationToken::to_json(Self) -> Json
-pub impl ToJson for SshPreparationToken
-pub impl @json.FromJson for SshPreparationToken
-
 pub(all) struct SshProfile {
   id : String
   name : String
