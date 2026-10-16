@@ -362,7 +362,9 @@ pub fn openseek_capability(
   bridge : DesktopBridgeActor,
   views : BrowserViews,
 ) -> @proton_extension.RendererCapability {
-  let endpoints = @api.endpoints(state, bridge.host_connection)
+  let endpoints = @api.endpoints(state, bridge.host_connection).filter(endpoint => {
+    endpoint.name() != @commands.session_export.name()
+  })
   let window_only = [
     WindowEndpoint(@commands.host_connect, (context, _) => {
       // A reloaded page allocates browser ids from scratch; the previous
