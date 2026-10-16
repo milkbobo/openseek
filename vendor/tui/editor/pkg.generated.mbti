@@ -43,7 +43,7 @@ pub fn Editor::text(Self) -> String
 
 pub struct Layout {
   rows : Array[String]
-  cursor : @tui.Cursor
+  cursor : @tui.Cursor?
   top : Int
   total : Int
 } derive(@debug.Debug)

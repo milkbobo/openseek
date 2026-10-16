@@ -153,3 +153,7 @@ and output; click again to fold. F6 focuses transcript tools, Up/Down selects a
 call, Enter or Space toggles it, and Esc returns to the composer. Details remain
 selectable for copying. Calls and results are paired by call ID; expanding a call
 preserves the current viewport. The offline demo supports these controls too.
+
+The file editor supports vertical mouse-wheel browsing over text and line numbers.
+Scrolling leaves the caret and file contents unchanged; clicking places the caret
+in the visible text, and editing or cursor navigation reveals the caret again.

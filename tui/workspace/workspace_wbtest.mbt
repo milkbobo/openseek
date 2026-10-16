@@ -278,6 +278,37 @@ async test "explorer wheel stays scrolled after draw and keyboard reveals select
     ignore(state.key(client, @input.KeyEvent::new(Home)))
     state.draw_tree(frame, frame.area())
     assert_eq(state.top, 0)
+    state.set_demo()
+    let tab = state.tabs[0]
+    tab.editor.set_text(Array::makei(30, i => "source line \{i}").join("\n"))
+    tab.editor.move_to_start()
+    let before = tab.editor.text()
+    let draw = fn() {
+      let frame = @tui.Frame(width=45, height=8)
+      state.draw_tree(frame, @tui.Rect(row=0, col=0, width=0, height=0))
+      state.draw_editor(frame, frame.area(), focused=true)
+      frame.to_text()
+    }
+    assert_true(draw().contains("1 source line 0"))
+    assert_true(
+      state.mouse(
+        client,
+        @input.MouseEvent::new(Scroll(Down), 3, 2),
+        fixture_context(),
+      ),
+    )
+    assert_true(draw().contains("4 source line 3"))
+    assert_true(!draw().contains("1 source line 0"))
+    assert_eq(tab.editor.position(), (0, 0))
+    assert_eq(tab.editor.text(), before)
+    assert_true(
+      state.mouse(
+        client,
+        @input.MouseEvent::new(Press(Left), 3, 7),
+        fixture_context(),
+      ),
+    )
+    assert_eq(tab.editor.position(), (4, 2))
   })
 }
 

@@ -25,3 +25,6 @@ Local changes:
   without flattening text styles.
 - Added `Scroll.hold` to keep the current viewport when expanding transcript
   details, instead of following the newly extended bottom.
+- Added editor wheel browsing independent of the caret, including the line-number
+  gutter. Edits and cursor navigation resume caret tracking. `Layout.cursor` is
+  optional when wheel browsing has moved the caret outside the viewport.
