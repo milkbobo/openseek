@@ -5,7 +5,6 @@ version = "0.1.5"
 import {
   "moonbitlang/jsonl@0.2.1",
   "moonbitlang/openseek_protocol@0.3.1",
-  "moonbit-community/pty@0.4.3",
   "moonbit-community/flate@0.8.4",
   "moonbitlang/x@0.5.5",
   "moonbitlang/async@0.22.4",
@@ -24,4 +23,4 @@ warnings = "+implicit_impl_as_method+test_unqualified_package"
 
 preferred_target = "native"
 
-supported_targets = "native"
+supported_targets = "native+wasm"

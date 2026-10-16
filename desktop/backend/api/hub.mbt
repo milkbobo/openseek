@@ -258,8 +258,8 @@ fn Hub::engine_connected(
 
 ///|
 /// The hub as the engine package's event sink, mapping engine events onto
-/// the catalog's `agent.*` notifications. `on_finished` additionally hands
-/// finished runs to the embedding host — the desktop's system notification.
+/// the catalog's `agent.*` notifications. Embedders consume typed notifications
+/// at the hub boundary; the service does not invoke OS notification APIs.
 fn Hub::sink(
   self : Hub,
   on_finished? : (@protocol.FinishedPayload) -> Unit,
@@ -535,7 +535,7 @@ test "a duplicate finish never downgrades a settlement" {
 
 ///|
 async test "agent.runs keeps old requests compatible and decodes known selectors" {
-  let state = ApiState::ApiState(engine="unused")
+  let state = test_service()
   let connection = @host.HostConnection()
   state.hub.publish(
     AgentStarted(
