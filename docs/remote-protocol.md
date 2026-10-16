@@ -62,6 +62,8 @@ The host control tunnel and the private local Dev console retain `/v1`:
 |---|---|
 | `GET /console/` | The server-selected Browser release |
 | `GET /console/releases/v<version>/index.html` | One published Browser bundle. Device consoles require `?device=<id>` to fix the page/tab to that device; optional `?workspace=<path>` selects where its first conversation lands. Cloud chats use the same console without requiring a device. Packaged Desktop links here with its installed version |
+| `GET /device/<device>/…` | Stable client page route; serves the current Browser document without redirecting the requested location |
+| `GET /assets/v<version>/…` | Immutable frontend resources, using the same path prefix as the packaged Desktop host and local console |
 | `GET /d/<device>/…` | Retired: `302` to `/console/?device=<device>` with the original query appended, so old deep links keep their device target |
 | `GET /healthz` | Relay liveness probe, `200 ok` |
 | `/v2/auth/account/*`, `/v2/auth/session`, `/v2/auth/login` | Account sign-in and browser session recovery (see Authentication) |
@@ -70,7 +72,7 @@ The host control tunnel and the private local Dev console retain `/v1`:
 Everything else — commands, queries, and host-pushed events — travels over
 `GET /v2/devices/<device>/ws`, upgraded from the same origin the bundle was
 served from and spliced through to the host. A browser page takes its one
-`<device>` from the required `?device=` query and verifies it against
+`<device>` from the page route (or the legacy `?device=` entry query) and verifies it against
 `GET /v2/devices`; other roster devices need their own page/tab. Frames are
 JSON text, shaped as **JSON-RPC 2.0**:
 

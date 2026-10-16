@@ -10,7 +10,7 @@ test('device sockets use the cached account ticket instead of another account co
   await app.install();
   await seed(page);
   await context.addCookies([{ name: 'session', value: 'cookie-for-B', url: baseURL }]);
-  await page.goto('/dist/browser/index.html?device=device-a');
+  await page.goto('/index.html?device=device-a');
   await app.openSession();
   expect(app.ticketRequests).toHaveLength(1);
   expect(new URL(app.ticketRequests[0].url).pathname).toBe('/v2/devices/device-a/connect-ticket');
@@ -34,7 +34,7 @@ test('a ticket response arriving after browser logout cannot open a socket', asy
   await app.install();
   await seed(page);
   await page.route('**/v2/auth/logout', route => route.fulfill({ status: 204 }));
-  await page.goto('/dist/browser/index.html?device=device-a');
+  await page.goto('/index.html?device=device-a');
   await expect.poll(() => app.ticketRequests.length).toBe(1);
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(page.getByRole('link', { name: /Sign in.*GitHub/i })).toBeVisible();
@@ -51,7 +51,7 @@ for (const status of [401, 503]) {
     app.ticketStatus = status;
     await app.install();
     await seed(page);
-    await page.goto('/dist/browser/index.html?device=device-a');
+    await page.goto('/index.html?device=device-a');
     await expect.poll(() => app.ticketRequests.length).toBeGreaterThan(0);
     if (status === 401) {
       await expect(page.getByRole('link', { name: /Sign in.*GitHub/i })).toBeVisible();
@@ -70,7 +70,7 @@ test('browser logout 401 retires both its cached account and device state', asyn
   await app.install();
   await seed(page);
   await page.route('**/v2/auth/logout', route => route.fulfill({ status: 401 }));
-  await page.goto('/dist/browser/index.html?device=device-a');
+  await page.goto('/index.html?device=device-a');
   await app.openSession();
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(page.getByRole('link', { name: /Sign in.*GitHub/i })).toBeVisible();
@@ -95,7 +95,7 @@ test('unreadable account storage does not fall through to another browser cookie
       return original.call(this, key);
     };
   });
-  await page.goto('/dist/browser/index.html?device=device-a');
+  await page.goto('/index.html?device=device-a');
   await expect(page.getByText(/Could not read account storage:/)).toBeVisible();
   expect(cookieChecks).toBe(0);
   expect(app.socketURLs).toEqual([]);

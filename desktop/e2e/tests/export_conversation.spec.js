@@ -86,7 +86,7 @@ class ExportHarness extends DesktopBrowserHarness {
     } else {
       await this.page.addInitScript(() => localStorage.setItem('seekmoon.account.v1', JSON.stringify({ token: 'ts_browser-account', user: { user_id: 'browser-account', login: 'browser-user', avatar_url: '' } })));
     }
-    await this.page.goto('/dist/browser/index.html?device=device-a');
+    await this.page.goto('/index.html?device=device-a');
     await this.openSession();
   }
 

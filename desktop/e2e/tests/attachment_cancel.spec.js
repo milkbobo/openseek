@@ -32,7 +32,7 @@ async function openNative(page, pick, prepare) {
       } }),
     };
   });
-  await page.goto('/dist/browser/index.html');
+  await page.goto('/index.html');
   await page.getByRole('main').waitFor();
   await page.locator('#task').fill('Keep this draft');
   return app;

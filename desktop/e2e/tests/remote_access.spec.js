@@ -74,7 +74,7 @@ async function installDesktop(page, { managed = false } = {}) {
       }),
     };
   });
-  await page.goto('/dist/browser/index.html');
+  await page.goto('/index.html');
   await page.getByRole('main').waitFor();
   return auth;
 }

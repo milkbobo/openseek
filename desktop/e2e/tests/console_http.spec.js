@@ -6,7 +6,7 @@ for (const endpoint of ['auth/me', 'devices']) {
     const app = new DesktopBrowserHarness(page);
     await app.install();
     await page.route(`**/v2/${endpoint}`, route => route.fulfill({ status: 401, body: '' }));
-    await page.goto('/dist/browser/index.html?device=device-a');
+    await page.goto('/index.html?device=device-a');
     await expect(page.getByRole('link', { name: /Sign in.*GitHub/i })).toBeVisible();
     expect(app.pageErrors).toEqual([]);
   });
@@ -22,7 +22,7 @@ for (const endpoint of ['auth/me', 'devices']) {
       attempts++;
       return failing ? route.fulfill({ status: 500, body: 'unavailable' }) : route.fallback();
     });
-    await page.goto('/dist/browser/index.html?device=device-a');
+    await page.goto('/index.html?device=device-a');
     const gate = page.getByRole('main');
     await expect(gate.getByText(/500/)).toBeVisible();
     const retry = gate.getByRole('button', { name: 'Try again', exact: true });
@@ -42,7 +42,7 @@ test('network failure reaches the retry UI', async ({ page }) => {
   const app = new DesktopBrowserHarness(page);
   await app.install();
   await page.route('**/v2/auth/me', route => route.abort('failed'));
-  await page.goto('/dist/browser/index.html?device=device-a');
+  await page.goto('/index.html?device=device-a');
   await expect(page.getByText(/the relay is unreachable:/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Try again', exact: true })).toBeVisible();
   expect(app.pageErrors).toEqual([]);
@@ -53,7 +53,7 @@ test('same-origin cookies and empty logout POST survive HTTP transport replaceme
   await app.install();
   await context.addCookies([{ name: 'session', value: 'fixture', url: baseURL }]);
   const meRequest = page.waitForRequest('**/v2/auth/me');
-  await page.goto('/dist/browser/index.html?device=device-a');
+  await page.goto('/index.html?device=device-a');
   await app.openSession();
   expect((await (await meRequest).allHeaders()).cookie).toContain('session=fixture');
   let logout;
@@ -82,7 +82,7 @@ test('logout failure retains the session and decodes the response text', async (
       Buffer.from('\uFEFF{"error":"Retry '), Buffer.from([0xff]), Buffer.from('"}'),
     ]),
   }));
-  await page.goto('/dist/browser/index.html?device=device-a');
+  await page.goto('/index.html?device=device-a');
   await app.openSession();
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(page.getByText('Retry �', { exact: true })).toBeVisible();

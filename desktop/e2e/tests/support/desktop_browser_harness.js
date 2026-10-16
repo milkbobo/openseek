@@ -517,10 +517,9 @@ export class DesktopBrowserHarness {
     await this.page.route(url => url.pathname.startsWith('/device/') || url.pathname === '/cloud' ||
       url.pathname.startsWith('/cloud/'), async route => {
       if (!route.request().isNavigationRequest()) return route.continue();
-      const url = new URL('/dist/browser/index.html', route.request().url());
+      const url = new URL('/index.html', route.request().url());
       const response = await route.fetch({ url: url.href });
-      const html = (await response.text()).replace('<head>', '<head><base href="/dist/browser/">');
-      await route.fulfill({ response, body: html, contentType: 'text/html' });
+      await route.fulfill({ response });
     });
 
 
@@ -1023,7 +1022,7 @@ export class DesktopBrowserHarness {
   }
 
   async goto() {
-    await this.page.goto('/dist/browser/index.html?device=device-a');
+    await this.page.goto('/index.html?device=device-a');
     await this.page.getByRole('main').waitFor();
   }
 
