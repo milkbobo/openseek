@@ -434,15 +434,17 @@ async fn AgentLoop::apply_steer_inputs(
       @agent_session.parse_goal_baseline(text) is Some(_) {
       continue next
     }
+    let content = if next.events().peek() is Some(event) &&
+      event.item() is User(message) {
+      message.content()
+    } else {
+      steer.content
+    }
     self.messages.push(
-      ChatMessage(User, content=@agent_session.to_deepseek_parts(steer.content)),
+      ChatMessage(User, content=@agent_session.to_deepseek_parts(content)),
     )
     @emit.emit(
-      SteerApplied(
-        kind=steer.kind,
-        content=steer.content,
-        submission_id=steer.submission_id,
-      ),
+      SteerApplied(kind=steer.kind, content~, submission_id=steer.submission_id),
     )
     if input is Notice(text) {
       self.goal_cadence.observe_notice(text)
@@ -1177,10 +1179,16 @@ async fn AgentLoop::record_tool_result(
       ),
     ),
   )
+  let content = if session.events().peek() is Some(event) &&
+    event.item() is Tool(result) {
+    result.content()
+  } else {
+    Content(parts)
+  }
   self.messages.push(
     ChatMessage(
       Tool(tool_call_id),
-      content=@agent_session.to_deepseek_parts(Content(parts)),
+      content=@agent_session.to_deepseek_parts(content),
     ),
   )
   session

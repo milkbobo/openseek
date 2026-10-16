@@ -133,6 +133,7 @@ test "construct DeepSeek client configuration" {
     content=(
       #|{
       #|  api_key: ...,
+      #|  attachment_home: None,
       #|  model: Deepseek(V4Flash),
       #|  api_url: "https://api.deepseek.com/chat/completions",
       #|  thinking: Max,

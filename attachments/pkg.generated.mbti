@@ -1,0 +1,33 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitlang/openseek/attachments"
+
+import {
+  "moonbitlang/openseek_protocol",
+}
+
+// Values
+pub fn default_home() -> String raise
+
+pub fn digest(Bytes) -> String
+
+pub fn path(@openseek_protocol.ImageRef, home? : String) -> String raise
+
+pub async fn persist(@openseek_protocol.Content, home? : String) -> @openseek_protocol.Content
+
+pub async fn read(@openseek_protocol.ImageRef, home? : String) -> @openseek_protocol.Image
+
+pub async fn restore(@openseek_protocol.Content, home? : String) -> @openseek_protocol.Content
+
+pub async fn save(@openseek_protocol.Image, home? : String) -> @openseek_protocol.ImageRef
+
+pub async fn sync_directory(String) -> Unit
+
+pub async fn write_atomic(String, Bytes) -> Unit
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits
