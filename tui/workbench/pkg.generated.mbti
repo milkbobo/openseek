@@ -1,0 +1,49 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitlang/seekmoon_tui/workbench"
+
+import {
+  "moonbitlang/core/debug",
+  "moonbitlang/seekmoon_tui/client",
+}
+
+// Values
+pub fn arguments(String) -> Array[String] raise InputError
+
+pub fn display(Json) -> Array[String]
+
+pub async fn execute(@client.Client, String, Context) -> Output
+
+pub fn help() -> Array[String]
+
+pub fn line_diff(String, String) -> Array[String]
+
+pub fn plan(String, Context) -> Plan raise InputError
+
+// Errors
+pub(all) suberror InputError {
+  InputError(String)
+} derive(@debug.Debug)
+pub fn InputError::to_repr(Self) -> @debug.Repr
+
+// Types and methods
+pub(all) struct Context {
+  session : String
+  workspace : String?
+  model : String
+  run_id : String?
+  archived : Bool
+}
+
+pub struct Output {
+  title : String
+  lines : Array[String]
+  refresh : Bool
+}
+
+type Plan
+pub fn Plan::command_name(Self) -> String
+pub fn Plan::params(Self) -> Json
+
+// Type aliases
+
+// Traits

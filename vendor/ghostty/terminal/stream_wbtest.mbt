@@ -1,0 +1,36 @@
+///|
+struct WhiteboxRecorder {
+  actions : Array[StreamAction]
+}
+
+///|
+impl StreamHandler for WhiteboxRecorder with fn vt(self, action) {
+  self.actions.push(action)
+}
+
+///|
+impl StreamHandler for WhiteboxRecorder with fn print(self, codepoint) {
+  self.actions.push(StreamPrint(codepoint))
+}
+
+///|
+impl StreamHandler for WhiteboxRecorder with fn deinit(_self) {
+  ()
+}
+
+///|
+fn new_whitebox_stream() -> (Stream[WhiteboxRecorder], Array[StreamAction]) {
+  let actions : Array[StreamAction] = []
+  let recorder : WhiteboxRecorder = { actions, }
+  (Stream::new(recorder), actions)
+}
+
+///|
+test "stream/private non-utf8 print branch emits stream print" {
+  let (stream, actions) = new_whitebox_stream()
+  stream.parser.reset_ground()
+  stream.next_non_utf8(b'x')
+  guard actions == [StreamPrint(b'x'.to_uint())] else {
+    fail("expected next_non_utf8 print branch to emit stream print")
+  }
+}

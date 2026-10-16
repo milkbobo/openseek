@@ -1,0 +1,199 @@
+///|
+
+///|
+fn all_modes() -> Array[@terminal.Mode] {
+  [
+    DisableKeyboard,
+    Insert,
+    SendReceiveMode,
+    Linefeed,
+    CursorKeys,
+    Mode132Column,
+    SlowScroll,
+    ReverseColors,
+    Origin,
+    Wraparound,
+    Autorepeat,
+    MouseEventX10,
+    CursorBlinking,
+    CursorVisible,
+    EnableMode3,
+    ReverseWrap,
+    AltScreenLegacy,
+    KeypadKeys,
+    BackarrowKeyMode,
+    EnableLeftAndRightMargin,
+    MouseEventNormal,
+    MouseEventButton,
+    MouseEventAny,
+    FocusEvent,
+    MouseFormatUtf8,
+    MouseFormatSgr,
+    MouseAlternateScroll,
+    MouseFormatUrxvt,
+    MouseFormatSgrPixels,
+    IgnoreKeypadWithNumlock,
+    AltEscPrefix,
+    AltSendsEscape,
+    ReverseWrapExtended,
+    AltScreen,
+    SaveCursor,
+    AltScreenSaveCursorClearEnter,
+    BracketedPaste,
+    SynchronizedOutput,
+    GraphemeCluster,
+    ReportColorScheme,
+    InBandSizeReports,
+  ]
+}
+
+///|
+test "modes/mode_from_int" {
+  guard @terminal.mode_from_int(4, true) == Some(Insert) else {
+    fail("expected ansi insert mode")
+  }
+  guard @terminal.mode_from_int(9, true) == None else {
+    fail("unexpected ansi mode")
+  }
+  guard @terminal.mode_from_int(9, false) == Some(MouseEventX10) else {
+    fail("expected dec mouse x10 mode")
+  }
+  guard @terminal.mode_from_int(14, true) == None else {
+    fail("unexpected ansi mode")
+  }
+}
+
+///|
+test "modes/all tags roundtrip through lookup and raw layout" {
+  for mode in all_modes() {
+    let tag = mode.tag()
+    guard @terminal.mode_from_int(tag.value(), tag.ansi()) is Some(found) else {
+      fail("expected roundtrip mode for raw tag \{tag.raw()}")
+    }
+    assert_eq(found.tag().raw(), tag.raw())
+  }
+
+  assert_eq(@terminal.Mode::CursorKeys.tag().raw(), 0x0001)
+  assert_eq(@terminal.Mode::Insert.tag().raw(), 0x8004)
+  let tag = @terminal.mode_tag_from_raw(0x840C)
+  assert_eq(tag.value(), 0x040C)
+  assert_eq(tag.ansi(), true)
+  assert_eq(tag.raw(), 0x840C)
+}
+
+///|
+test "modes/defaults preserve upstream true flags" {
+  let state = @terminal.ModeState::new()
+  let defaults = @terminal.ModePacked::default()
+  guard state.get(SendReceiveMode) else {
+    fail("expected send_receive_mode default")
+  }
+  guard state.get(Wraparound) else { fail("expected wraparound default") }
+  guard state.get(CursorVisible) else {
+    fail("expected cursor_visible default")
+  }
+  guard state.get(MouseAlternateScroll) else {
+    fail("expected mouse_alternate_scroll default")
+  }
+  guard state.get(IgnoreKeypadWithNumlock) else {
+    fail("expected ignore_keypad_with_numlock default")
+  }
+  guard state.get(AltEscPrefix) else { fail("expected alt_esc_prefix default") }
+  for mode in all_modes() {
+    assert_eq(defaults.get(mode), state.get(mode))
+  }
+}
+
+///|
+test "modes/state set and get" {
+  let mut state = @terminal.ModeState::new()
+  guard !state.get(CursorKeys) else { fail("expected unset cursor_keys") }
+  state = state.set(CursorKeys, true)
+  guard state.get(CursorKeys) else { fail("expected set cursor_keys") }
+  state = state.set(CursorKeys, false)
+  guard !state.get(CursorKeys) else { fail("expected cleared cursor_keys") }
+}
+
+///|
+test "modes/get report for known dec mode" {
+  let state = @terminal.ModeState::new()
+  let report = state.get_report(@terminal.mode_tag(1, false))
+  guard report.state() == Reset else { fail("expected reset report") }
+  assert_eq(report.tag().ansi(), false)
+  assert_eq(report.tag().value(), 1)
+}
+
+///|
+test "modes/get report for known ansi mode and unknown mode" {
+  let state = @terminal.ModeState::new().set(Insert, true)
+  let ansi_report = state.get_report(@terminal.mode_tag(4, true))
+  guard ansi_report.state() == Set else { fail("expected set report") }
+  assert_eq(ansi_report.tag().ansi(), true)
+
+  let unknown = state.get_report(@terminal.mode_tag(9999, false))
+  guard unknown.state() == NotRecognized else {
+    fail("expected not recognized report")
+  }
+}
+
+///|
+test "modes/report encode" {
+  let state = @terminal.ModeState::new().set(CursorKeys, true)
+  assert_eq(
+    state.get_report(@terminal.mode_tag(1, false)).encode(),
+    b"\x1B[?1;1$y",
+  )
+  assert_eq(
+    state.get_report(@terminal.mode_tag(4, true)).encode(),
+    b"\x1B[4;2$y",
+  )
+  assert_eq(
+    state.get_report(@terminal.mode_tag(9999, false)).encode(),
+    b"\x1B[?9999;0$y",
+  )
+  assert_eq(
+    state.get_report(@terminal.mode_tag(0x7FFF, false)).encode(),
+    b"\x1B[?32767;0$y",
+  )
+}
+
+///|
+test "modes/packed state exercises set clear no-op paths" {
+  let mut packed = @terminal.ModePacked::empty()
+  guard !packed.get(CursorKeys) else {
+    fail("expected cursor keys to start unset")
+  }
+  packed = packed.set(CursorKeys, false)
+  guard !packed.get(CursorKeys) else {
+    fail("expected clearing an unset mode to remain unset")
+  }
+  packed = packed.set(CursorKeys, true)
+  guard packed.get(CursorKeys) else { fail("expected cursor keys to be set") }
+  packed = packed.set(CursorKeys, false)
+  guard !packed.get(CursorKeys) else { fail("expected cursor keys to clear") }
+}
+
+///|
+test "modes/report state codes and bit helpers cover edge modes" {
+  assert_eq(@terminal.ReportState::NotRecognized.code(), 0)
+  assert_eq(@terminal.ReportState::Set.code(), 1)
+  assert_eq(@terminal.ReportState::Reset.code(), 2)
+  assert_eq(@terminal.ReportState::PermanentlySet.code(), 3)
+  assert_eq(@terminal.ReportState::PermanentlyReset.code(), 4)
+
+  let mut packed = @terminal.ModePacked::empty()
+  guard !packed.get(DisableKeyboard) else {
+    fail("expected disable keyboard to start unset")
+  }
+  guard !packed.get(InBandSizeReports) else {
+    fail("expected in-band size reports to start unset")
+  }
+  packed = packed.set(DisableKeyboard, true)
+  packed = packed.set(InBandSizeReports, true)
+  guard packed.get(DisableKeyboard) else {
+    fail("expected disable keyboard to become set")
+  }
+  guard packed.get(InBandSizeReports) else {
+    fail("expected in-band size reports to become set")
+  }
+}

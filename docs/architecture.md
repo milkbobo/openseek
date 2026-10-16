@@ -8,19 +8,25 @@ natively by GitHub.
 
 ## System overview
 
-One shared engine, three frontends. The root CLI package is the engine (headless
-automation: `run`/`serve`/`mcp`/`sessions`; the desktop app and the
-viz server are separate executables that spawn or read from it): its `serve`
-mode reads JSONL commands on stdin and streams typed JSONL events
-(`moonbitlang/openseek_protocol`) on stdout. The terminal UI (`openseek_tui`, in
-its own repository, [moonbitlang/openseek_tui](https://github.com/moonbitlang/openseek_tui)), the desktop app,
-and headless `run` all drive that same engine and event stream. Durable state lives in append-only session files that
-the visualizer reads directly.
+SeekMoon's desktop, browser, and terminal interfaces share the same backend.
+The standalone `desktop/server` host owns OpenSeek engine processes, Codex,
+workspaces, settings, schedules, and event fan-out. Native terminal clients and
+the browser frontend use its authenticated JSON-RPC WebSocket endpoint. A
+Proton window can join that server with `--server-url`; its usual embedded
+mode hosts the same backend library directly.
+
+The root CLI remains the headless agent entry point (`run`/`serve`/`mcp`/`sessions`).
+Its `serve` mode reads JSONL commands and streams typed JSONL events over
+stdio. The shared backend drives these persistent engines per conversation;
+terminal panes and filesystem watchers belong to each client connection.
+Durable state lives in append-only session files, also read by the visualizer.
+See [the TUI guide](../tui/README.md) and
+[shared-server guide](../desktop/server/README.md) for launch commands.
 
 ```mermaid
 flowchart LR
   subgraph frontends [Frontends]
-    TUI["openseek_tui — terminal UI<br/>(separate repo: moonbitlang/openseek_tui)"]
+    TUI["SeekMoon terminal UI<br/>(tui/)"]
     DESKTOP["openseek_desktop — desktop app<br/>(CEF shell + JS frontend)"]
     VIZ["inspect + viz —<br/>session visualizer (browser)"]
   end
@@ -40,10 +46,10 @@ flowchart LR
     FILES[("openseek_session-&lt;id&gt;.jsonl<br/>under .openseek/")]
   end
 
-  TUI -- "JSONL commands (stdin)" --> SERVE
-  DESKTOP -- "JSONL commands" --> SERVE
-  SERVE -- "protocol events (stdout)" --> TUI
-  SERVE -- "protocol events" --> DESKTOP
+  SERVER["SeekMoon shared backend<br/>desktop/server + desktop/backend"]
+  TUI <-- "authenticated JSON-RPC / WebSocket" --> SERVER
+  DESKTOP <-- "WebSocket or embedded bridge" --> SERVER
+  SERVER <-- "JSONL commands / events" --> SERVE
   SERVE --> AGENT
   PROMPT --> AGENT
   AGENT -- "chat + tool schemas" --> API

@@ -1,0 +1,34 @@
+import {
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/core/string",
+  "moonbitlang/core/encoding/base64",
+  "moonbitlang/async",
+  "moonbitlang/async/aqueue",
+  "moonbitlang/async/fs",
+  "moonbit-community/tui",
+  "moonbit-community/tui/editor",
+  "moonbit-community/tty",
+  "moonbit-community/tty/input",
+  "openseek_desktop/commands",
+  "openseek_desktop/protocol",
+  "openseek_desktop/server/host",
+  "moonbitlang/openseek_protocol" @agent_protocol,
+  "moonbitlang/seekmoon_tui/client",
+  "moonbitlang/seekmoon_tui/attachments",
+  "moonbitlang/seekmoon_tui/codexchat",
+  "moonbitlang/seekmoon_tui/workbench",
+  "moonbitlang/seekmoon_tui/terminal",
+  "moonbitlang/seekmoon_tui/pages",
+  "moonbitlang/seekmoon_tui/workspace",
+}
+
+pkgtype(kind: "executable")
+
+supported_targets = "native"
+
+import {
+  "moonbitlang/async/socket",
+  "moonbitlang/async/http",
+  "moonbitlang/async/websocket",
+} for "wbtest"

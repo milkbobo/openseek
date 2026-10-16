@@ -169,6 +169,8 @@ pub let fs_unwatch : Command[@protocol.EmptyPayload, @protocol.EmptyReply]
 
 pub let fs_watch : Command[@protocol.WatchWorkspacePayload, @protocol.EmptyReply]
 
+pub let fs_write_file : Command[@protocol.WriteFilePayload, @protocol.WriteFileReply]
+
 pub let git_branch : Command[@protocol.GitBranchPayload, @protocol.GitBranchReply]
 
 pub let git_changes : Command[@protocol.GitChangesPayload, @protocol.GitChangesReply]

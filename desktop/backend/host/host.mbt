@@ -207,7 +207,29 @@ pub fn endpoints(
   on_skills_changed : () -> Unit,
 ) -> Array[@endpoint.Endpoint] {
   [
+    Endpoint(@commands.session_export, payload => {
+      export_session_op(state, manager, payload)
+    }),
+    Endpoint(@commands.github_drafts_get, payload => {
+      read_github_drafts(state.runtime_dir.map(dir => dir.to_string()), payload)
+    }),
+    Endpoint(@commands.github_drafts_set, payload => {
+      write_github_drafts(
+        state.runtime_dir.map(dir => dir.to_string()),
+        payload,
+      )
+    }),
+    Endpoint(@commands.app_language_get, _ => {
+      read_ui_language(state.runtime_dir.map(dir => dir.to_string()))
+    }),
+    Endpoint(@commands.app_language_set, payload => {
+      write_ui_language(state.runtime_dir.map(dir => dir.to_string()), payload)
+    }),
+    Endpoint(@commands.host_open_path_preview, payload => {
+      open_path_preview(payload)
+    }),
     Endpoint(@commands.fs_read_file, payload => read_file_op(payload)),
+    Endpoint(@commands.fs_write_file, payload => write_file_op(payload)),
     Endpoint(@commands.fs_prepare_attachment, payload => {
       prepare_attachment_op(payload)
     }),

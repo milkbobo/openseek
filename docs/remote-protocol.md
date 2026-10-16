@@ -2,14 +2,15 @@
 
 The wire protocol between a browser client and an OpenSeek **host process**
 — the desktop app's native process, which owns the engine and the host ops.
-The host runs no server: at startup it dials out to a **relay** and
-registers; browsers reach it through the relay, which serves the frontend
-bundle and splices WebSockets without understanding a byte of the protocol.
+The packaged host can dial out to a **relay**, which serves the frontend
+bundle and splices WebSockets. The standalone `desktop/server` host also
+serves authenticated loopback HTTP and WebSocket connections directly for
+terminal clients and desktop windows.
 
-The desktop window itself does not use this protocol. It talks to the host
-over proton's in-process `__MoonBit__` bridge — same method catalog, same
-payloads, no wire. The frontend picks its transport by origin: a `proton://`
-page uses the bridge, anything else opens the WebSocket below.
+The usual desktop window talks over Proton's in-process `__MoonBit__` bridge.
+A window launched with `--server-url` joins the shared server instead. Both
+use the same method catalog and payloads. The frontend picks its transport
+by origin: a `proton://` page uses the bridge; an HTTP page uses WebSocket.
 
 This document is the contract. The implementation follows it, not the other
 way around.
@@ -139,6 +140,16 @@ an absent value selects the host home directory. Its absolute reply fields
 always use the encoding above.
 
 ## Authentication
+
+For the standalone loopback server, `--ready-file` and the startup JSON supply
+the WebSocket `url`, launch `token`, and browser `entry_url`. The socket route
+is `/v1/devices/host/ws`. Native clients send
+`Cookie: seekmoon_session_<port>=<token>` and no web `Origin`; browser clients
+get this cookie by opening `entry_url`, and their `Origin` must match the
+server's loopback origin. Missing or incorrect capabilities and unrelated web
+origins are rejected. The token is scoped to this server launch. Frontend
+assets are optional for native clients. See
+[`desktop/server/README.md`](../desktop/server/README.md) for launch examples.
 
 Auth terminates **at the relay**; the JSON-RPC wire above carries no
 credentials and is unchanged by it. Device ids are stable database ids,
@@ -551,6 +562,7 @@ picker-specific starting-point behavior.
 | method | params | result |
 |---|---|---|
 | `fs.read_file` | `{path, root?}` (`path` is absolute without `root`; otherwise `root` is absolute and `path` is relative to it) | `{kind: "content", content, absolute, sig}` \| `{kind: "binary_content", data_base64, media_type}` \| `{kind: "binary"}` \| `{kind: "oversized"}` |
+| `fs.write_file` | `{session, root?, path, content, expected_content}` (same path rules as `fs.read_file`) | `{path}` — save UTF-8 text; `expected_content: null` creates a missing file, a string replaces only that exact loaded version. Conflicts reject the command. Saves from clients of one server are serialized; existing executable permissions and symlink targets are preserved. |
 | `fs.read_directory` | `{path}` (absolute directory) | `{entries: [{name, is_dir}]}`, directories first |
 | `fs.search_files` | `{path, cache_key, query, max_results, generation}` (`path` absolute root) | `{files: […], from_cache, limit_hit, cancelled}` — VS Code-style cache-session query returning root-relative paths; `max_results: 0` populates without returning rows, Quick Open requests at most 512 |
 | `fs.cancel_search_files` | `{cache_key, generation}` | `{}` — cancels one query while allowing cache population to finish |

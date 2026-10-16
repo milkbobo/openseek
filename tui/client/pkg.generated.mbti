@@ -1,0 +1,32 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitlang/seekmoon_tui/client"
+
+import {
+  "moonbitlang/core/debug",
+  "moonbitlang/core/json",
+  "openseek_desktop/commands",
+  "openseek_desktop/protocol",
+}
+
+// Values
+
+// Errors
+pub(all) suberror ClientError {
+  Closed(String)
+  Protocol(String)
+  Rpc(code~ : Int, message~ : String, data~ : Json?)
+} derive(@debug.Debug)
+pub fn ClientError::to_repr(Self) -> @debug.Repr
+
+// Types and methods
+type Client
+pub async fn[Payload : ToJson, Reply : @json.FromJson] Client::call(Self, @commands.Command[Payload, Reply], Payload) -> Reply
+pub fn Client::close(Self) -> Unit
+pub async fn Client::connect(String, token~ : String) -> Self
+pub async fn Client::invoke(Self, String, Json) -> Json
+pub async fn Client::receive(Self) -> @protocol.Notification
+pub async fn Client::run(Self) -> Unit
+
+// Type aliases
+
+// Traits

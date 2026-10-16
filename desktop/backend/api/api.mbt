@@ -379,6 +379,9 @@ pub fn endpoints(
   connection : @host.HostConnection,
 ) -> Array[@endpoint.Endpoint] {
   let endpoints = [
+    @endpoint.Endpoint(@commands.session_share, payload => {
+      SessionShare::{ state, payload, }.publish()
+    }),
     @endpoint.Endpoint::codex_sync(@commands.codex_status, _ => {
       let reply : @protocol.CodexStatusReply = @json.from_json(
         state.codex.status(),

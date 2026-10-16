@@ -1,0 +1,16 @@
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/websocket",
+  "moonbitlang/core/debug",
+  "moonbitlang/core/json",
+  "moonbitlang/core/string",
+  "openseek_desktop/commands",
+  "openseek_desktop/protocol",
+}
+
+import {
+  "moonbitlang/async/http",
+  "moonbitlang/async/socket",
+} for "wbtest"
+
+supported_targets = "native"

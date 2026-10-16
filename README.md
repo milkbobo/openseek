@@ -31,7 +31,8 @@ binary drives the same tools as the native one.
 
 ## Monorepo development
 
-The root [`moon.work`](moon.work) develops OpenSeek, the desktop app, and the
+The root [`moon.work`](moon.work) develops OpenSeek, the desktop app, its shared
+server, the terminal client, vendored terminal libraries, and the
 [`moonbitlang/editor`](editor/README.md) source together. The editor keeps its
 smaller `editor/moon.work` as a scoped entry point for editor-only builds and
 browser tests; root Moon commands are the integration gate across both projects.
@@ -121,7 +122,9 @@ git submodule update --init editor/vscode     # opt-in performance suite
 | `moonbitlang/openseek/eval/file_edit/cmd/main` | Native-only CLI wrapper for the file-editing eval harness. | `eval/file_edit/README.md` |
 | `moonbitlang/openseek/eval/prompt_task/harness` | Prompt-task eval: runs the real agent over isolated per-trial workspaces. | `eval/prompt_task/README.md` |
 | `moonbitlang/openseek/eval/session_analyzer` | Post-hoc session-log analyzer producing Markdown/HTML/JSON reports. | — |
-| `openseek_desktop` (in `desktop/`, own module) | Desktop app: CEF shell (Proton, a registry dependency) plus a JS frontend driving the engine over JSONL. | `desktop/README.md` |
+| `openseek_desktop` (in `desktop/`, own module) | Shared command and event contracts for desktop, browser, and terminal clients. | `desktop/README.md` |
+| `openseek_desktop/server` | Window-independent backend host with authenticated JSON-RPC WebSocket clients. | `desktop/server/README.md` |
+| `moonbitlang/seekmoon_tui` | SeekMoon's native terminal interface and embedded PTY terminals. | `tui/README.md` |
 
 The `deepseek` subpackage is pure and exposes chat data plus JSON helpers:
 
@@ -162,9 +165,9 @@ filesystem, and process APIs.
 ## Agent CLI
 
 The root package is the headless automation entry point — a subcommand
-tree (`run`/`serve`/`mcp`/`sessions`). The interactive terminal
-UI is the separate `openseek_tui` binary, maintained in its own repository,
-[moonbitlang/openseek_tui](https://github.com/moonbitlang/openseek_tui). `openseek run` parses arguments and
+tree (`run`/`serve`/`mcp`/`sessions`). [SeekMoon's terminal client](tui/README.md)
+and desktop app share the [SeekMoon server](desktop/server/README.md), which
+owns their engine processes and host services. `openseek run` parses arguments and
 runs the agent package. The agent sends DeepSeek native function tools and
 supports eleven local tools: `mbtx` — both the scripting surface and the
 command runner, spawning processes through the shell-free
@@ -301,12 +304,19 @@ agent reads the file before applying it. See `agent_skill/README.mbt.md`.
 
 ## Terminal UI
 
-The interactive terminal UI is the `openseek_tui` binary, maintained in its own
-repository: [moonbitlang/openseek_tui](https://github.com/moonbitlang/openseek_tui). It depends on this module
-(`moonbitlang/openseek` on mooncakes) for the agent, session, and provider
-packages, and spawns the `openseek` engine built here in `serve` mode. Its
-sessions are interoperable with the CLI's: `moon run . -- sessions
-list` shows what is resumable from either.
+Run `just seekmoon-tui` for SeekMoon's native terminal interface, or
+`just seekmoon-tui --demo` to explore it offline. The TUI supports OpenSeek and
+Codex chats, streamed reasoning and tool output, projects, approvals, files,
+Git and GitHub review, skills, jobs, schedules, and embedded PTY terminals.
+Its UI and terminal emulator are vendored under `vendor/`.
+
+The TUI starts a shared backend by default. For a persistent server, run
+`just seekmoon-server --ready-file /tmp/seekmoon-server.json`, then attach with
+`just seekmoon-tui --server-file /tmp/seekmoon-server.json`. A Proton desktop
+window can join the same server with `--server-url`. See the
+[TUI guide](tui/README.md) and [server guide](desktop/server/README.md) for
+controls, frontend assets, and the supported terminal alternatives to graphical
+features. OpenSeek's durable session format remains interoperable with the CLI.
 
 See each package README for API boundaries, examples, and package-specific test
 notes.

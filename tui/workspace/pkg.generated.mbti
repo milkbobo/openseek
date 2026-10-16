@@ -1,0 +1,37 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitlang/seekmoon_tui/workspace"
+
+import {
+  "moonbit-community/tty/input",
+  "moonbit-community/tui",
+  "moonbitlang/seekmoon_tui/client",
+  "moonbitlang/seekmoon_tui/workbench",
+  "openseek_desktop/protocol",
+}
+
+// Values
+
+// Errors
+
+// Types and methods
+type State
+pub fn State::State() -> Self
+pub async fn State::browse(Self, @client.Client, @workbench.Context) -> Unit
+pub fn State::clear(Self) -> Unit
+pub fn State::draw_editor(Self, @tui.Frame, @tui.Rect, focused? : Bool) -> Unit
+pub fn State::draw_tree(Self, @tui.Frame, @tui.Rect, focused? : Bool) -> Unit
+pub fn State::focus_editor(Self) -> Unit
+pub fn State::focus_tree(Self) -> Unit
+pub fn State::has_tabs(Self) -> Bool
+pub async fn State::key(Self, @client.Client, @input.KeyEvent) -> Bool
+pub async fn State::mouse(Self, @client.Client, @input.MouseEvent, @workbench.Context) -> Bool
+pub async fn State::notification(Self, @client.Client, @protocol.Notification) -> Unit
+pub async fn State::open(Self, @client.Client, @workbench.Context, String, diff? : Bool) -> Unit
+pub fn State::paste(Self, StringView) -> Bool
+pub fn State::set_demo(Self, diff? : Bool) -> Unit
+pub fn State::status(Self) -> String
+pub fn State::title(Self) -> String
+
+// Type aliases
+
+// Traits

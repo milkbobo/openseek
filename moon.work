@@ -10,4 +10,9 @@ members = [
   "./desktop/backend",
   "./desktop/app",
   "./desktop/frontend",
+  "./desktop/server",
+  "./tui",
+  "./vendor/tui",
+  "./vendor/ghostty",
+  "./vendor/pty",
 ]

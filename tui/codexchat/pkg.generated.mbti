@@ -1,0 +1,68 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitlang/seekmoon_tui/codexchat"
+
+import {
+  "moonbitlang/core/debug",
+  "moonbitlang/seekmoon_tui/client",
+  "openseek_desktop/protocol",
+}
+
+// Values
+pub fn decode_thread(Json) -> Thread?
+
+// Errors
+pub(all) suberror CodexError {
+  CodexError(String)
+} derive(@debug.Debug)
+pub fn CodexError::to_repr(Self) -> @debug.Repr
+
+// Types and methods
+pub struct Message {
+  id : String
+  role : String
+  text : String
+  complete : Bool
+}
+
+pub struct PendingRequest {
+  response_token : String
+  request_id : Json
+  method_ : String
+  thread_id : String?
+  params : Json
+  generation : Int
+}
+pub fn PendingRequest::answer_result(Self, Map[String, String]) -> Json raise CodexError
+pub fn PendingRequest::approval_result(Self, Bool) -> Json?
+
+type State
+pub fn State::State() -> Self
+pub fn State::apply(Self, Json) -> Thread?
+pub fn State::apply_request(Self, Json) -> Bool
+pub fn State::apply_request_snapshot(Self, @protocol.CodexServerRequestsReply) -> Unit
+pub fn State::begin_connection(Self) -> Unit
+pub async fn State::interrupt(Self, @client.Client, String) -> Unit
+pub async fn State::list(Self, @client.Client, archived? : Bool) -> Array[Thread]
+pub async fn State::read(Self, @client.Client, String) -> Thread
+pub fn State::requests(Self) -> Array[PendingRequest]
+pub async fn State::respond(Self, @client.Client, String, Json) -> Unit
+pub async fn State::send(Self, @client.Client, String, String, model? : String, effort? : String, images? : Array[String], permission_mode? : @protocol.CodexPermissionMode) -> Thread
+pub async fn State::start(Self, @client.Client, cwd? : String, model? : String, permission_mode? : @protocol.CodexPermissionMode) -> Thread
+pub async fn State::steer(Self, @client.Client, String, String, images? : Array[String]) -> Thread
+pub async fn State::sync_requests(Self, @client.Client) -> Unit
+pub fn State::thread(Self, String) -> Thread?
+pub fn State::threads(Self) -> Array[Thread]
+
+pub struct Thread {
+  id : String
+  title : String
+  cwd : String?
+  project_root : String?
+  status : String
+  turn_id : String?
+  messages : Array[Message]
+}
+
+// Type aliases
+
+// Traits

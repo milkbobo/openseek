@@ -1,0 +1,22 @@
+import {
+  "moonbit-community/tui",
+  "moonbit-community/tui/editor",
+  "moonbit-community/tty/input",
+  "moonbit-community/moondiff/linediff",
+  "moonbit-community/moondiff/model" @diff_model,
+  "moonbit-community/moondiff/render/unified",
+  "moonbitlang/async",
+  "moonbitlang/seekmoon_tui/client",
+  "moonbitlang/seekmoon_tui/workbench",
+  "openseek_desktop/commands",
+  "openseek_desktop/protocol",
+}
+
+supported_targets = "native"
+
+import {
+  "moonbitlang/async/http",
+  "moonbitlang/async/socket",
+  "moonbitlang/async/websocket",
+  "moonbitlang/core/json",
+} for "wbtest"

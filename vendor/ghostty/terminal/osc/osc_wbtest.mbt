@@ -1,0 +1,2261 @@
+///|
+fn feed_bytes(parser : OscParser, bytes : Bytes) -> Unit {
+  for byte in bytes {
+    parser.next(byte)
+  }
+}
+
+///|
+fn expect_color_command(
+  bytes : Bytes,
+  terminator : Byte?,
+  op : ColorOperation,
+  requests : Array[ColorRequest],
+  expected_terminator : Terminator,
+) -> Unit raise {
+  let parser = OscParser::new()
+  feed_bytes(parser, bytes)
+  guard parser.end(terminator) is Some(ColorOperation(command)) else {
+    fail("expected OSC color command")
+  }
+  guard command.op() == op else { fail("unexpected OSC color operation") }
+  guard command.requests() == requests else {
+    fail("unexpected OSC color requests")
+  }
+  guard command.terminator() == expected_terminator else {
+    fail("unexpected OSC terminator")
+  }
+}
+
+///|
+fn expect_semantic_prompt(
+  bytes : Bytes,
+  terminator : Byte?,
+) -> SemanticPrompt raise {
+  let parser = OscParser::new()
+  feed_bytes(parser, bytes)
+  guard parser.end(terminator) is Some(SemanticPrompt(prompt)) else {
+    fail("expected OSC semantic prompt command")
+  }
+  prompt
+}
+
+///|
+fn decoded_command_line_result(
+  prompt : SemanticPrompt,
+) -> Result[String?, SemanticPromptDecodeError] {
+  try prompt.decoded_command_line() catch {
+    err => Err(err)
+  } noraise {
+    command_line => Ok(command_line)
+  }
+}
+
+///|
+fn expect_clipboard_contents(
+  bytes : Bytes,
+  terminator : Byte?,
+) -> ClipboardContents raise {
+  let parser = OscParser::new()
+  feed_bytes(parser, bytes)
+  guard parser.end(terminator) is Some(ClipboardContents(contents)) else {
+    fail("expected OSC clipboard command")
+  }
+  contents
+}
+
+///|
+fn expect_kitty_color_protocol(
+  bytes : Bytes,
+  terminator : Byte?,
+) -> KittyColorOsc raise {
+  let parser = OscParser::new()
+  feed_bytes(parser, bytes)
+  guard parser.end(terminator) is Some(KittyColorProtocol(command)) else {
+    fail("expected OSC kitty color command")
+  }
+  command
+}
+
+///|
+fn expect_osc_command(bytes : Bytes, terminator : Byte?) -> Command raise {
+  let parser = OscParser::new()
+  feed_bytes(parser, bytes)
+  guard parser.end(terminator) is Some(command) else {
+    fail("expected OSC command")
+  }
+  command
+}
+
+///|
+test "osc/color payload constructors and accessors" {
+  let target = ColoredTarget::new(Palette(3), @color.RGB::new(1, 2, 3))
+  guard target.target() == Palette(3) else {
+    fail("expected colored target palette")
+  }
+  guard target.color() == @color.RGB::new(1, 2, 3) else {
+    fail("expected colored target rgb")
+  }
+
+  let command = ColorCommand::new(Osc4, [Set(target)], Bel)
+  guard command.op() == Osc4 else { fail("expected color command op") }
+  guard command.requests() == [Set(target)] else {
+    fail("expected color command requests")
+  }
+  guard command.terminator() == Bel else {
+    fail("expected color command terminator")
+  }
+}
+
+///|
+test "osc/kitty color constructors and accessors" {
+  let set = KittyColorSet::new(
+    KittySpecial(KittyForeground),
+    @color.RGB::new(1, 2, 3),
+  )
+  guard set.key() == KittySpecial(KittyForeground) else {
+    fail("expected kitty color key")
+  }
+  guard set.color() == @color.RGB::new(1, 2, 3) else {
+    fail("expected kitty color value")
+  }
+}
+
+///|
+test "osc/rxvt iterm2 helper matching rejects mismatched bytes" {
+  guard !slice_equals_bytes(
+    [b'n', b'o', b't', b'i', b'f', b'x'],
+    0,
+    6,
+    b"notify",
+  ) else {
+    fail("expected exact byte helper mismatch")
+  }
+
+  guard !slice_equals_ascii_ignore_case_bytes(
+    [b'c', b'o', b'p', b'x'],
+    0,
+    4,
+    b"copy",
+  ) else {
+    fail("expected ignore-case byte helper mismatch")
+  }
+
+  guard !slice_starts_with_bytes([b'i'], 0, b"id") else {
+    fail("expected kitty clipboard prefix helper short-buffer mismatch")
+  }
+}
+
+///|
+test "osc/kitty clipboard constructors and option readers" {
+  let command = KittyClipboardOsc::new(
+    [
+      b't', b'y', b'p', b'e', b'=', b'r', b'e', b'a', b'd', b':', b's', b't', b'a',
+      b't', b'u', b's', b'=', b'O', b'K',
+    ],
+    Some([b'Y', b'W', b'J', b'j']),
+    Bel,
+  )
+  guard command.metadata() == "type=read:status=OK" else {
+    fail("expected kitty clipboard metadata accessor")
+  }
+  guard command.payload() == Some("YWJj") else {
+    fail("expected kitty clipboard payload accessor")
+  }
+  guard command.terminator() == Bel else {
+    fail("expected kitty clipboard terminator accessor")
+  }
+  guard command.operation() == Some(KittyClipboardRead) else {
+    fail("expected kitty clipboard operation reader")
+  }
+  guard command.status() == Some(KittyClipboardOk) else {
+    fail("expected kitty clipboard status reader")
+  }
+}
+
+///|
+test "osc/kitty clipboard option helpers cover remaining enum and empty cases" {
+  let whitespace_only = KittyClipboardOsc::new([b' ', b'\t'], None, St)
+  guard whitespace_only.id() == None else {
+    fail("expected whitespace-only metadata to have no id")
+  }
+
+  let short_key = KittyClipboardOsc::new([b'i', b'=', b'1'], None, St)
+  guard short_key.id() == None else {
+    fail("expected short metadata key to miss id lookup")
+  }
+
+  let empty_id = KittyClipboardOsc::new([b'i', b'd', b'='], None, St)
+  guard empty_id.id() == None else {
+    fail("expected empty kitty clipboard id to be rejected")
+  }
+
+  let walias = KittyClipboardOsc::new(
+    [b't', b'y', b'p', b'e', b'=', b'w', b'a', b'l', b'i', b'a', b's'],
+    None,
+    St,
+  )
+  guard walias.operation() == Some(KittyClipboardWalias) else {
+    fail("expected kitty clipboard walias operation")
+  }
+
+  let wdata = KittyClipboardOsc::new(
+    [b't', b'y', b'p', b'e', b'=', b'w', b'd', b'a', b't', b'a'],
+    None,
+    St,
+  )
+  guard wdata.operation() == Some(KittyClipboardWdata) else {
+    fail("expected kitty clipboard wdata operation")
+  }
+
+  let done_status = KittyClipboardOsc::new(
+    [b's', b't', b'a', b't', b'u', b's', b'=', b'D', b'O', b'N', b'E'],
+    None,
+    St,
+  )
+  guard done_status.status() == Some(KittyClipboardDone) else {
+    fail("expected kitty clipboard DONE status")
+  }
+
+  let ebusy_status = KittyClipboardOsc::new(
+    [b's', b't', b'a', b't', b'u', b's', b'=', b'E', b'B', b'U', b'S', b'Y'],
+    None,
+    St,
+  )
+  guard ebusy_status.status() == Some(KittyClipboardEbusy) else {
+    fail("expected kitty clipboard EBUSY status")
+  }
+
+  let einval_status = KittyClipboardOsc::new(
+    [
+      b's', b't', b'a', b't', b'u', b's', b'=', b'E', b'I', b'N', b'V', b'A', b'L',
+    ],
+    None,
+    St,
+  )
+  guard einval_status.status() == Some(KittyClipboardEinval) else {
+    fail("expected kitty clipboard EINVAL status")
+  }
+
+  let eio_status = KittyClipboardOsc::new(
+    [b's', b't', b'a', b't', b'u', b's', b'=', b'E', b'I', b'O'],
+    None,
+    St,
+  )
+  guard eio_status.status() == Some(KittyClipboardEio) else {
+    fail("expected kitty clipboard EIO status")
+  }
+
+  let enosys_status = KittyClipboardOsc::new(
+    [
+      b's', b't', b'a', b't', b'u', b's', b'=', b'E', b'N', b'O', b'S', b'Y', b'S',
+    ],
+    None,
+    St,
+  )
+  guard enosys_status.status() == Some(KittyClipboardEnosys) else {
+    fail("expected kitty clipboard ENOSYS status")
+  }
+
+  let eperm_status = KittyClipboardOsc::new(
+    [b's', b't', b'a', b't', b'u', b's', b'=', b'E', b'P', b'E', b'R', b'M'],
+    None,
+    St,
+  )
+  guard eperm_status.status() == Some(KittyClipboardEperm) else {
+    fail("expected kitty clipboard EPERM status")
+  }
+}
+
+///|
+test "osc/osc9 payload constructors and accessors" {
+  let notification = DesktopNotification::new("title", "body")
+  guard notification.title() == "title" else {
+    fail("expected desktop notification title")
+  }
+  guard notification.body() == "body" else {
+    fail("expected desktop notification body")
+  }
+
+  let sleep = ConEmuSleep::new(250)
+  guard sleep.duration_ms() == 250 else {
+    fail("expected conemu sleep duration")
+  }
+
+  let progress = ConEmuProgressReport::new(ConEmuProgressPause, Some(40))
+  guard progress.state() == ConEmuProgressPause else {
+    fail("expected conemu progress state")
+  }
+  guard progress.progress() == Some(40) else {
+    fail("expected conemu progress value")
+  }
+
+  let xterm = ConEmuXtermEmulation::new(None, Some(false))
+  guard xterm.keyboard() == None else {
+    fail("expected optional keyboard mode")
+  }
+  guard xterm.output() == Some(false) else { fail("expected output mode") }
+}
+
+///|
+test "osc/title with bel terminator" {
+  let parser = OscParser::new()
+  parser.next(b'0')
+  parser.next(b';')
+  parser.next(b'a')
+  parser.next(b'b')
+  parser.next(b'c')
+
+  let command = parser.end(Some(0x07))
+  guard command is Some(ChangeWindowTitle(title)) && title == "abc" else {
+    fail("expected OSC 0 title command")
+  }
+}
+
+///|
+test "osc/title may be empty" {
+  let parser = OscParser::new()
+  parser.next(b'0')
+  parser.next(b';')
+
+  let command = parser.end(Some(0x07))
+  guard command is Some(ChangeWindowTitle(title)) && title == "" else {
+    fail("expected empty OSC 0 title command")
+  }
+}
+
+///|
+test "osc/title with utf8 payload" {
+  let parser = OscParser::new()
+  parser.next(b'2')
+  parser.next(b';')
+  parser.next(0xE2)
+  parser.next(0x80)
+  parser.next(0x94)
+  parser.next(b' ')
+  parser.next(0xE2)
+  parser.next(0x80)
+  parser.next(0x90)
+
+  let command = parser.end(Some(0x07))
+  guard command is Some(ChangeWindowTitle(title)) && title == "— ‐" else {
+    fail("expected OSC 2 utf8 title command")
+  }
+}
+
+///|
+test "osc/title with st terminator" {
+  let parser = OscParser::new()
+  parser.next(b'0')
+  parser.next(b';')
+  parser.next(b'a')
+  parser.next(b'b')
+
+  let command = parser.end(Some(0x1B))
+  guard command is Some(ChangeWindowTitle(title)) && title == "ab" else {
+    fail("expected OSC ST title command")
+  }
+}
+
+///|
+test "osc/title fixed buffer overflow invalidates parser" {
+  let parser = OscParser::new()
+  parser.next(b'0')
+  parser.next(b';')
+  for _ in 0..<OscMaxBuf {
+    parser.next(b'a')
+  }
+  match parser.end(Some(0x07)) {
+    None => ()
+    _ => fail("expected oversized OSC title to be rejected")
+  }
+}
+
+///|
+test "osc/title exact fixed-buffer limit succeeds" {
+  let parser = OscParser::new()
+  parser.next(b'0')
+  parser.next(b';')
+  for _ in 0..<(OscMaxBuf - 1) {
+    parser.next(b'a')
+  }
+  guard parser.end(Some(0x07)) is Some(ChangeWindowTitle(title)) else {
+    fail("expected max-size OSC title to succeed")
+  }
+  guard title.length() == OscMaxBuf - 1 else {
+    fail("expected title at exact fixed-buffer limit")
+  }
+}
+
+///|
+test "osc/incomplete and invalid prefixes are rejected" {
+  for
+    bytes in [
+      b"0", b"1", b"2", b"3", b"30", b"300", b"3008", b"6", b"7", b"8", b"9", b"21",
+      b"22", b"55", b"66", b"552", b"5522", b"77", b"777", b"133", b"1337",
+    ] {
+    let parser = OscParser::new()
+    for byte in bytes {
+      parser.next(byte)
+    }
+    match parser.end(Some(0x07)) {
+      None => ()
+      _ => fail("expected incomplete or invalid OSC prefix to be rejected")
+    }
+  }
+}
+
+///|
+test "osc/invalid states stay invalid and reject bad numeric branches" {
+  let invalid_start = OscParser::new()
+  invalid_start.next(b'x')
+  match invalid_start.end(Some(0x07)) {
+    None => ()
+    _ => fail("expected invalid OSC start byte to be rejected")
+  }
+
+  let invalid = OscParser::new()
+  invalid.next(b'6')
+  invalid.next(b'0')
+  match invalid.end(Some(0x07)) {
+    None => ()
+    _ => fail("expected invalid parser to remain rejected after extra input")
+  }
+
+  let prefix1 = OscParser::new()
+  prefix1.next(b'1')
+  prefix1.next(b'x')
+  match prefix1.end(Some(0x07)) {
+    None => ()
+    _ => fail("expected invalid OSC 1x prefix to be rejected")
+  }
+
+  let prefix11 = OscParser::new()
+  prefix11.next(b'1')
+  prefix11.next(b'1')
+  prefix11.next(b'x')
+  match prefix11.end(Some(0x07)) {
+    None => ()
+    _ => fail("expected invalid OSC 11x prefix to be rejected")
+  }
+
+  let prefix77 = OscParser::new()
+  prefix77.next(b'7')
+  prefix77.next(b'7')
+  prefix77.next(b'x')
+  match prefix77.end(Some(0x07)) {
+    None => ()
+    _ => fail("expected invalid OSC 77x prefix to be rejected")
+  }
+
+  let prefix777 = OscParser::new()
+  prefix777.next(b'7')
+  prefix777.next(b'7')
+  prefix777.next(b'7')
+  prefix777.next(b'x')
+  match prefix777.end(Some(0x07)) {
+    None => ()
+    _ => fail("expected invalid OSC 777x prefix to be rejected")
+  }
+
+  let prefix1337 = OscParser::new()
+  prefix1337.next(b'1')
+  prefix1337.next(b'3')
+  prefix1337.next(b'3')
+  prefix1337.next(b'7')
+  prefix1337.next(b'x')
+  match prefix1337.end(Some(0x07)) {
+    None => ()
+    _ => fail("expected invalid OSC 1337x prefix to be rejected")
+  }
+
+  let prefix55 = OscParser::new()
+  prefix55.next(b'5')
+  prefix55.next(b'5')
+  prefix55.next(b'x')
+  match prefix55.end(Some(0x07)) {
+    None => ()
+    _ => fail("expected invalid OSC 55x prefix to be rejected")
+  }
+
+  let prefix552 = OscParser::new()
+  prefix552.next(b'5')
+  prefix552.next(b'5')
+  prefix552.next(b'2')
+  prefix552.next(b'x')
+  match prefix552.end(Some(0x07)) {
+    None => ()
+    _ => fail("expected invalid OSC 552x prefix to be rejected")
+  }
+
+  let prefix5522 = OscParser::new()
+  prefix5522.next(b'5')
+  prefix5522.next(b'5')
+  prefix5522.next(b'2')
+  prefix5522.next(b'2')
+  prefix5522.next(b'x')
+  match prefix5522.end(Some(0x07)) {
+    None => ()
+    _ => fail("expected invalid OSC 5522x prefix to be rejected")
+  }
+
+  let prefix3 = OscParser::new()
+  prefix3.next(b'3')
+  prefix3.next(b'x')
+  match prefix3.end(Some(0x07)) {
+    None => ()
+    _ => fail("expected invalid OSC 3x prefix to be rejected")
+  }
+
+  let prefix30 = OscParser::new()
+  prefix30.next(b'3')
+  prefix30.next(b'0')
+  prefix30.next(b'x')
+  match prefix30.end(Some(0x07)) {
+    None => ()
+    _ => fail("expected invalid OSC 30x prefix to be rejected")
+  }
+
+  let prefix300 = OscParser::new()
+  prefix300.next(b'3')
+  prefix300.next(b'0')
+  prefix300.next(b'0')
+  prefix300.next(b'x')
+  match prefix300.end(Some(0x07)) {
+    None => ()
+    _ => fail("expected invalid OSC 300x prefix to be rejected")
+  }
+
+  let prefix3008 = OscParser::new()
+  prefix3008.next(b'3')
+  prefix3008.next(b'0')
+  prefix3008.next(b'0')
+  prefix3008.next(b'8')
+  prefix3008.next(b'x')
+  match prefix3008.end(Some(0x07)) {
+    None => ()
+    _ => fail("expected invalid OSC 3008x prefix to be rejected")
+  }
+
+  let prefix6 = OscParser::new()
+  prefix6.next(b'6')
+  prefix6.next(b'x')
+  match prefix6.end(Some(0x07)) {
+    None => ()
+    _ => fail("expected invalid OSC 6x prefix to be rejected")
+  }
+
+  let prefix66 = OscParser::new()
+  prefix66.next(b'6')
+  prefix66.next(b'6')
+  prefix66.next(b'x')
+  match prefix66.end(Some(0x07)) {
+    None => ()
+    _ => fail("expected invalid OSC 66x prefix to be rejected")
+  }
+}
+
+///|
+test "osc/icon report-pwd and mouse-shape basics" {
+  let icon = OscParser::new()
+  icon.next(b'1')
+  icon.next(b';')
+  icon.next(b'i')
+  icon.next(b'c')
+  guard icon.end(Some(0x07)) is Some(ChangeWindowIcon(value)) && value == "ic" else {
+    fail("expected OSC 1 icon command")
+  }
+
+  let pwd = OscParser::new()
+  for byte in b"7;file:///tmp/example" {
+    pwd.next(byte)
+  }
+  guard pwd.end(Some(0x07)) is Some(ReportPwd(value)) &&
+    value == "file:///tmp/example" else {
+    fail("expected OSC 7 report pwd command")
+  }
+
+  let mouse = OscParser::new()
+  for byte in b"22;pointer" {
+    mouse.next(byte)
+  }
+  guard mouse.end(Some(0x07)) is Some(MouseShape(value)) && value == "pointer" else {
+    fail("expected OSC 22 mouse shape command")
+  }
+}
+
+///|
+test "osc/hyperlink basics and id handling" {
+  let basic = OscParser::new()
+  feed_bytes(basic, b"8;;http://example.com")
+  guard basic.end(Some(0x1B)) is Some(HyperlinkStart(link)) else {
+    fail("expected OSC 8 hyperlink start command")
+  }
+  guard link.uri() == "http://example.com" else {
+    fail("expected OSC 8 hyperlink uri")
+  }
+  guard link.id() == None else {
+    fail("expected OSC 8 hyperlink id to be absent")
+  }
+
+  let with_id = OscParser::new()
+  feed_bytes(with_id, b"8;id=foo;http://example.com")
+  guard with_id.end(Some(0x1B)) is Some(HyperlinkStart(link)) else {
+    fail("expected OSC 8 hyperlink with id")
+  }
+  guard link.uri() == "http://example.com" else {
+    fail("expected hyperlink uri with id")
+  }
+  guard link.id() == Some("foo") else { fail("expected hyperlink id") }
+
+  let empty_id = OscParser::new()
+  feed_bytes(empty_id, b"8;id=;http://example.com")
+  guard empty_id.end(Some(0x1B)) is Some(HyperlinkStart(link)) else {
+    fail("expected OSC 8 hyperlink with empty id to parse")
+  }
+  guard link.id() == None else {
+    fail("expected empty hyperlink id to be ignored")
+  }
+}
+
+///|
+test "osc/hyperlink malformed options and end handling" {
+  let incomplete_key = OscParser::new()
+  feed_bytes(incomplete_key, b"8;id;http://example.com")
+  guard incomplete_key.end(Some(0x1B)) is Some(HyperlinkStart(link)) &&
+    link.id() == None &&
+    link.uri() == "http://example.com" else {
+    fail("expected incomplete hyperlink key to be ignored")
+  }
+
+  let empty_key = OscParser::new()
+  feed_bytes(empty_key, b"8;=value:id=foo;http://example.com")
+  guard empty_key.end(Some(0x1B)) is Some(HyperlinkStart(link)) &&
+    link.id() == Some("foo") &&
+    link.uri() == "http://example.com" else {
+    fail("expected empty hyperlink key to be ignored")
+  }
+
+  let end_link = OscParser::new()
+  feed_bytes(end_link, b"8;;")
+  guard end_link.end(Some(0x1B)) == Some(HyperlinkEnd) else {
+    fail("expected OSC 8 hyperlink end command")
+  }
+
+  let invalid = OscParser::new()
+  feed_bytes(invalid, b"8;id=foo;")
+  guard invalid.end(Some(0x1B)) == None else {
+    fail("expected empty hyperlink uri with id to be rejected")
+  }
+
+  let no_separator = OscParser::new()
+  feed_bytes(no_separator, b"8;id=foo")
+  guard no_separator.end(Some(0x1B)) == None else {
+    fail("expected hyperlink payload without second semicolon to be rejected")
+  }
+}
+
+///|
+test "osc/clipboard contents basics" {
+  let set_contents = expect_clipboard_contents(b"52;s;?", Some(0x07))
+  guard set_contents.kind() == b's' else { fail("expected clipboard kind") }
+  guard set_contents.data() == "?" else { fail("expected clipboard data") }
+
+  let default_kind = expect_clipboard_contents(b"52;;?", Some(0x07))
+  guard default_kind.kind() == b'c' else {
+    fail("expected default clipboard kind")
+  }
+  guard default_kind.data() == "?" else {
+    fail("expected default-kind clipboard data")
+  }
+
+  let clear_contents = expect_clipboard_contents(b"52;;", Some(0x07))
+  guard clear_contents.kind() == b'c' else {
+    fail("expected clear clipboard kind")
+  }
+  guard clear_contents.data() == "" else {
+    fail("expected clear clipboard payload")
+  }
+
+  let primary = expect_clipboard_contents(b"52;p;abc", Some(0x1B))
+  guard primary.kind() == b'p' && primary.data() == "abc" else {
+    fail("expected clipboard payload with ST terminator")
+  }
+}
+
+///|
+test "osc/clipboard invalid forms are rejected" {
+  let invalid : Array[Bytes] = [
+    b"52", b"52;", b"52;s", b"52sa", b"52;ab", b"52x;?",
+  ]
+  for bytes in invalid {
+    let parser = OscParser::new()
+    feed_bytes(parser, bytes)
+    guard parser.end(Some(0x07)) == None else {
+      fail("expected invalid OSC 52 form to be rejected")
+    }
+  }
+}
+
+///|
+test "osc/kitty color protocol parses query set reset and trim rules" {
+  let command = expect_kitty_color_protocol(
+    b"21;foreground=?;background=rgb:f0/f8/ff;cursor=aliceblue;cursor_text;visual_bell=;selection_foreground=#xxxyyzz;selection_background=?;selection_background=#aabbcc;2=?;3=rgbi:1.0/1.0/1.0",
+    Some(0x1B),
+  )
+  guard command.requests() ==
+    [
+      KittyQuery(KittySpecial(KittyForeground)),
+      KittySet(
+        KittyColorSet::new(
+          KittySpecial(KittyBackground),
+          @color.RGB::new(0xF0, 0xF8, 0xFF),
+        ),
+      ),
+      KittySet(
+        KittyColorSet::new(
+          KittySpecial(KittyCursor),
+          @color.RGB::new(0xF0, 0xF8, 0xFF),
+        ),
+      ),
+      KittyReset(KittySpecial(KittyCursorText)),
+      KittyReset(KittySpecial(KittyVisualBell)),
+      KittyQuery(KittySpecial(KittySelectionBackground)),
+      KittySet(
+        KittyColorSet::new(
+          KittySpecial(KittySelectionBackground),
+          @color.RGB::new(0xAA, 0xBB, 0xCC),
+        ),
+      ),
+      KittyQuery(KittyPalette(2)),
+      KittySet(
+        KittyColorSet::new(KittyPalette(3), @color.RGB::new(0xFF, 0xFF, 0xFF)),
+      ),
+    ] else {
+    fail("unexpected kitty color requests")
+  }
+  guard command.terminator() == St else {
+    fail("expected kitty color terminator")
+  }
+}
+
+///|
+test "osc/kitty color protocol accepts empty body and spaced values" {
+  let empty = expect_kitty_color_protocol(b"21;", Some(0x07))
+  guard empty.requests() == [] else {
+    fail("expected empty kitty color request list")
+  }
+  guard empty.terminator() == Bel else { fail("expected BEL terminator") }
+
+  let spaced = expect_kitty_color_protocol(
+    b"21;second_transparent_background= ? ;255= #010203 ;badkey=?;999=?",
+    Some(0x07),
+  )
+  guard spaced.requests() ==
+    [
+      KittyQuery(KittySpecial(KittySecondTransparentBackground)),
+      KittySet(KittyColorSet::new(KittyPalette(255), @color.RGB::new(1, 2, 3))),
+    ] else {
+    fail("expected trimmed kitty color requests")
+  }
+}
+
+///|
+test "osc/kitty color protocol rejects malformed prefixes" {
+  let missing_separator = OscParser::new()
+  for byte in b"21" {
+    missing_separator.next(byte)
+  }
+  guard missing_separator.end(Some(0x07)) == None else {
+    fail("expected incomplete OSC 21 prefix to be rejected")
+  }
+
+  let invalid_prefix = OscParser::new()
+  for byte in b"21x;foreground=?" {
+    invalid_prefix.next(byte)
+  }
+  guard invalid_prefix.end(Some(0x07)) == None else {
+    fail("expected invalid OSC 21 prefix to be rejected")
+  }
+}
+
+///|
+test "osc/kitty color protocol request limit is enforced" {
+  let buffer : Array[Byte] = []
+  for _ in 0..<KittyColorRequestLimit {
+    buffer.push(b'0')
+    buffer.push(b'=')
+    buffer.push(b'?')
+    buffer.push(b';')
+  }
+  guard parse_kitty_color_command(Bytes::from_array(buffer), Some(0x07)) == None else {
+    fail("expected oversized OSC 21 request list to be rejected")
+  }
+}
+
+///|
+test "osc/osc9 desktop notification and sleep parsing" {
+  guard expect_osc_command(b"9;Hello world", Some(0x1B))
+    is ShowDesktopNotification(notification) &&
+    notification.title() == "" &&
+    notification.body() == "Hello world" else {
+    fail("expected OSC 9 desktop notification")
+  }
+
+  guard expect_osc_command(b"9;", Some(0x07))
+    is ShowDesktopNotification(notification) &&
+    notification.body() == "" else {
+    fail("expected empty OSC 9 desktop notification")
+  }
+
+  guard expect_osc_command(b"9;1;420", Some(0x1B)) is ConEmuSleep(sleep) &&
+    sleep.duration_ms() == 420 else {
+    fail("expected conemu sleep duration")
+  }
+
+  guard expect_osc_command(b"9;1;", Some(0x1B)) is ConEmuSleep(sleep) &&
+    sleep.duration_ms() == 100 else {
+    fail("expected default conemu sleep duration")
+  }
+
+  guard expect_osc_command(b"9;1;12345", Some(0x1B)) is ConEmuSleep(sleep) &&
+    sleep.duration_ms() == 10000 else {
+    fail("expected capped conemu sleep duration")
+  }
+
+  guard expect_osc_command(b"9;1;foo", Some(0x1B)) is ConEmuSleep(sleep) &&
+    sleep.duration_ms() == 100 else {
+    fail("expected invalid conemu sleep to fall back to default duration")
+  }
+
+  guard expect_osc_command(b"9;1", Some(0x1B))
+    is ShowDesktopNotification(notification) &&
+    notification.body() == "1" else {
+    fail("expected short conemu sleep branch to fall back")
+  }
+
+  guard expect_osc_command(b"9;1a", Some(0x1B))
+    is ShowDesktopNotification(notification) &&
+    notification.body() == "1a" else {
+    fail("expected malformed conemu sleep to fall back to desktop notification")
+  }
+}
+
+///|
+test "osc/osc9 message box and tab title parsing" {
+  guard expect_osc_command(b"9;2;hello world", Some(0x1B))
+    is ConEmuShowMessageBox(message) &&
+    message == "hello world" else {
+    fail("expected conemu message box")
+  }
+
+  guard expect_osc_command(b"9;2;", Some(0x1B)) is ConEmuShowMessageBox(message) &&
+    message == "" else {
+    fail("expected empty conemu message box")
+  }
+
+  guard expect_osc_command(b"9;2", Some(0x1B))
+    is ShowDesktopNotification(notification) &&
+    notification.body() == "2" else {
+    fail("expected malformed conemu message box to fall back")
+  }
+
+  guard expect_osc_command(b"9;2a", Some(0x1B))
+    is ShowDesktopNotification(notification) &&
+    notification.body() == "2a" else {
+    fail("expected malformed conemu message box separator to fall back")
+  }
+
+  let tab_title_value = expect_osc_command(b"9;3;foo bar", Some(0x1B))
+  guard tab_title_value == ConEmuChangeTabTitle(ConEmuTabTitleValue("foo bar")) else {
+    fail("expected conemu tab title value")
+  }
+
+  let tab_title_reset = expect_osc_command(b"9;3;", Some(0x1B))
+  guard tab_title_reset == ConEmuChangeTabTitle(ConEmuTabTitleReset) else {
+    fail("expected conemu tab title reset")
+  }
+
+  guard expect_osc_command(b"9;3a", Some(0x1B))
+    is ShowDesktopNotification(notification) &&
+    notification.body() == "3a" else {
+    fail("expected malformed conemu tab title to fall back")
+  }
+}
+
+///|
+test "osc/osc9 progress report parsing" {
+  guard expect_osc_command(b"9;4;1;100", Some(0x1B))
+    is ConEmuProgressReport(report) &&
+    report.state() == ConEmuProgressSet &&
+    report.progress() == Some(100) else {
+    fail("expected conemu progress set")
+  }
+
+  guard expect_osc_command(b"9;4;1;900", Some(0x1B))
+    is ConEmuProgressReport(report) &&
+    report.progress() == Some(100) else {
+    fail("expected conemu progress clamp")
+  }
+
+  guard expect_osc_command(b"9;4;0;100", Some(0x1B))
+    is ConEmuProgressReport(report) &&
+    report.state() == ConEmuProgressRemove &&
+    report.progress() == None else {
+    fail("expected conemu progress remove")
+  }
+
+  guard expect_osc_command(b"9;4;2;100", Some(0x1B))
+    is ConEmuProgressReport(report) &&
+    report.state() == ConEmuProgressError &&
+    report.progress() == Some(100) else {
+    fail("expected conemu progress error")
+  }
+
+  guard expect_osc_command(b"9;4;3;100", Some(0x1B))
+    is ConEmuProgressReport(report) &&
+    report.state() == ConEmuProgressIndeterminate &&
+    report.progress() == None else {
+    fail("expected conemu progress indeterminate")
+  }
+
+  guard expect_osc_command(b"9;4;4;100", Some(0x1B))
+    is ConEmuProgressReport(report) &&
+    report.state() == ConEmuProgressPause &&
+    report.progress() == Some(100) else {
+    fail("expected conemu progress pause")
+  }
+
+  guard expect_osc_command(b"9;4;1", Some(0x1B)) is ConEmuProgressReport(report) &&
+    report.state() == ConEmuProgressSet &&
+    report.progress() == Some(0) else {
+    fail("expected conemu progress set without explicit value")
+  }
+
+  guard expect_osc_command(b"9;4;1;abc", Some(0x1B))
+    is ConEmuProgressReport(report) &&
+    report.state() == ConEmuProgressSet &&
+    report.progress() == Some(0) else {
+    fail("expected invalid conemu progress value to keep default progress")
+  }
+
+  guard expect_osc_command(b"9;4a", Some(0x1B))
+    is ShowDesktopNotification(notification) &&
+    notification.body() == "4a" else {
+    fail("expected malformed conemu progress separator to fall back")
+  }
+
+  guard expect_osc_command(b"9;4;5", Some(0x1B))
+    is ShowDesktopNotification(notification) &&
+    notification.body() == "4;5" else {
+    fail("expected malformed conemu progress to fall back")
+  }
+}
+
+///|
+test "osc/osc9 conemu strings and compatibility commands" {
+  guard expect_osc_command(b"9;5;foo", Some(0x1B)) == ConEmuWaitInput else {
+    fail("expected conemu wait input")
+  }
+
+  guard expect_osc_command(b"9;6;ab", Some(0x1B)) is ConEmuGuiMacro(value) &&
+    value == "ab" else {
+    fail("expected conemu guimacro")
+  }
+
+  guard expect_osc_command(b"9;7;", Some(0x1B)) is ConEmuRunProcess(value) &&
+    value == "" else {
+    fail("expected empty conemu run process")
+  }
+
+  guard expect_osc_command(b"9;8;PATH", Some(0x1B))
+    is ConEmuOutputEnvironmentVariable(value) &&
+    value == "PATH" else {
+    fail("expected conemu environment variable output")
+  }
+
+  guard expect_osc_command(b"9;9;file:///tmp", Some(0x1B)) is ReportPwd(value) &&
+    value == "file:///tmp" else {
+    fail("expected conemu cwd compatibility report pwd")
+  }
+
+  guard expect_osc_command(b"9;11;note", Some(0x1B)) is ConEmuComment(value) &&
+    value == "note" else {
+    fail("expected conemu comment")
+  }
+
+  guard expect_osc_command(b"9;12;abc", Some(0x1B)) is SemanticPrompt(prompt) &&
+    prompt.action() == FreshLineNewPrompt else {
+    fail("expected conemu semantic prompt compatibility")
+  }
+
+  guard expect_osc_command(b"9;11", Some(0x1B))
+    is ShowDesktopNotification(notification) &&
+    notification.body() == "11" else {
+    fail("expected malformed conemu comment to fall back")
+  }
+}
+
+///|
+test "osc/osc9 xterm emulation parsing" {
+  guard expect_osc_command(b"9;10", Some(0x1B)) is ConEmuXtermEmulation(mode) &&
+    mode.keyboard() == Some(true) &&
+    mode.output() == Some(true) else {
+    fail("expected default conemu xterm emulation")
+  }
+
+  guard expect_osc_command(b"9;10;0", Some(0x1B)) is ConEmuXtermEmulation(mode) &&
+    mode.keyboard() == Some(false) &&
+    mode.output() == Some(false) else {
+    fail("expected disabled conemu xterm emulation")
+  }
+
+  guard expect_osc_command(b"9;10;1", Some(0x1B)) is ConEmuXtermEmulation(mode) &&
+    mode.keyboard() == Some(true) &&
+    mode.output() == Some(true) else {
+    fail("expected enabled conemu xterm emulation")
+  }
+
+  guard expect_osc_command(b"9;10;2", Some(0x1B)) is ConEmuXtermEmulation(mode) &&
+    mode.keyboard() == None &&
+    mode.output() == Some(false) else {
+    fail("expected output-only off conemu xterm emulation")
+  }
+
+  guard expect_osc_command(b"9;10;3", Some(0x1B)) is ConEmuXtermEmulation(mode) &&
+    mode.keyboard() == None &&
+    mode.output() == Some(true) else {
+    fail("expected output-only on conemu xterm emulation")
+  }
+
+  guard expect_osc_command(b"9;10;4", Some(0x1B))
+    is ShowDesktopNotification(notification) &&
+    notification.body() == "10;4" else {
+    fail("expected invalid conemu xterm emulation to fall back")
+  }
+
+  guard expect_osc_command(b"9;10;", Some(0x1B))
+    is ShowDesktopNotification(notification) &&
+    notification.body() == "10;" else {
+    fail("expected short conemu xterm emulation mode to fall back")
+  }
+}
+
+///|
+test "osc/osc777 rxvt desktop notification parsing" {
+  guard expect_osc_command(b"777;notify;Title;Body", Some(0x1B))
+    is ShowDesktopNotification(notification) &&
+    notification.title() == "Title" &&
+    notification.body() == "Body" else {
+    fail("expected rxvt desktop notification")
+  }
+
+  guard expect_osc_command(b"777;notify;;Body", Some(0x07))
+    is ShowDesktopNotification(notification) &&
+    notification.title() == "" &&
+    notification.body() == "Body" else {
+    fail("expected rxvt desktop notification with empty title")
+  }
+
+  let unknown_extension = OscParser::new()
+  feed_bytes(unknown_extension, b"777;toast;Title;Body")
+  guard unknown_extension.end(Some(0x1B)) == None else {
+    fail("expected unknown rxvt extension to be rejected")
+  }
+
+  let missing_title = OscParser::new()
+  feed_bytes(missing_title, b"777;notify")
+  guard missing_title.end(Some(0x1B)) == None else {
+    fail("expected rxvt notification without separators to be rejected")
+  }
+
+  let missing_body_separator = OscParser::new()
+  feed_bytes(missing_body_separator, b"777;notify;TitleOnly")
+  guard missing_body_separator.end(Some(0x1B)) == None else {
+    fail("expected malformed rxvt notification body separator to be rejected")
+  }
+}
+
+///|
+test "osc/osc1337 iterm2 bridge parsing" {
+  guard expect_osc_command(b"1337;Copy=:YWJjMTIz", Some(0x1B))
+    is ClipboardContents(contents) &&
+    contents.kind() == b'c' &&
+    contents.data() == "YWJjMTIz" else {
+    fail("expected iterm2 clipboard bridge")
+  }
+
+  guard expect_osc_command(b"1337;currentdir=file:///tmp", Some(0x07))
+    is ReportPwd(value) &&
+    value == "file:///tmp" else {
+    fail("expected iterm2 current-dir bridge")
+  }
+
+  let missing_copy_value = OscParser::new()
+  feed_bytes(missing_copy_value, b"1337;Copy")
+  guard missing_copy_value.end(Some(0x1B)) == None else {
+    fail("expected iterm2 copy without value to be rejected")
+  }
+
+  let invalid_copy_prefix = OscParser::new()
+  feed_bytes(invalid_copy_prefix, b"1337;Copy=YWJjMTIz")
+  guard invalid_copy_prefix.end(Some(0x1B)) == None else {
+    fail("expected iterm2 copy without colon prefix to be rejected")
+  }
+
+  let invalid_copy_empty_payload = OscParser::new()
+  feed_bytes(invalid_copy_empty_payload, b"1337;Copy=:")
+  guard invalid_copy_empty_payload.end(Some(0x1B)) == None else {
+    fail("expected iterm2 copy with empty payload to be rejected")
+  }
+
+  let invalid_copy_question = OscParser::new()
+  feed_bytes(invalid_copy_question, b"1337;Copy=:?")
+  guard invalid_copy_question.end(Some(0x1B)) == None else {
+    fail("expected iterm2 copy query form to be rejected")
+  }
+
+  let missing_current_dir_separator = OscParser::new()
+  feed_bytes(missing_current_dir_separator, b"1337;CurrentDir")
+  guard missing_current_dir_separator.end(Some(0x1B)) == None else {
+    fail("expected iterm2 current-dir without separator to be rejected")
+  }
+
+  let missing_current_dir = OscParser::new()
+  feed_bytes(missing_current_dir, b"1337;CurrentDir=")
+  guard missing_current_dir.end(Some(0x1B)) == None else {
+    fail("expected empty iterm2 current-dir to be rejected")
+  }
+
+  let unimplemented_key = OscParser::new()
+  feed_bytes(unimplemented_key, b"1337;SetBadgeFormat=abc123")
+  guard unimplemented_key.end(Some(0x1B)) == None else {
+    fail("expected unimplemented iterm2 key to stay rejected")
+  }
+}
+
+///|
+test "osc/osc5522 kitty clipboard parsing" {
+  guard expect_osc_command(b"5522;", Some(0x1B))
+    is KittyClipboardProtocol(command) &&
+    command.metadata() == "" &&
+    command.payload() == None &&
+    command.id() == None &&
+    command.location() == None &&
+    command.mime() == None &&
+    command.name() == None &&
+    command.password() == None &&
+    command.pw() == None &&
+    command.status() == None &&
+    command.operation() == None &&
+    command.terminator() == St else {
+    fail("expected empty kitty clipboard metadata without payload")
+  }
+
+  guard expect_osc_command(b"5522;;", Some(0x07))
+    is KittyClipboardProtocol(command) &&
+    command.metadata() == "" &&
+    command.payload() == Some("") &&
+    command.terminator() == Bel else {
+    fail("expected empty kitty clipboard metadata with empty payload")
+  }
+
+  guard expect_osc_command(
+      b"5522;type=read:status=DATA:mime=dGV4dC9wbGFpbg==;Qk9CUg==",
+      Some(0x1B),
+    )
+    is KittyClipboardProtocol(command) &&
+    command.payload() == Some("Qk9CUg==") &&
+    command.mime() == Some("dGV4dC9wbGFpbg==") &&
+    command.status() == Some(KittyClipboardData) &&
+    command.operation() == Some(KittyClipboardRead) else {
+    fail("expected kitty clipboard payload plus typed option readers")
+  }
+
+  guard expect_osc_command(
+      b"5522;id=5c076ad9-d36f-4705-847b-d4dbf356cc0d:loc=primary",
+      Some(0x1B),
+    )
+    is KittyClipboardProtocol(command) &&
+    command.id() == Some("5c076ad9-d36f-4705-847b-d4dbf356cc0d") &&
+    command.location() == Some(KittyClipboardPrimary) else {
+    fail("expected kitty clipboard id and location readers")
+  }
+
+  guard expect_osc_command(
+      b"5522;pw=R2hvc3R0eQ==:name=Qk9CUiBLVVJXQQ==",
+      Some(0x1B),
+    )
+    is KittyClipboardProtocol(command) &&
+    command.pw() == Some("R2hvc3R0eQ==") &&
+    command.name() == Some("Qk9CUiBLVVJXQQ==") else {
+    fail("expected kitty clipboard pw and name readers")
+  }
+
+  guard expect_osc_command(
+      b"5522; password = secret : type = write ",
+      Some(0x1B),
+    )
+    is KittyClipboardProtocol(command) &&
+    command.password() == Some("secret") &&
+    command.operation() == Some(KittyClipboardWrite) else {
+    fail("expected kitty clipboard whitespace-trimmed option readers")
+  }
+
+  guard expect_osc_command(b"5522;id=*42*", Some(0x1B))
+    is KittyClipboardProtocol(command) &&
+    command.id() == None else {
+    fail("expected invalid kitty clipboard id to be rejected")
+  }
+
+  guard expect_osc_command(b"5522;status=BOBR", Some(0x1B))
+    is KittyClipboardProtocol(command) &&
+    command.status() == None else {
+    fail("expected invalid kitty clipboard status to be rejected")
+  }
+
+  guard expect_osc_command(b"5522;loc=bobr", Some(0x1B))
+    is KittyClipboardProtocol(command) &&
+    command.location() == None else {
+    fail("expected invalid kitty clipboard location to be rejected")
+  }
+
+  guard expect_osc_command(b"5522;identifier=foo:id=bar", Some(0x1B))
+    is KittyClipboardProtocol(command) &&
+    command.id() == None else {
+    fail("expected malformed prefix match to reject kitty clipboard id")
+  }
+}
+
+///|
+test "osc/context signal constructors and option readers" {
+  let command = ContextSignalOsc::new(
+    ContextSignalStart,
+    b"myctx",
+    b"type=command;user=root;hostname=myhost;machineid=mid;bootid=bid;pid=1062862;pidfdid=1063162;comm=bash;cwd=/home/user;cmdline=ls -la;vm=guest;container=ctr;targetuser=alice;targethost=example.com;sessionid=s1;exit=interrupt;status=9;signal=SIGKILL",
+  )
+  guard command.action() == ContextSignalStart else {
+    fail("expected context signal action accessor")
+  }
+  guard command.id() == "myctx" else {
+    fail("expected context signal id accessor")
+  }
+  guard command.metadata().contains("type=command") else {
+    fail("expected context signal metadata accessor")
+  }
+  guard command.context_type() == Some(ContextSignalCommand) else {
+    fail("expected context signal type reader")
+  }
+  guard command.user() == Some("root") &&
+    command.hostname() == Some("myhost") &&
+    command.machineid() == Some("mid") &&
+    command.bootid() == Some("bid") else {
+    fail("expected context signal string readers")
+  }
+  guard command.pid() == Some(1062862UL) && command.pidfdid() == Some(1063162UL) else {
+    fail("expected context signal numeric readers")
+  }
+  guard command.comm() == Some("bash") &&
+    command.cwd() == Some("/home/user") &&
+    command.cmdline() == Some("ls -la") else {
+    fail("expected context signal command readers")
+  }
+  guard command.vm() == Some("guest") &&
+    command.container() == Some("ctr") &&
+    command.targetuser() == Some("alice") &&
+    command.targethost() == Some("example.com") &&
+    command.sessionid() == Some("s1") else {
+    fail("expected context signal target readers")
+  }
+  guard command.exit_status() == Some(ContextSignalExitInterrupt) &&
+    command.status() == Some(9UL) &&
+    command.signal() == Some("SIGKILL") else {
+    fail("expected context signal exit readers")
+  }
+}
+
+///|
+test "osc/osc3008 context signal parsing" {
+  let empty_context = OscParser::new()
+  feed_bytes(empty_context, b"3008;")
+  guard empty_context.end(Some(0x1B)) == None else {
+    fail("expected empty OSC 3008 payload rejection")
+  }
+
+  guard expect_osc_command(b"3008;start=abc123", Some(0x1B))
+    is ContextSignal(command) &&
+    command.action() == ContextSignalStart &&
+    command.id() == "abc123" &&
+    command.metadata() == "" else {
+    fail("expected basic OSC 3008 start command")
+  }
+
+  guard expect_osc_command(
+      b"3008;end=myctx;exit=failure;status=1;signal=SIGKILL",
+      Some(0x1B),
+    )
+    is ContextSignal(command) &&
+    command.action() == ContextSignalEnd &&
+    command.id() == "myctx" &&
+    command.exit_status() == Some(ContextSignalExitFailure) &&
+    command.status() == Some(1UL) &&
+    command.signal() == Some("SIGKILL") else {
+    fail("expected OSC 3008 end command with exit metadata")
+  }
+
+  guard expect_osc_command(
+      b"3008;start=myctx;type=shell;unknownfield=value;user=root;pid=12x;hostname=host",
+      Some(0x1B),
+    )
+    is ContextSignal(command) &&
+    command.context_type() == Some(ContextSignalShell) &&
+    command.user() == Some("root") &&
+    command.hostname() == Some("host") &&
+    command.pid() == None else {
+    fail("expected OSC 3008 unknown and malformed fields to be ignored")
+  }
+
+  let empty_user = expect_osc_command(b"3008;start=myctx;user=", Some(0x1B))
+  guard empty_user is ContextSignal(command) && command.user() == None else {
+    fail("expected empty OSC 3008 string field to decode as absent")
+  }
+
+  let no_fields = ContextSignalOsc::new(ContextSignalEnd, [b'i', b'd'], [
+    b'b', b'a', b'r', b'e', b'k', b'e', b'y',
+  ])
+  guard no_fields.context_type() == None &&
+    no_fields.user() == None &&
+    no_fields.pid() == None &&
+    no_fields.exit_status() == None &&
+    no_fields.status() == None &&
+    no_fields.signal() == None else {
+    fail("expected missing OSC 3008 fields to stay absent")
+  }
+
+  let empty_number = ContextSignalOsc::new(ContextSignalStart, [b'i', b'd'], [
+    b'p', b'i', b'd', b'=',
+  ])
+  guard empty_number.pid() == None else {
+    fail("expected empty OSC 3008 numeric field rejection")
+  }
+
+  let overflow_status = ContextSignalOsc::new(
+    ContextSignalEnd,
+    b"id",
+    b"status=18446744073709551616",
+  )
+  guard overflow_status.status() == None else {
+    fail("expected overflowing OSC 3008 numeric field rejection")
+  }
+
+  for
+    entry in [
+      ("boot", ContextSignalBoot),
+      ("container", ContextSignalContainer),
+      ("vm", ContextSignalVm),
+      ("elevate", ContextSignalElevate),
+      ("chpriv", ContextSignalChpriv),
+      ("subcontext", ContextSignalSubcontext),
+      ("remote", ContextSignalRemote),
+      ("shell", ContextSignalShell),
+      ("command", ContextSignalCommand),
+      ("app", ContextSignalApp),
+      ("service", ContextSignalService),
+      ("session", ContextSignalSession),
+    ] {
+    let (name, expected) = entry
+    let bytes = Buffer()
+    bytes.write_string_utf8("3008;start=id;type=")
+    bytes.write_string_utf8(name)
+    guard expect_osc_command(bytes.contents(), Some(0x1B))
+      is ContextSignal(command) &&
+      command.context_type() == Some(expected) else {
+      fail("expected OSC 3008 context type coverage")
+    }
+  }
+
+  for
+    entry in [
+      ("success", ContextSignalExitSuccess),
+      ("failure", ContextSignalExitFailure),
+      ("crash", ContextSignalExitCrash),
+      ("interrupt", ContextSignalExitInterrupt),
+    ] {
+    let (name, expected) = entry
+    let bytes = Buffer()
+    bytes.write_string_utf8("3008;end=id;exit=")
+    bytes.write_string_utf8(name)
+    guard expect_osc_command(bytes.contents(), Some(0x1B))
+      is ContextSignal(command) &&
+      command.exit_status() == Some(expected) else {
+      fail("expected OSC 3008 exit status coverage")
+    }
+  }
+
+  let invalid_prefix = OscParser::new()
+  feed_bytes(invalid_prefix, b"3008;bogus=abc123")
+  guard invalid_prefix.end(Some(0x1B)) == None else {
+    fail("expected invalid OSC 3008 prefix")
+  }
+
+  let missing_id = OscParser::new()
+  feed_bytes(missing_id, b"3008;start=")
+  guard missing_id.end(Some(0x1B)) == None else {
+    fail("expected OSC 3008 missing id rejection")
+  }
+
+  let max_id = Buffer()
+  max_id.write_string_utf8("3008;start=")
+  for _ in 0..<64 {
+    max_id.write_byte(b'a')
+  }
+  guard expect_osc_command(max_id.contents(), Some(0x1B))
+    is ContextSignal(command) &&
+    command.id() == "a".repeat(64) else {
+    fail("expected max-length OSC 3008 id")
+  }
+
+  let overlong_id = OscParser::new()
+  feed_bytes(overlong_id, b"3008;start=")
+  for _ in 0..<65 {
+    overlong_id.next(b'a')
+  }
+  guard overlong_id.end(Some(0x1B)) == None else {
+    fail("expected overlong OSC 3008 id rejection")
+  }
+
+  let invalid_char = OscParser::new()
+  feed_bytes(invalid_char, b"3008;start=abc")
+  invalid_char.next(0x1F)
+  guard invalid_char.end(Some(0x1B)) == None else {
+    fail("expected OSC 3008 control byte in id to be rejected")
+  }
+}
+
+///|
+test "osc/kitty text sizing constructors and parsing" {
+  guard parse_kitty_text_sizing_command([], Some(0x1B)) == None else {
+    fail("expected kitty text sizing helper to reject missing separator")
+  }
+
+  let command = KittyTextSizingOsc::new(
+    2,
+    7,
+    13,
+    15,
+    KittyTextSizingVBottom,
+    KittyTextSizingHCenter,
+    "long",
+    Bel,
+  )
+  guard command.scale() == 2 &&
+    command.width() == 7 &&
+    command.numerator() == 13 &&
+    command.denominator() == 15 else {
+    fail("expected kitty text sizing numeric accessors")
+  }
+  guard command.valign() == KittyTextSizingVBottom &&
+    command.halign() == KittyTextSizingHCenter else {
+    fail("expected kitty text sizing alignment accessors")
+  }
+  guard command.text() == "long" && command.terminator() == Bel else {
+    fail("expected kitty text sizing text and terminator accessors")
+  }
+
+  guard expect_osc_command(b"66;;bobr", Some(0x1B)) is KittyTextSizing(parsed) &&
+    parsed.scale() == 1 &&
+    parsed.width() == 0 &&
+    parsed.text() == "bobr" &&
+    parsed.terminator() == St else {
+    fail("expected OSC 66 empty parameters")
+  }
+
+  guard expect_osc_command(b"66;s=2:w=7:n=13:d=15:v=1:h=2;long", Some(0x1B))
+    is KittyTextSizing(parsed) &&
+    parsed.scale() == 2 &&
+    parsed.width() == 7 &&
+    parsed.numerator() == 13 &&
+    parsed.denominator() == 15 &&
+    parsed.valign() == KittyTextSizingVBottom &&
+    parsed.halign() == KittyTextSizingHCenter &&
+    parsed.text() == "long" else {
+    fail("expected OSC 66 typed parameters")
+  }
+
+  guard expect_osc_command(b"66;s=0;nope", Some(0x1B))
+    is KittyTextSizing(parsed) &&
+    parsed.scale() == 1 else {
+    fail("expected OSC 66 scale zero to be ignored")
+  }
+
+  guard expect_osc_command(b"66;w=8:v=3:n=16:foo:s=2:h=1;ok", Some(0x1B))
+    is KittyTextSizing(parsed) &&
+    parsed.scale() == 2 &&
+    parsed.width() == 0 &&
+    parsed.numerator() == 0 &&
+    parsed.valign() == KittyTextSizingVTop &&
+    parsed.halign() == KittyTextSizingHRight else {
+    fail("expected OSC 66 invalid parameters to be ignored")
+  }
+
+  guard expect_osc_command(b"66;v=0:h=0:q=1:d=16;origin", Some(0x1B))
+    is KittyTextSizing(parsed) &&
+    parsed.valign() == KittyTextSizingVTop &&
+    parsed.halign() == KittyTextSizingHLeft &&
+    parsed.denominator() == 0 else {
+    fail("expected OSC 66 top-left defaults and invalid denominator")
+  }
+
+  guard expect_osc_command(b"66;v=2:h=9;centered", Some(0x1B))
+    is KittyTextSizing(parsed) &&
+    parsed.valign() == KittyTextSizingVCenter &&
+    parsed.halign() == KittyTextSizingHLeft else {
+    fail("expected OSC 66 center valign and invalid halign handling")
+  }
+
+  guard expect_osc_command(
+      b"66;;👻魑魅魍魉ゴースッティ",
+      Some(0x1B),
+    )
+    is KittyTextSizing(parsed) &&
+    parsed.text() == "👻魑魅魍魉ゴースッティ" else {
+    fail("expected OSC 66 safe UTF-8 text")
+  }
+
+  let unsafe_text = OscParser::new()
+  feed_bytes(unsafe_text, b"66;;\n")
+  guard unsafe_text.end(Some(0x1B)) == None else {
+    fail("expected OSC 66 unsafe control text rejection")
+  }
+
+  guard parse_kitty_text_sizing_command([b';', 0xFF], Some(0x1B)) == None else {
+    fail("expected OSC 66 malformed UTF-8 rejection")
+  }
+
+  let long_payload = OscParser::new()
+  feed_bytes(long_payload, b"66;;")
+  for _ in 0..<3000 {
+    long_payload.next(b'a')
+  }
+  guard long_payload.end(Some(0x1B)) is Some(KittyTextSizing(parsed)) &&
+    parsed.text().length() == 3000 else {
+    fail("expected OSC 66 allocating capture past fixed buffer size")
+  }
+
+  let overlong_payload = OscParser::new()
+  feed_bytes(overlong_payload, b"66;;")
+  for _ in 0..<(KittyTextSizingPayloadLimit + 1) {
+    overlong_payload.next(b'a')
+  }
+  guard overlong_payload.end(Some(0x1B)) == None else {
+    fail("expected OSC 66 overlong payload rejection")
+  }
+}
+
+///|
+test "osc/semantic prompt actions and option accessors" {
+  let fresh_line = expect_semantic_prompt(b"133;L", Some(0x07))
+  guard fresh_line.action() == FreshLine else {
+    fail("expected fresh-line action")
+  }
+
+  let end_input = expect_semantic_prompt(b"133;C", Some(0x07))
+  guard end_input.action() == EndInputStartOutput else {
+    fail("expected end-input-start-output action")
+  }
+  guard end_input.aid() == None && end_input.cl() == None else {
+    fail("expected no end-input options")
+  }
+  guard end_input.prompt_kind() == None &&
+    end_input.redraw() == None &&
+    end_input.special_key() == None &&
+    end_input.click_events() == None else {
+    fail("expected absent semantic prompt options")
+  }
+
+  let fresh_prompt = expect_semantic_prompt(
+    b"133;A;aid=a=b;cl=m;redraw=1;special_key=0;click_events=1",
+    Some(0x07),
+  )
+  guard fresh_prompt.action() == FreshLineNewPrompt else {
+    fail("expected fresh-line-new-prompt action")
+  }
+  guard fresh_prompt.aid() == Some("a=b") else {
+    fail("expected semantic prompt aid")
+  }
+  guard fresh_prompt.cl() == Some(Multiple) else {
+    fail("expected semantic prompt cl option")
+  }
+  guard fresh_prompt.redraw() == Some(Enabled) else {
+    fail("expected semantic prompt redraw option")
+  }
+  guard fresh_prompt.special_key() == Some(false) else {
+    fail("expected semantic prompt special_key option")
+  }
+  guard fresh_prompt.click_events() == Some(true) else {
+    fail("expected semantic prompt click_events option")
+  }
+
+  let click_vertical = expect_semantic_prompt(b"133;A;cl=v", Some(0x07))
+  guard click_vertical.cl() == Some(ConservativeVertical) else {
+    fail("expected conservative-vertical cl option")
+  }
+
+  let click_smart = expect_semantic_prompt(b"133;A;cl=w", Some(0x07))
+  guard click_smart.cl() == Some(SmartVertical) else {
+    fail("expected smart-vertical cl option")
+  }
+
+  let click_invalid_single = expect_semantic_prompt(b"133;A;cl=x", Some(0x07))
+  guard click_invalid_single.cl() == None else {
+    fail("expected invalid single-char cl option to be ignored")
+  }
+
+  let prompt_start = expect_semantic_prompt(b"133;P;k=s", Some(0x07))
+  guard prompt_start.action() == PromptStart else {
+    fail("expected prompt-start action")
+  }
+  guard prompt_start.prompt_kind() == Some(Secondary) else {
+    fail("expected prompt kind option")
+  }
+
+  let prompt_initial = expect_semantic_prompt(b"133;P;k=i", Some(0x07))
+  guard prompt_initial.prompt_kind() == Some(Initial) else {
+    fail("expected initial prompt kind option")
+  }
+
+  let prompt_right = expect_semantic_prompt(b"133;P;k=r", Some(0x07))
+  guard prompt_right.prompt_kind() == Some(Right) else {
+    fail("expected right prompt kind option")
+  }
+
+  let prompt_continuation = expect_semantic_prompt(b"133;P;k=c", Some(0x07))
+  guard prompt_continuation.prompt_kind() == Some(Continuation) else {
+    fail("expected continuation prompt kind option")
+  }
+
+  let prompt_invalid = expect_semantic_prompt(b"133;P;k=x", Some(0x07))
+  guard prompt_invalid.prompt_kind() == None else {
+    fail("expected invalid prompt kind to be ignored")
+  }
+
+  let prompt_long = expect_semantic_prompt(b"133;P;k=ii", Some(0x07))
+  guard prompt_long.prompt_kind() == None else {
+    fail("expected multi-char prompt kind to be ignored")
+  }
+
+  let new_command = expect_semantic_prompt(b"133;N;aid=foo;cl=line", Some(0x07))
+  guard new_command.action() == NewCommand else {
+    fail("expected new-command action")
+  }
+  guard new_command.aid() == Some("foo") && new_command.cl() == Some(Line) else {
+    fail("expected new-command options")
+  }
+
+  let end_prompt = expect_semantic_prompt(b"133;B;aid=bar", Some(0x07))
+  guard end_prompt.action() == EndPromptStartInput &&
+    end_prompt.aid() == Some("bar") else {
+    fail("expected end-prompt options")
+  }
+
+  let terminate_eol = expect_semantic_prompt(b"133;I;aid=baz", Some(0x07))
+  guard terminate_eol.action() == EndPromptStartInputTerminateEol &&
+    terminate_eol.aid() == Some("baz") else {
+    fail("expected terminate-eol options")
+  }
+
+  let end_command = expect_semantic_prompt(
+    b"133;D;12;aid=foo;err=oops",
+    Some(0x07),
+  )
+  guard end_command.action() == EndCommand else {
+    fail("expected end-command action")
+  }
+  guard end_command.exit_code() == Some(12) else {
+    fail("expected semantic prompt exit code")
+  }
+  guard end_command.aid() == Some("foo") && end_command.err() == Some("oops") else {
+    fail("expected end-command options")
+  }
+
+  let end_command_none = expect_semantic_prompt(b"133;D", Some(0x07))
+  guard end_command_none.exit_code() == None else {
+    fail("expected absent exit code")
+  }
+
+  let end_command_plain = expect_semantic_prompt(b"133;D;42", Some(0x07))
+  guard end_command_plain.exit_code() == Some(42) else {
+    fail("expected plain exit code")
+  }
+}
+
+///|
+test "osc/semantic prompt decoding and malformed options" {
+  let printf_q = expect_semantic_prompt(
+    b"133;C;cmdline=echo\\ bobr\\nkurwa",
+    Some(0x07),
+  )
+  guard printf_q.cmdline() == Some("echo\\ bobr\\nkurwa") else {
+    fail("expected raw cmdline option")
+  }
+  let printf_q_result = decoded_command_line_result(printf_q)
+  guard printf_q_result is Ok(Some(decoded)) && decoded == "echo bobr\nkurwa" else {
+    fail("expected decoded printf-q command line")
+  }
+
+  let quoted = expect_semantic_prompt(
+    b"133;C;cmdline=$'echo bobr kurwa'",
+    Some(0x07),
+  )
+  let quoted_result = decoded_command_line_result(quoted)
+  guard quoted_result is Ok(Some(decoded)) && decoded == "echo bobr kurwa" else {
+    fail("expected decoded quoted command line")
+  }
+
+  let single_quoted = expect_semantic_prompt(
+    b"133;C;cmdline='echo bobr kurwa'",
+    Some(0x07),
+  )
+  let single_quoted_result = decoded_command_line_result(single_quoted)
+  guard single_quoted_result is Ok(Some(decoded)) &&
+    decoded == "echo bobr kurwa" else {
+    fail("expected decoded single-quoted command line")
+  }
+
+  let escape_variants = expect_semantic_prompt(
+    b"133;C;cmdline=one\\etwo\\rthree\\tfour\\vfive",
+    Some(0x07),
+  )
+  let escape_variants_result = decoded_command_line_result(escape_variants)
+  let expected_escape_variants = @utf8.decode_lossy(
+    b"one\x1Btwo\rthree\tfour\x0Bfive",
+  )
+  guard escape_variants_result is Ok(Some(decoded)) &&
+    decoded == expected_escape_variants else {
+    fail("expected decoded escape variants")
+  }
+
+  let url = expect_semantic_prompt(
+    b"133;C;cmdline_url=echo%20bobr%3Bkurwa",
+    Some(0x07),
+  )
+  guard url.cmdline_url() == Some("echo%20bobr%3Bkurwa") else {
+    fail("expected raw cmdline_url option")
+  }
+  let url_result = decoded_command_line_result(url)
+  guard url_result is Ok(Some(decoded)) && decoded == "echo bobr;kurwa" else {
+    fail("expected decoded url command line")
+  }
+
+  let lowercase_hex = expect_semantic_prompt(
+    b"133;C;cmdline_url=echo%3bkurwa",
+    Some(0x07),
+  )
+  let lowercase_hex_result = decoded_command_line_result(lowercase_hex)
+  guard lowercase_hex_result is Ok(Some(decoded)) && decoded == "echo;kurwa" else {
+    fail("expected decoded lowercase-hex command line")
+  }
+
+  let redraw_last = expect_semantic_prompt(b"133;A;redraw=last", Some(0x07))
+  guard redraw_last.redraw() == Some(Last) else {
+    fail("expected redraw=last option")
+  }
+
+  let redraw_disabled = expect_semantic_prompt(b"133;A;redraw=0", Some(0x07))
+  guard redraw_disabled.redraw() == Some(Disabled) else {
+    fail("expected redraw=0 option")
+  }
+
+  let redraw_invalid_long = expect_semantic_prompt(
+    b"133;A;redraw=lasts",
+    Some(0x07),
+  )
+  guard redraw_invalid_long.redraw() == None else {
+    fail("expected invalid redraw option to be ignored")
+  }
+
+  let special_key_invalid = expect_semantic_prompt(
+    b"133;A;special_key=x",
+    Some(0x07),
+  )
+  guard special_key_invalid.special_key() == None else {
+    fail("expected invalid special_key option to be ignored")
+  }
+
+  let invalid_printf_q = expect_semantic_prompt(
+    b"133;C;cmdline='echo bobr kurwa",
+    Some(0x07),
+  )
+  let invalid_printf_q_result = decoded_command_line_result(invalid_printf_q)
+  guard invalid_printf_q_result is Err(DecodeError) else {
+    fail("expected malformed printf-q command line to fail")
+  }
+
+  let invalid_printf_q_escape = expect_semantic_prompt(
+    b"133;C;cmdline=echo\\",
+    Some(0x07),
+  )
+  let invalid_printf_q_escape_result = decoded_command_line_result(
+    invalid_printf_q_escape,
+  )
+  guard invalid_printf_q_escape_result is Err(DecodeError) else {
+    fail("expected trailing backslash decode failure")
+  }
+
+  let invalid_printf_q_escape_kind = expect_semantic_prompt(
+    b"133;C;cmdline=echo\\d",
+    Some(0x07),
+  )
+  let invalid_printf_q_escape_kind_result = decoded_command_line_result(
+    invalid_printf_q_escape_kind,
+  )
+  guard invalid_printf_q_escape_kind_result is Err(DecodeError) else {
+    fail("expected unsupported printf-q escape decode failure")
+  }
+
+  let invalid_printf_q_dollar = expect_semantic_prompt(
+    b"133;C;cmdline=$'echo bobr kurwa",
+    Some(0x07),
+  )
+  let invalid_printf_q_dollar_result = decoded_command_line_result(
+    invalid_printf_q_dollar,
+  )
+  guard invalid_printf_q_dollar_result is Err(DecodeError) else {
+    fail("expected malformed dollar-quoted decode failure")
+  }
+
+  let invalid_url = expect_semantic_prompt(
+    b"133;C;cmdline_url=echo%2",
+    Some(0x07),
+  )
+  let invalid_url_result = decoded_command_line_result(invalid_url)
+  guard invalid_url_result is Err(DecodeError) else {
+    fail("expected malformed url command line to fail")
+  }
+
+  let invalid_url_hex = expect_semantic_prompt(
+    b"133;C;cmdline_url=echo%G0",
+    Some(0x07),
+  )
+  let invalid_url_hex_result = decoded_command_line_result(invalid_url_hex)
+  guard invalid_url_hex_result is Err(DecodeError) else {
+    fail("expected invalid hex url command line to fail")
+  }
+
+  let invalid_url_low_hex = expect_semantic_prompt(
+    b"133;C;cmdline_url=echo%2G",
+    Some(0x07),
+  )
+  let invalid_url_low_hex_result = decoded_command_line_result(
+    invalid_url_low_hex,
+  )
+  guard invalid_url_low_hex_result is Err(DecodeError) else {
+    fail("expected invalid low-nibble hex url command line to fail")
+  }
+
+  let invalid_options = expect_semantic_prompt(
+    b"133;A;cl=invalid;redraw=x;click_events=yes;barekey;aid=",
+    Some(0x07),
+  )
+  guard invalid_options.cl() == None else {
+    fail("expected invalid cl option to be ignored")
+  }
+  guard invalid_options.redraw() == None else {
+    fail("expected invalid redraw option to be ignored")
+  }
+  guard invalid_options.click_events() == None else {
+    fail("expected invalid click_events option to be ignored")
+  }
+  guard invalid_options.aid() == Some("") else {
+    fail("expected empty aid to be preserved")
+  }
+}
+
+///|
+test "osc/semantic prompt invalid forms are rejected" {
+  let invalid : Array[Bytes] = [
+    b"133", b"133;", b"133x", b"133;Lx", b"133;L;aid=foo", b"133;Aextra", b"133;Bextra",
+    b"133;Cextra", b"133;Dextra", b"133;Iextra", b"133;Nextra", b"133;Pextra", b"133;Z",
+  ]
+  for bytes in invalid {
+    let parser = OscParser::new()
+    feed_bytes(parser, bytes)
+    guard parser.end(Some(0x07)) == None else {
+      fail("expected invalid OSC 133 form to be rejected")
+    }
+  }
+}
+
+///|
+test "osc/color reset cursor with incomplete sequence" {
+  let parser = OscParser::new()
+  parser.next(b'1')
+  parser.next(b'1')
+  parser.next(b'2')
+
+  let command = parser.end(Some(0x07))
+  guard command is Some(ColorOperation(color_command)) else {
+    fail("expected OSC 112 color command")
+  }
+  guard color_command.op() == Osc112 else { fail("expected OSC 112 operation") }
+  guard color_command.terminator() == Bel else {
+    fail("expected BEL terminator")
+  }
+  guard color_command.requests() == [Reset(Dynamic(Cursor))] else {
+    fail("expected cursor reset request")
+  }
+}
+
+///|
+test "osc/color reset cursor accepts trailing semicolon" {
+  let parser = OscParser::new()
+  for byte in b"112;" {
+    parser.next(byte)
+  }
+
+  let command = parser.end(Some(0x07))
+  guard command is Some(ColorOperation(color_command)) else {
+    fail("expected OSC 112 color command")
+  }
+  guard color_command.requests() == [Reset(Dynamic(Cursor))] else {
+    fail("expected cursor reset request with trailing semicolon")
+  }
+}
+
+///|
+test "osc/color reset palette with empty body" {
+  let parser = OscParser::new()
+  parser.next(b'1')
+  parser.next(b'0')
+  parser.next(b'4')
+
+  let command = parser.end(Some(0x07))
+  guard command is Some(ColorOperation(color_command)) else {
+    fail("expected OSC 104 color command")
+  }
+  guard color_command.op() == Osc104 else { fail("expected OSC 104 operation") }
+  guard color_command.requests() == [ResetPalette] else {
+    fail("expected reset-palette request")
+  }
+}
+
+///|
+test "osc/color palette set parses rgb payload" {
+  let parser = OscParser::new()
+  for byte in b"4;1;red" {
+    parser.next(byte)
+  }
+
+  let command = parser.end(Some(0x1B))
+  guard command is Some(ColorOperation(color_command)) else {
+    fail("expected OSC 4 color command")
+  }
+  guard color_command.op() == Osc4 else { fail("expected OSC 4 operation") }
+  guard color_command.terminator() == St else { fail("expected ST terminator") }
+  guard color_command.requests() ==
+    [Set(ColoredTarget::new(Palette(1), @color.RGB::new(255, 0, 0)))] else {
+    fail("expected palette set request")
+  }
+}
+
+///|
+test "osc/parser deinit resets state and start has no command" {
+  let parser = OscParser::new()
+  guard parser.end(Some(0x07)) == None else {
+    fail("expected empty parser to produce no command")
+  }
+
+  feed_bytes(parser, b"0;stale")
+  parser.deinit()
+  guard parser.end(Some(0x07)) == None else {
+    fail("expected deinit to restore start state")
+  }
+
+  feed_bytes(parser, b"2;fresh")
+  guard parser.end(Some(0x07)) is Some(ChangeWindowTitle(title)) &&
+    title == "fresh" else {
+    fail("expected parser to be reusable after deinit")
+  }
+}
+
+///|
+test "osc/invalid prefix transitions short circuit parser state" {
+  for
+    bytes in [
+      b"0x;ignored", b"2x;ignored", b"4x;ignored", b"5x;ignored", b"7x;ignored",
+      b"8x;ignored", b"10x;ignored", b"12x;ignored", b"13x;ignored", b"14x;ignored",
+      b"15x;ignored", b"16x;ignored", b"17x;ignored", b"18x;ignored", b"19x;ignored",
+      b"22x;ignored", b"104x;ignored", b"110x;ignored", b"111x;ignored", b"112x;ignored",
+      b"113x;ignored", b"114x;ignored", b"115x;ignored", b"116x;ignored", b"117x;ignored",
+      b"118x;ignored", b"119x;ignored",
+    ] {
+    let parser = OscParser::new()
+    feed_bytes(parser, bytes)
+    guard parser.end(Some(0x07)) == None else {
+      fail("expected invalid prefix transition to abort OSC parsing")
+    }
+  }
+}
+
+///|
+test "osc/color ansi operations handle special targets queries and invalid bodies" {
+  expect_color_command(
+    b"5;4;red;1;?",
+    Some(0x07),
+    Osc5,
+    [
+      Set({ target: Special(Italic), color: @color.RGB::new(255, 0, 0), }),
+      Query(Special(Underline)),
+    ],
+    Bel,
+  )
+
+  expect_color_command(
+    b"4;260;?",
+    Some(0x1B),
+    Osc4,
+    [Query(Special(Italic))],
+    St,
+  )
+
+  expect_color_command(
+    b"4;1;red;bogus;blue",
+    Some(0x07),
+    Osc4,
+    [Set({ target: Palette(1), color: @color.RGB::new(255, 0, 0), })],
+    Bel,
+  )
+
+  expect_color_command(b"4;;red", Some(0x07), Osc4, [], Bel)
+  expect_color_command(b"5;9;red", Some(0x07), Osc5, [], Bel)
+  expect_color_command(b"5;1;not-a-color", Some(0x07), Osc5, [], Bel)
+}
+
+///|
+test "osc/color parsers skip empty tokens like tokenizeScalar" {
+  // Leading/internal empty tokens are dropped, so the valid `1;red` pair still
+  // parses (upstream uses tokenizeScalar, not a keep-empty split).
+  expect_color_command(
+    b"4;;1;red",
+    Some(0x07),
+    Osc4,
+    [Set({ target: Palette(1), color: @color.RGB::new(255, 0, 0), })],
+    Bel,
+  )
+  expect_color_command(
+    b"4;1;;red",
+    Some(0x07),
+    Osc4,
+    [Set({ target: Palette(1), color: @color.RGB::new(255, 0, 0), })],
+    Bel,
+  )
+  // Dynamic colors skip empties too (OSC 10 = foreground).
+  expect_color_command(
+    b"10;;red",
+    Some(0x07),
+    Osc10,
+    [Set({ target: Dynamic(Foreground), color: @color.RGB::new(255, 0, 0), })],
+    Bel,
+  )
+}
+
+///|
+test "osc/color reset ansi accepts palette and special targets and skips invalid entries" {
+  expect_color_command(
+    b"104;1;;260;bogus;999",
+    Some(0x07),
+    Osc104,
+    [Reset(Palette(1)), Reset(Special(Italic))],
+    Bel,
+  )
+}
+
+///|
+test "osc/dynamic color get set query and truncation behave per prefix" {
+  expect_color_command(
+    b"10;?",
+    Some(0x07),
+    Osc10,
+    [Query(Dynamic(Foreground))],
+    Bel,
+  )
+  expect_color_command(
+    b"11;red",
+    Some(0x07),
+    Osc11,
+    [Set({ target: Dynamic(Background), color: @color.RGB::new(255, 0, 0), })],
+    Bel,
+  )
+  expect_color_command(
+    b"12;?",
+    Some(0x07),
+    Osc12,
+    [Query(Dynamic(Cursor))],
+    Bel,
+  )
+  expect_color_command(
+    b"13;red",
+    Some(0x07),
+    Osc13,
+    [
+      Set({
+        target: Dynamic(PointerForeground),
+        color: @color.RGB::new(255, 0, 0),
+      }),
+    ],
+    Bel,
+  )
+  expect_color_command(
+    b"14;?",
+    Some(0x07),
+    Osc14,
+    [Query(Dynamic(PointerBackground))],
+    Bel,
+  )
+  expect_color_command(
+    b"15;red",
+    Some(0x07),
+    Osc15,
+    [
+      Set({
+        target: Dynamic(TektronixForeground),
+        color: @color.RGB::new(255, 0, 0),
+      }),
+    ],
+    Bel,
+  )
+  expect_color_command(
+    b"16;?",
+    Some(0x07),
+    Osc16,
+    [Query(Dynamic(TektronixBackground))],
+    Bel,
+  )
+  expect_color_command(
+    b"17;red",
+    Some(0x07),
+    Osc17,
+    [
+      Set({
+        target: Dynamic(HighlightBackground),
+        color: @color.RGB::new(255, 0, 0),
+      }),
+    ],
+    Bel,
+  )
+  expect_color_command(
+    b"18;?",
+    Some(0x07),
+    Osc18,
+    [Query(Dynamic(TektronixCursor))],
+    Bel,
+  )
+  expect_color_command(
+    b"19;red;blue",
+    Some(0x07),
+    Osc19,
+    [
+      Set({
+        target: Dynamic(HighlightForeground),
+        color: @color.RGB::new(255, 0, 0),
+      }),
+    ],
+    Bel,
+  )
+}
+
+///|
+test "osc/private color helpers cover unsupported prefixes and edge targets" {
+  guard parse_color_command(Prefix0, [], Some(0x07)) == Invalid else {
+    fail("expected non-color parse helper to yield invalid command")
+  }
+  guard color_operation_from_state(Prefix0) == None else {
+    fail("expected non-color prefix to map to no operation")
+  }
+  guard ansi_target_from_index(Osc4, -1) == None else {
+    fail("expected negative palette index to be rejected")
+  }
+  guard special_from_int(0) == Some(Bold) else {
+    fail("expected special index 0 to map to bold")
+  }
+  guard special_from_int(2) == Some(Blink) else {
+    fail("expected special index 2 to map to blink")
+  }
+  guard special_from_int(3) == Some(Reverse) else {
+    fail("expected special index 3 to map to reverse")
+  }
+}
+
+///|
+test "osc/dynamic color rejects empty and invalid specs" {
+  expect_color_command(b"10;", Some(0x07), Osc10, [], Bel)
+  expect_color_command(b"11;not-a-color", Some(0x07), Osc11, [], Bel)
+}
+
+///|
+test "osc/dynamic reset variants accept empty bodies and reject non-empty bodies" {
+  expect_color_command(
+    b"110;",
+    Some(0x07),
+    Osc110,
+    [Reset(Dynamic(Foreground))],
+    Bel,
+  )
+  expect_color_command(
+    b"111;",
+    Some(0x07),
+    Osc111,
+    [Reset(Dynamic(Background))],
+    Bel,
+  )
+  expect_color_command(
+    b"112;",
+    Some(0x07),
+    Osc112,
+    [Reset(Dynamic(Cursor))],
+    Bel,
+  )
+  expect_color_command(b"113;ignored", Some(0x07), Osc113, [], Bel)
+  expect_color_command(
+    b"114;",
+    Some(0x07),
+    Osc114,
+    [Reset(Dynamic(PointerBackground))],
+    Bel,
+  )
+  expect_color_command(
+    b"115;",
+    Some(0x07),
+    Osc115,
+    [Reset(Dynamic(TektronixForeground))],
+    Bel,
+  )
+  expect_color_command(
+    b"116;",
+    Some(0x07),
+    Osc116,
+    [Reset(Dynamic(TektronixBackground))],
+    Bel,
+  )
+  expect_color_command(
+    b"117;",
+    Some(0x07),
+    Osc117,
+    [Reset(Dynamic(HighlightBackground))],
+    Bel,
+  )
+  expect_color_command(
+    b"118;",
+    Some(0x07),
+    Osc118,
+    [Reset(Dynamic(TektronixCursor))],
+    Bel,
+  )
+  expect_color_command(
+    b"119;",
+    Some(0x07),
+    Osc119,
+    [Reset(Dynamic(HighlightForeground))],
+    Bel,
+  )
+}

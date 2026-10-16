@@ -1,0 +1,2342 @@
+///|
+fn StreamTerminalBridgeState::new() -> StreamTerminalBridgeState {
+  StreamTerminalBridgeState::with_effects(StreamTerminalBridgeEffects::new())
+}
+
+///|
+fn StreamTerminalBridgeState::protected_state(
+  self : StreamTerminalBridgeState,
+) -> ScreenProtectedState {
+  self.protected_state
+}
+
+///|
+fn StreamTerminalBridgeState::display_state(
+  self : StreamTerminalBridgeState,
+) -> TerminalDisplayState {
+  self.display_state
+}
+
+///|
+fn StreamTerminalBridgeState::colors(
+  self : StreamTerminalBridgeState,
+) -> @color.TerminalColors {
+  self.colors
+}
+
+///|
+fn StreamTerminalBridgeState::mouse_shift_capture(
+  self : StreamTerminalBridgeState,
+) -> Bool? {
+  self.input_flags.mouse_shift_capture()
+}
+
+///|
+fn StreamTerminalBridgeState::tabstop(
+  self : StreamTerminalBridgeState,
+  col : CellCountInt,
+) -> Bool {
+  self.tabstops.get(col)
+}
+
+///|
+fn StreamTerminalBridgeState::charset(
+  self : StreamTerminalBridgeState,
+  slot : @charsets.Slots,
+) -> @charsets.Charset {
+  self.charset.charset(slot)
+}
+
+///|
+fn StreamTerminalBridgeState::charset_gl(
+  self : StreamTerminalBridgeState,
+) -> @charsets.Slots {
+  self.charset.gl()
+}
+
+///|
+fn StreamTerminalBridgeState::charset_gr(
+  self : StreamTerminalBridgeState,
+) -> @charsets.Slots {
+  self.charset.gr()
+}
+
+///|
+fn StreamTerminalBridgeState::charset_single_shift(
+  self : StreamTerminalBridgeState,
+) -> @charsets.Slots? {
+  self.charset.single_shift()
+}
+
+///|
+fn StreamTerminalBridgeState::has_saved_cursor(
+  self : StreamTerminalBridgeState,
+) -> Bool {
+  match self.active_screen {
+    Primary => self.primary_storage.saved_cursor.has_saved()
+    Alternate => self.alternate_storage.saved_cursor.has_saved()
+  }
+}
+
+///|
+fn StreamTerminalBridgeState::semantic_click_mode(
+  self : StreamTerminalBridgeState,
+) -> SemanticClickMode {
+  self.semantic.click()
+}
+
+///|
+fn StreamTerminalBridgeState::semantic_cursor_content(
+  self : StreamTerminalBridgeState,
+) -> @page.SemanticContent {
+  self.semantic.cursor_content()
+}
+
+///|
+fn StreamTerminalBridgeState::semantic_cursor_content_clear_eol(
+  self : StreamTerminalBridgeState,
+) -> Bool {
+  self.semantic.cursor_content_clear_eol()
+}
+
+///|
+fn StreamTerminalBridgeState::semantic_row_prompt(
+  self : StreamTerminalBridgeState,
+) -> @page.RowSemanticPrompt {
+  self.semantic.row_prompt()
+}
+
+///|
+fn StreamTerminalBridgeState::shell_redraws_prompt(
+  self : StreamTerminalBridgeState,
+) -> @osc.SemanticPromptRedraw {
+  self.metadata.shell_redraws_prompt()
+}
+
+///|
+fn StreamTerminalBridgeState::hyperlink_active(
+  self : StreamTerminalBridgeState,
+) -> Bool {
+  self.hyperlink.active()
+}
+
+///|
+fn StreamTerminalBridgeState::hyperlink_uri(
+  self : StreamTerminalBridgeState,
+) -> String? {
+  self.hyperlink.uri()
+}
+
+///|
+fn StreamTerminalBridgeState::hyperlink_explicit_id(
+  self : StreamTerminalBridgeState,
+) -> String? {
+  self.hyperlink.explicit_id()
+}
+
+///|
+fn StreamTerminalBridgeState::hyperlink_implicit_id(
+  self : StreamTerminalBridgeState,
+) -> Int32? {
+  self.hyperlink.implicit_id()
+}
+
+///|
+test "stream terminal bridge/default state and handled bell" {
+  let state = StreamTerminalBridgeState::new()
+  guard !state.palette_dirty() else {
+    fail("expected palette dirty to start false")
+  }
+  guard state.mode_enabled(Wraparound) && state.mode_enabled(CursorVisible) else {
+    fail("expected default mode set")
+  }
+  guard state.display_state().status_display() == Main else {
+    fail("expected default status display")
+  }
+  guard state.display_state().mouse_shape() == Text else {
+    fail("expected default mouse shape")
+  }
+  guard state.protected_state().mode() == Off &&
+    !state.protected_state().cursor_protected() else {
+    fail("expected default protected state")
+  }
+  guard state.cursor_x() == 0 &&
+    state.cursor_y() == 0 &&
+    state.cursor_visual_style() == Block &&
+    !state.cursor_pending_wrap() &&
+    state.cursor_top_margin() == 0 &&
+    state.cursor_bottom_margin() == 23 &&
+    state.cursor_left_margin() == 0 &&
+    state.cursor_right_margin() == 79 else {
+    fail("expected default cursor state")
+  }
+  guard state.mouse_event() == None && state.mouse_format() == X10 else {
+    fail("expected default mouse reporting state")
+  }
+  guard !state.modify_other_keys_2() &&
+    state.mouse_shift_capture() == None &&
+    state.kitty_keyboard_flags() == KittyKeyboardFlags(0) else {
+    fail("expected default input state")
+  }
+  guard state.charset(G0) == Utf8 &&
+    state.charset_gl() == G0 &&
+    state.charset_gr() == G2 &&
+    state.charset_single_shift() == None &&
+    !state.has_saved_cursor() else {
+    fail("expected default charset/save state")
+  }
+  guard state.tabstop(8) && !state.tabstop(0) else {
+    fail("expected default tabstop layout")
+  }
+
+  guard state.apply(StreamRestoreCursor) else {
+    fail("expected restore cursor to be handled")
+  }
+  guard state.cursor_x() == 0 &&
+    state.cursor_y() == 0 &&
+    state.charset_gl() == G0 else {
+    fail("expected restore without save to keep defaults")
+  }
+
+  guard state.apply(StreamBell) else {
+    fail("expected bell action to be handled")
+  }
+}
+
+///|
+struct BridgeStreamRecorder {
+  actions : Array[StreamAction]
+}
+
+///|
+impl StreamHandler for BridgeStreamRecorder with fn vt(self, action) {
+  self.actions.push(action)
+}
+
+///|
+impl StreamHandler for BridgeStreamRecorder with fn print(self, codepoint) {
+  self.actions.push(StreamPrint(codepoint))
+}
+
+///|
+impl StreamHandler for BridgeStreamRecorder with fn deinit(_self) {
+  ()
+}
+
+///|
+struct BridgeEffectsRecorder {
+  writes : Array[Bytes]
+  mut bell_count : Int32
+  mut title_changed_count : Int32
+}
+
+///|
+fn BridgeEffectsRecorder::new() -> BridgeEffectsRecorder {
+  { writes: [], bell_count: 0, title_changed_count: 0, }
+}
+
+///|
+fn BridgeEffectsRecorder::write_pty(
+  self : BridgeEffectsRecorder,
+  data : Bytes,
+) -> Unit {
+  self.writes.push(data)
+}
+
+///|
+fn BridgeEffectsRecorder::bell(self : BridgeEffectsRecorder) -> Unit {
+  self.bell_count += 1
+}
+
+///|
+fn BridgeEffectsRecorder::title_changed(self : BridgeEffectsRecorder) -> Unit {
+  self.title_changed_count += 1
+}
+
+///|
+fn expect_effect_write(
+  recorder : BridgeEffectsRecorder,
+  index : Int32,
+  expected : Bytes,
+) -> Unit raise {
+  guard recorder.writes[index] == expected else {
+    fail("expected captured PTY write")
+  }
+}
+
+///|
+fn ascii_string(byte : Byte, count : Int32) -> String {
+  let buffer = Buffer(size_hint=count)
+  for _ in 0..<count {
+    buffer.write_byte(byte)
+  }
+  buffer.to_string()
+}
+
+///|
+fn apply_stream_bytes(state : StreamTerminalBridgeState, bytes : Bytes) -> Bool {
+  let actions : Array[StreamAction] = []
+  let recorder : BridgeStreamRecorder = { actions, }
+  let stream = Stream::new(recorder)
+  stream.next_slice(bytes)
+  stream.deinit()
+  for action in actions {
+    if !state.apply(action) {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn expect_bridge_row(
+  state : StreamTerminalBridgeState,
+  row : CellCountInt,
+) -> @page.PageRowState {
+  state.screen_row_snapshot(row).unwrap()
+}
+
+///|
+fn expect_bridge_cell(
+  state : StreamTerminalBridgeState,
+  row : CellCountInt,
+  col : CellCountInt,
+) -> @page.PageCellState {
+  state.screen_cell_snapshot(row, col).unwrap()
+}
+
+///|
+// Resolve a snapshot cell's style through the active grid's shared table.
+fn expect_bridge_cell_style(
+  state : StreamTerminalBridgeState,
+  row : CellCountInt,
+  col : CellCountInt,
+) -> @style.CellStyle {
+  state.grid.style_table.get(expect_bridge_cell(state, row, col).style_id())
+}
+
+///|
+// Resolve a snapshot cell's hyperlink by position — the id lives in the row's
+// `link_ids` side array now, not in the cell.
+fn expect_bridge_cell_hyperlink(
+  state : StreamTerminalBridgeState,
+  row : CellCountInt,
+  col : CellCountInt,
+) -> @hyperlink.CellHyperlink? {
+  state.screen_cell_hyperlink_snapshot(row, col)
+}
+
+///|
+test "stream terminal bridge/applies printable semantic hyperlink actions" {
+  let state = StreamTerminalBridgeState::new()
+
+  guard apply_stream_bytes(state, b"\x1B]133;A;click_events=1\x07") &&
+    apply_stream_bytes(state, b"\x1B[1;46m") &&
+    apply_stream_bytes(state, b"\x1B]8;;https://example.com\x07") &&
+    apply_stream_bytes(state, b"A\x1B[2b") &&
+    apply_stream_bytes(state, b"\x1B]8;;\x07B") else {
+    fail("expected printable stream bytes to be handled")
+  }
+
+  let style = state.current_style_snapshot()
+  guard style.bold() &&
+    style.bg_color().palette_index() == Some(@color.Name::Cyan.code()) else {
+    fail("expected current style to preserve bold and background color")
+  }
+  guard state.semantic_click_mode() == ClickEvents &&
+    state.semantic_cursor_content() == Prompt &&
+    state.semantic_row_prompt() == Prompt &&
+    !state.hyperlink_active() else {
+    fail("expected semantic prompt and hyperlink state")
+  }
+
+  let row = expect_bridge_row(state, 0)
+  guard row.semantic_prompt() == Prompt &&
+    row.styled() &&
+    row.hyperlink() &&
+    row.dirty() else {
+    fail("expected printed row metadata")
+  }
+
+  let first = expect_bridge_cell(state, 0, 0)
+  let first_style = expect_bridge_cell_style(state, 0, 0)
+  guard first.codepoint() == b'A'.to_uint() &&
+    first.semantic_content() == Prompt &&
+    first_style.bold() &&
+    first_style.bg_color().palette_index() == Some(@color.Name::Cyan.code()) else {
+    fail("expected first cell style and semantic metadata")
+  }
+  let first_link_ok = match expect_bridge_cell_hyperlink(state, 0, 0) {
+    Some(link) =>
+      link.uri() == "https://example.com" &&
+      link.explicit_id() == None &&
+      link.implicit_id() == Some(0)
+    None => false
+  }
+  guard first_link_ok else { fail("expected implicit hyperlink metadata") }
+
+  guard expect_bridge_cell(state, 0, 1).codepoint() == b'A'.to_uint() &&
+    expect_bridge_cell(state, 0, 2).codepoint() == b'A'.to_uint() &&
+    expect_bridge_cell(state, 0, 3).codepoint() == b'B'.to_uint() &&
+    expect_bridge_cell_hyperlink(state, 0, 3) == None else {
+    fail("expected repeat-print and hyperlink end behavior")
+  }
+}
+
+///|
+test "stream terminal bridge/switches screens and restores cursor modes" {
+  let state = StreamTerminalBridgeState::new()
+  state.cursor.x = 7
+  state.cursor.y = 3
+
+  guard !state.switch_active_screen(Primary) else {
+    fail("expected switching to the same screen to be a no-op")
+  }
+
+  state.mode_set(AltScreenLegacy, true)
+  guard state.active_screen() == Alternate &&
+    state.cursor_x() == 7 &&
+    state.cursor_y() == 3 else {
+    fail("expected legacy alt-screen switch to copy cursor")
+  }
+
+  state.cursor.x = 1
+  state.cursor.y = 1
+  state.mode_set(AltScreenLegacy, false)
+  guard state.active_screen() == Primary &&
+    state.cursor_x() == 1 &&
+    state.cursor_y() == 1 else {
+    fail("expected legacy alt-screen exit to copy alternate cursor state")
+  }
+
+  state.mode_set(AltScreen, true)
+  state.grid.write_cell(
+    0,
+    0,
+    b'Z'.to_uint(),
+    Narrow,
+    @style.CellStyle::new(),
+    false,
+    Output,
+    None,
+  )
+  state.mode_set(AltScreen, false)
+  state.mode_set(AltScreen, true)
+  guard expect_bridge_cell(state, 0, 0).is_empty() else {
+    fail("expected mode 1047 exit to clear alternate screen")
+  }
+  state.mode_set(AltScreen, false)
+
+  state.cursor.x = 4
+  state.cursor.y = 2
+  state.mode_set(AltScreenSaveCursorClearEnter, true)
+  guard state.active_screen() == Alternate &&
+    state.cursor_x() == 4 &&
+    state.cursor_y() == 2 else {
+    fail("expected mode 1049 entry to copy cursor into alt screen")
+  }
+  state.cursor.x = 9
+  state.cursor.y = 9
+  state.mode_set(AltScreenSaveCursorClearEnter, false)
+  guard state.active_screen() == Primary &&
+    state.cursor_x() == 4 &&
+    state.cursor_y() == 2 else {
+    fail("expected mode 1049 exit to restore saved primary cursor")
+  }
+}
+
+///|
+test "stream terminal bridge/covers reverse index and safe none branches" {
+  let state = StreamTerminalBridgeState::new()
+  fill_ascii(state.grid, 0, [b'A', b'B', b'C'])
+  guard state.apply(StreamReverseIndex) else {
+    fail("expected reverse index to be handled")
+  }
+
+  state.hyperlink.uri = Some("https://example.com")
+  state.hyperlink.explicit_id = None
+  state.hyperlink.implicit_id = None
+  guard state.active_hyperlink() == None else {
+    fail("expected incomplete hyperlink state to stay safe")
+  }
+
+  state.cursor.y = 0
+  state.semantic.start_input(false)
+  state.apply_semantic_after_newline()
+  guard expect_bridge_row(state, 0).semantic_prompt() == PromptContinuation else {
+    fail("expected semantic continuation on in-bounds newline")
+  }
+
+  state.cursor.y = state.grid.rows
+  state.semantic.row_prompt = Prompt
+  state.sync_current_row_prompt()
+  state.semantic.start_input(false)
+  state.apply_semantic_after_newline()
+  state.apply_semantic_prompt(@osc.SemanticPrompt::new(EndInputStartOutput, []))
+  state.apply_semantic_prompt(@osc.SemanticPrompt::new(PromptStart, []))
+
+  state.previous_char = Some(0U)
+  state.print_repeat(1)
+
+  state.modes = state.modes.set(ReverseWrap, true)
+  state.cursor.x = 0
+  state.cursor.y = state.grid.rows + 1
+  state.cursor_left(CursorMovement(2))
+}
+
+///|
+test "stream terminal bridge/applies semantic newline transitions" {
+  let state = StreamTerminalBridgeState::new()
+
+  guard apply_stream_bytes(state, b"Hello\x1B]133;N\x07") else {
+    fail("expected semantic new-command bytes to be handled")
+  }
+  guard state.cursor_x() == 0 &&
+    state.cursor_y() == 1 &&
+    state.semantic_cursor_content() == Prompt &&
+    state.semantic_row_prompt() == Prompt else {
+    fail("expected new-command semantic prompt to fresh-line")
+  }
+  guard expect_bridge_row(state, 1).semantic_prompt() == Prompt else {
+    fail("expected prompt row metadata after new-command")
+  }
+
+  guard apply_stream_bytes(state, b"\x1B]133;I\x07\n") else {
+    fail("expected semantic linefeed bytes to be handled")
+  }
+  guard state.cursor_x() == 0 &&
+    state.cursor_y() == 2 &&
+    state.semantic_cursor_content() == Output &&
+    !state.semantic_cursor_content_clear_eol() &&
+    expect_bridge_row(state, 2).semantic_prompt() == None else {
+    fail("expected terminate-eol input to clear on linefeed")
+  }
+}
+
+///|
+test "stream terminal bridge/applies reverse index at the top margin" {
+  let state = StreamTerminalBridgeState::new()
+
+  guard state.apply(StreamTopAndBottomMargin({ top_left: 2, bottom_right: 3, })) else {
+    fail("expected top/bottom margin setup")
+  }
+  guard state.apply(StreamCursorPos({ row: 2, col: 1, })) else {
+    fail("expected cursor move to top margin")
+  }
+  guard apply_stream_bytes(state, b"A") else {
+    fail("expected first reverse-index row write")
+  }
+  guard state.apply(StreamCursorPos({ row: 3, col: 1, })) else {
+    fail("expected cursor move inside scroll region")
+  }
+  guard apply_stream_bytes(state, b"B") else {
+    fail("expected second reverse-index row write")
+  }
+  guard state.apply(StreamCursorPos({ row: 2, col: 1, })) else {
+    fail("expected cursor reset to top margin")
+  }
+
+  guard apply_stream_bytes(state, b"\x1BM") else {
+    fail("expected reverse index bytes to be handled")
+  }
+  guard state.cursor_x() == 0 && state.cursor_y() == 1 else {
+    fail("expected reverse index cursor position")
+  }
+  guard expect_bridge_cell(state, 1, 0).is_empty() &&
+    expect_bridge_cell(state, 2, 0).codepoint() == b'A'.to_uint() else {
+    fail("expected reverse index to scroll region downward")
+  }
+}
+
+///|
+test "stream terminal bridge/applies edit and scroll mutations" {
+  let state = StreamTerminalBridgeState::new()
+
+  guard apply_stream_bytes(state, b"ABCDE") &&
+    apply_stream_bytes(state, b"\r\x1B[2C\x1B[2P") else {
+    fail("expected delete-char bytes to be handled")
+  }
+  guard expect_bridge_cell(state, 0, 0).codepoint() == b'A'.to_uint() &&
+    expect_bridge_cell(state, 0, 1).codepoint() == b'B'.to_uint() &&
+    expect_bridge_cell(state, 0, 2).codepoint() == b'E'.to_uint() &&
+    expect_bridge_cell(state, 0, 3).is_empty() else {
+    fail("expected delete chars bridge behavior")
+  }
+
+  guard apply_stream_bytes(state, b"\r\x1B[3C") else {
+    fail("expected erase-char cursor bytes to be handled")
+  }
+  guard state.apply(StreamSetAttribute(Color256Bg(5))) else {
+    fail("expected background style setup")
+  }
+  guard apply_stream_bytes(state, b"\x1B[X") else {
+    fail("expected erase-char bytes to be handled")
+  }
+  guard expect_bridge_cell_style(state, 0, 3).bg_color().palette_index() ==
+    Some(5) else {
+    fail("expected erase chars to preserve current background style")
+  }
+
+  let pending_wrap = StreamTerminalBridgeState::new()
+  guard pending_wrap.apply(StreamCursorPos({ row: 1, col: 80, })) else {
+    fail("expected pending-wrap cursor setup")
+  }
+  guard apply_stream_bytes(pending_wrap, b"Z") else {
+    fail("expected pending-wrap print bytes to be handled")
+  }
+  guard pending_wrap.cursor_pending_wrap() else {
+    fail("expected print at right edge to enter pending wrap")
+  }
+  guard pending_wrap.apply(StreamEraseLineRightUnlessPendingWrap(false)) else {
+    fail("expected right-unless-pending-wrap action to be handled")
+  }
+  guard expect_bridge_cell(pending_wrap, 0, 79).codepoint() == b'Z'.to_uint() else {
+    fail("expected pending-wrap erase-right guard to no-op")
+  }
+
+  let scroll = StreamTerminalBridgeState::new()
+  guard apply_stream_bytes(scroll, b"A\x1BEB\x1BEC") else {
+    fail("expected scroll population bytes to be handled")
+  }
+  guard scroll.apply(StreamCursorPos({ row: 1, col: 1, })) else {
+    fail("expected scroll cursor reset")
+  }
+  guard scroll.apply(StreamScrollUp(1)) else {
+    fail("expected scroll up to be handled")
+  }
+  guard expect_bridge_cell(scroll, 0, 0).codepoint() == b'B'.to_uint() &&
+    expect_bridge_cell(scroll, 1, 0).codepoint() == b'C'.to_uint() else {
+    fail("expected scroll up to move rows")
+  }
+  guard scroll.apply(StreamScrollDown(1)) else {
+    fail("expected scroll down to be handled")
+  }
+  guard expect_bridge_cell(scroll, 0, 0).is_empty() &&
+    expect_bridge_cell(scroll, 1, 0).codepoint() == b'B'.to_uint() else {
+    fail("expected scroll down to insert a blank row")
+  }
+}
+
+///|
+test "stream terminal bridge/applies decaln full reset and kitty color protocol" {
+  let state = StreamTerminalBridgeState::new()
+
+  guard apply_stream_bytes(
+    state, b"\x1B]21;5=rgb:01/02/03;foreground=rgb:04/05/06\x07",
+  ) else {
+    fail("expected kitty color bytes to be handled")
+  }
+  guard state.palette_dirty() &&
+    state.colors().palette_color(5) == @color.RGB::new(1, 2, 3) &&
+    state.colors().foreground() == Some(@color.RGB::new(4, 5, 6)) else {
+    fail("expected kitty color protocol mutation")
+  }
+
+  guard apply_stream_bytes(state, b"\x1B[1;31;42m") &&
+    apply_stream_bytes(state, b"\x1B]8;;https://example.com\x07") &&
+    apply_stream_bytes(state, b"\x1B]133;A\x07") &&
+    apply_stream_bytes(state, b"X") &&
+    apply_stream_bytes(state, b"\x1B#8") else {
+    fail("expected decaln setup bytes to be handled")
+  }
+
+  let decaln_style = state.current_style_snapshot()
+  guard !decaln_style.bold() &&
+    decaln_style.fg_color().palette_index() == Some(@color.Name::Red.code()) &&
+    decaln_style.bg_color().palette_index() == Some(@color.Name::Green.code()) &&
+    expect_bridge_cell(state, 0, 0).codepoint() == b'E'.to_uint() &&
+    state.cursor_x() == 0 &&
+    state.cursor_y() == 0 else {
+    fail("expected decaln bridge behavior")
+  }
+
+  guard apply_stream_bytes(state, b"\x1Bc") else {
+    fail("expected full-reset bytes to be handled")
+  }
+  guard !state.palette_dirty() &&
+    expect_bridge_cell(state, 0, 0).is_empty() &&
+    state.cursor_x() == 0 &&
+    state.cursor_y() == 0 &&
+    state.current_style_snapshot().is_default() &&
+    !state.hyperlink_active() &&
+    state.semantic_cursor_content() == Output &&
+    state.colors().palette_color(5) == @color.RGB::new(1, 2, 3) &&
+    state.colors().foreground() == Some(@color.RGB::new(4, 5, 6)) else {
+    fail("expected full reset bridge behavior")
+  }
+}
+
+///|
+test "stream terminal bridge/covers accessors and print guard branches" {
+  let state = StreamTerminalBridgeState::new()
+
+  guard state.title() == None &&
+    state.shell_redraws_prompt() == Enabled &&
+    state.hyperlink_uri() == None &&
+    state.hyperlink_explicit_id() == None &&
+    state.hyperlink_implicit_id() == None &&
+    state.screen_row_snapshot(24) == None &&
+    state.screen_cell_snapshot(0, 80) == None else {
+    fail("expected default metadata and out-of-bounds accessors")
+  }
+
+  guard state.apply(StreamSetMode(EnableLeftAndRightMargin)) &&
+    state.apply(StreamLeftAndRightMargin({ top_left: 11, bottom_right: 20, })) &&
+    state.apply(StreamSetMode(Origin)) &&
+    state.apply(StreamCursorPos({ row: 1, col: 15, })) &&
+    state.apply(StreamCarriageReturn) else {
+    fail("expected carriage-return origin setup")
+  }
+  guard state.cursor_x() == 10 else {
+    fail("expected carriage return to honor origin left margin")
+  }
+
+  guard state.apply(StreamResetMode(Origin)) &&
+    state.apply(StreamCursorPos({ row: 1, col: 1, })) &&
+    state.apply(StreamCarriageReturn) else {
+    fail("expected carriage-return non-origin setup")
+  }
+  guard state.cursor_x() == 0 else {
+    fail("expected carriage return to fall back to column zero")
+  }
+
+  guard state.apply(StreamActiveStatusDisplay(StatusLine)) &&
+    state.apply(StreamPrint(b'X'.to_uint())) else {
+    fail("expected status-line print to be handled")
+  }
+  guard expect_bridge_cell(state, 0, 0).is_empty() else {
+    fail("expected print to no-op outside the main display")
+  }
+
+  guard state.apply(StreamActiveStatusDisplay(Main)) &&
+    state.apply(StreamPrint(0U)) &&
+    state.apply(StreamPrintRepeat(2)) &&
+    state.apply(StreamPrint(0x4E2DU)) else {
+    fail("expected zero-width, repeat-none, and wide print paths")
+  }
+  guard expect_bridge_cell(state, 0, 0).wide() == Wide &&
+    expect_bridge_cell(state, 0, 1).wide() == SpacerTail else {
+    fail("expected wide print layout")
+  }
+}
+
+///|
+test "stream terminal bridge/covers semantic prompt variants and explicit hyperlinks" {
+  let state = StreamTerminalBridgeState::new()
+
+  guard apply_stream_bytes(state, b"Hi\x1B]133;L\x07") &&
+    apply_stream_bytes(state, b"\x1B]133;A;redraw=0\x07") else {
+    fail("expected fresh-line semantic prompt bytes")
+  }
+  guard state.cursor_x() == 0 &&
+    state.cursor_y() == 1 &&
+    state.shell_redraws_prompt() == Disabled &&
+    state.semantic_cursor_content() == Prompt else {
+    fail("expected fresh-line and redraw semantic prompt behavior")
+  }
+
+  guard apply_stream_bytes(state, b"\x1B]8;id=foo;http://example.com\x07X") else {
+    fail("expected explicit hyperlink bytes")
+  }
+  guard state.hyperlink_uri() == Some("http://example.com") &&
+    state.hyperlink_explicit_id() == Some("foo") &&
+    state.hyperlink_implicit_id() == None else {
+    fail("expected explicit hyperlink accessors")
+  }
+  let explicit_link_ok = match expect_bridge_cell_hyperlink(state, 1, 0) {
+    Some(link) =>
+      link.uri() == "http://example.com" && link.explicit_id() == Some("foo")
+    None => false
+  }
+  guard explicit_link_ok else {
+    fail("expected explicit hyperlink to be written to the grid")
+  }
+
+  guard apply_stream_bytes(state, b"\x1B]133;P;k=c\x07") &&
+    apply_stream_bytes(state, b"\x1B]133;B\x07") else {
+    fail("expected prompt-start and input-start bytes")
+  }
+  guard state.semantic_row_prompt() == PromptContinuation &&
+    state.semantic_cursor_content() == Input &&
+    !state.semantic_cursor_content_clear_eol() else {
+    fail("expected prompt-start continuation and input state")
+  }
+
+  let reset_row = StreamTerminalBridgeState::new()
+  guard apply_stream_bytes(reset_row, b"\x1B]133;P;k=i\x07") &&
+    apply_stream_bytes(reset_row, b"\x1B]133;C\x07") &&
+    apply_stream_bytes(reset_row, b"\x1B]133;D\x07") else {
+    fail("expected output and end-command semantic bytes")
+  }
+  guard reset_row.semantic_cursor_content() == Output &&
+    expect_bridge_row(reset_row, 0).semantic_prompt() == None else {
+    fail("expected output transition to clear row prompt at column zero")
+  }
+}
+
+///|
+test "stream terminal bridge/covers movement helper branches" {
+  let state = StreamTerminalBridgeState::new()
+
+  guard state.apply(StreamBackspace) else {
+    fail("expected backspace to be handled")
+  }
+
+  guard state.apply(StreamSetMode(Linefeed)) &&
+    apply_stream_bytes(state, b"AB") &&
+    state.apply(StreamLinefeed) else {
+    fail("expected linefeed-mode setup")
+  }
+  guard state.cursor_x() == 0 && state.cursor_y() == 1 else {
+    fail("expected linefeed mode to add carriage return")
+  }
+
+  guard state.apply(StreamSetMode(EnableLeftAndRightMargin)) &&
+    state.apply(StreamLeftAndRightMargin({ top_left: 11, bottom_right: 20, })) &&
+    state.apply(StreamCursorPos({ row: 5, col: 1, })) &&
+    state.apply(StreamIndex) else {
+    fail("expected index setup outside scroll region")
+  }
+  guard state.cursor_y() == 5 else {
+    fail("expected index outside the scroll region to move down one row")
+  }
+
+  guard state.apply(StreamReverseIndex) else {
+    fail("expected reverse index outside top margin to be handled")
+  }
+  guard state.cursor_y() == 4 else {
+    fail("expected reverse index outside top margin to move the cursor up")
+  }
+}
+
+///|
+test "stream terminal bridge/covers erase and insertion bridge arms" {
+  let state = StreamTerminalBridgeState::new()
+  guard apply_stream_bytes(state, b"ABC\x1BEDEF") &&
+    state.apply(StreamSetAttribute(Color256Bg(4))) else {
+    fail("expected erase bridge setup")
+  }
+
+  guard state.apply(StreamEraseDisplayBelow(false)) &&
+    state.apply(StreamEraseDisplayAbove(false)) &&
+    state.apply(StreamEraseDisplayComplete(false)) &&
+    state.apply(StreamEraseDisplayScrollback(false)) &&
+    state.apply(StreamEraseDisplayScrollComplete(false)) else {
+    fail("expected erase-display actions to be handled")
+  }
+
+  guard apply_stream_bytes(state, b"ABCDE") &&
+    state.apply(StreamCursorPos({ row: 1, col: 3, })) &&
+    state.apply(StreamEraseLineRight(false)) &&
+    state.apply(StreamEraseLineLeft(false)) &&
+    state.apply(StreamEraseLineComplete(false)) else {
+    fail("expected erase-line actions to be handled")
+  }
+
+  guard apply_stream_bytes(state, b"ABCDE") &&
+    state.apply(StreamCursorPos({ row: 1, col: 3, })) &&
+    state.apply(StreamEraseLineRightUnlessPendingWrap(false)) else {
+    fail("expected erase-line-right-unless-pending-wrap action")
+  }
+  guard expect_bridge_cell_style(state, 0, 2).bg_color().palette_index() ==
+    Some(4) else {
+    fail(
+      "expected erase-line-right-unless-pending-wrap to erase when not pending wrap",
+    )
+  }
+
+  guard state.apply(StreamInsertLines(1)) &&
+    state.apply(StreamInsertBlanks(1)) &&
+    state.apply(StreamDeleteLines(1)) else {
+    fail("expected line insertion and deletion actions to be handled")
+  }
+}
+
+///|
+test "stream terminal bridge/covers kitty color query and reset branches" {
+  let state = StreamTerminalBridgeState::new()
+
+  guard apply_stream_bytes(
+    state, b"\x1B]21;foreground=rgb:01/02/03;foreground=?;background=rgb:07/08/09;cursor=rgb:0A/0B/0C;selection_background=rgb:0D/0E/0F\x07",
+  ) else {
+    fail("expected kitty color set/query bytes")
+  }
+  guard state.colors().foreground() == Some(@color.RGB::new(1, 2, 3)) &&
+    state.colors().background() == Some(@color.RGB::new(7, 8, 9)) &&
+    state.colors().cursor() == Some(@color.RGB::new(10, 11, 12)) else {
+    fail("expected kitty color set branches")
+  }
+
+  guard apply_stream_bytes(
+    state, b"\x1B]21;5=rgb:11/12/13;5=;foreground=;background=;cursor=;selection_background=\x07",
+  ) else {
+    fail("expected kitty color reset bytes")
+  }
+  guard state.colors().palette_color(5) == @color.Name::Magenta.default_rgb() &&
+    state.colors().foreground() == None &&
+    state.colors().background() == None &&
+    state.colors().cursor() == None else {
+    fail("expected kitty color reset branches")
+  }
+}
+
+///|
+test "stream terminal bridge/covers repeat print and remaining semantic branches" {
+  let repeat_state = StreamTerminalBridgeState::new()
+  guard apply_stream_bytes(repeat_state, b"A") &&
+    repeat_state.apply(StreamActiveStatusDisplay(StatusLine)) &&
+    repeat_state.apply(StreamPrintRepeat(3)) else {
+    fail("expected repeat-print status-display setup")
+  }
+  guard expect_bridge_cell(repeat_state, 0, 0).codepoint() == b'A'.to_uint() &&
+    expect_bridge_cell(repeat_state, 0, 1).is_empty() else {
+    fail("expected repeat print to no-op outside the main display")
+  }
+
+  let semantic_state = StreamTerminalBridgeState::new()
+  guard apply_stream_bytes(semantic_state, b"Q\x1B]133;N;redraw=last\x07") else {
+    fail("expected new-command redraw bytes")
+  }
+  guard semantic_state.shell_redraws_prompt() == Last else {
+    fail("expected new-command redraw metadata")
+  }
+
+  let fresh_line_state = StreamTerminalBridgeState::new()
+  guard fresh_line_state.apply(StreamSetMode(EnableLeftAndRightMargin)) &&
+    fresh_line_state.apply(
+      StreamLeftAndRightMargin({ top_left: 11, bottom_right: 20, }),
+    ) &&
+    apply_stream_bytes(fresh_line_state, b"\x1B]133;L\x07") else {
+    fail("expected fresh-line left-margin bytes")
+  }
+  guard fresh_line_state.cursor_x() == 0 && fresh_line_state.cursor_y() == 0 else {
+    fail("expected fresh line at x<left-margin to no-op")
+  }
+}
+
+///|
+test "stream terminal bridge/covers cursor-left wrap modes" {
+  let plain = StreamTerminalBridgeState::new()
+  guard plain.apply(StreamResetMode(Wraparound)) &&
+    plain.apply(StreamCursorPos({ row: 2, col: 4, })) &&
+    plain.apply(StreamCursorLeft(CursorMovement(1))) else {
+    fail("expected plain cursor-left setup")
+  }
+  guard plain.cursor_x() == 2 && plain.cursor_y() == 1 else {
+    fail("expected cursor-left without wraparound")
+  }
+
+  let reverse = StreamTerminalBridgeState::new()
+  guard reverse.apply(StreamSetMode(ReverseWrap)) &&
+    reverse.apply(StreamCursorLeft(CursorMovement(1))) else {
+    fail("expected reverse-wrap cursor-left setup")
+  }
+  guard reverse.cursor_x() == 0 && reverse.cursor_y() == 0 else {
+    fail("expected reverse-wrap top-left clamp")
+  }
+
+  let pending = StreamTerminalBridgeState::new()
+  guard pending.apply(StreamSetMode(ReverseWrap)) &&
+    pending.apply(StreamCursorPos({ row: 1, col: 80, })) &&
+    apply_stream_bytes(pending, b"Z") &&
+    pending.apply(StreamCursorLeft(CursorMovement(1))) else {
+    fail("expected pending-wrap cursor-left setup")
+  }
+  guard !pending.cursor_pending_wrap() &&
+    pending.cursor_x() == 79 &&
+    pending.cursor_y() == 0 else {
+    fail("expected pending-wrap cursor-left to consume the wrap flag")
+  }
+
+  let extended = StreamTerminalBridgeState::new()
+  guard extended.apply(
+      StreamTopAndBottomMargin({ top_left: 2, bottom_right: 3, }),
+    ) &&
+    extended.apply(StreamSetMode(ReverseWrapExtended)) &&
+    extended.apply(StreamCursorPos({ row: 2, col: 1, })) &&
+    extended.apply(StreamCursorLeft(CursorMovement(1))) else {
+    fail("expected reverse-wrap-extended cursor-left setup")
+  }
+  guard extended.cursor_x() == 79 && extended.cursor_y() == 2 else {
+    fail("expected reverse-wrap-extended top wrap")
+  }
+
+  let left_margin_branch = StreamTerminalBridgeState::new()
+  guard left_margin_branch.apply(StreamSetMode(EnableLeftAndRightMargin)) &&
+    left_margin_branch.apply(
+      StreamLeftAndRightMargin({ top_left: 11, bottom_right: 20, }),
+    ) &&
+    left_margin_branch.apply(StreamSetMode(ReverseWrapExtended)) &&
+    left_margin_branch.apply(StreamCursorPos({ row: 2, col: 1, })) &&
+    left_margin_branch.apply(StreamCursorLeft(CursorMovement(1))) else {
+    fail("expected reverse-wrap-extended left-margin setup")
+  }
+  guard left_margin_branch.cursor_x() == 19 &&
+    left_margin_branch.cursor_y() == 0 else {
+    fail("expected x<left-margin reverse wrap behavior")
+  }
+
+  let top_return = StreamTerminalBridgeState::new()
+  guard top_return.apply(StreamSetMode(ReverseWrap)) &&
+    top_return.apply(StreamCursorPos({ row: 1, col: 2, })) &&
+    top_return.apply(StreamCursorLeft(CursorMovement(2))) else {
+    fail("expected reverse-wrap top-row setup")
+  }
+  guard top_return.cursor_x() == 0 && top_return.cursor_y() == 0 else {
+    fail("expected reverse-wrap to stop at the top row")
+  }
+
+  let y_zero_return = StreamTerminalBridgeState::new()
+  guard y_zero_return.apply(
+      StreamTopAndBottomMargin({ top_left: 2, bottom_right: 3, }),
+    ) &&
+    y_zero_return.apply(StreamSetMode(ReverseWrap)) &&
+    y_zero_return.apply(StreamCursorPos({ row: 1, col: 2, })) &&
+    y_zero_return.apply(StreamCursorLeft(CursorMovement(2))) else {
+    fail("expected reverse-wrap y-zero setup")
+  }
+  guard y_zero_return.cursor_x() == 0 && y_zero_return.cursor_y() == 0 else {
+    fail("expected reverse-wrap to stop at row zero outside the top margin")
+  }
+
+  let no_prev_wrap = StreamTerminalBridgeState::new()
+  guard no_prev_wrap.apply(StreamSetMode(ReverseWrap)) &&
+    no_prev_wrap.apply(StreamCursorPos({ row: 2, col: 1, })) &&
+    no_prev_wrap.apply(StreamCursorLeft(CursorMovement(1))) else {
+    fail("expected reverse-wrap no-prev-wrap setup")
+  }
+  guard no_prev_wrap.cursor_x() == 0 && no_prev_wrap.cursor_y() == 1 else {
+    fail("expected reverse-wrap to stop when the previous row did not wrap")
+  }
+
+  let prev_wrap = StreamTerminalBridgeState::new()
+  guard prev_wrap.apply(StreamSetMode(ReverseWrap)) else {
+    fail("expected reverse-wrap previous-row-wrap setup")
+  }
+  for _ in 0..<81 {
+    guard prev_wrap.apply(StreamPrint(b'A'.to_uint())) else {
+      fail("expected wrap-generating print")
+    }
+  }
+  guard prev_wrap.apply(StreamCursorPos({ row: 2, col: 1, })) &&
+    prev_wrap.apply(StreamCursorLeft(CursorMovement(1))) else {
+    fail("expected reverse-wrap previous-row-wrap action")
+  }
+  guard prev_wrap.cursor_x() == 79 && prev_wrap.cursor_y() == 0 else {
+    fail("expected reverse-wrap to jump to the previous wrapped row")
+  }
+}
+
+///|
+test "stream terminal bridge/applies protected and display actions" {
+  let state = StreamTerminalBridgeState::new()
+
+  guard state.apply(StreamProtectedModeIso) else {
+    fail("expected protected mode iso to be handled")
+  }
+  guard state.protected_state().mode() == Iso &&
+    state.protected_state().cursor_protected() else {
+    fail("expected protected mode iso semantics")
+  }
+
+  guard state.apply(StreamProtectedModeOff) else {
+    fail("expected protected mode off to be handled")
+  }
+  guard state.protected_state().mode() == Iso &&
+    !state.protected_state().cursor_protected() else {
+    fail("expected off to preserve last non-off mode")
+  }
+
+  guard state.apply(StreamProtectedModeDec) else {
+    fail("expected protected mode dec to be handled")
+  }
+  guard state.protected_state().mode() == Dec &&
+    state.protected_state().cursor_protected() else {
+    fail("expected protected mode dec semantics")
+  }
+
+  guard state.apply(StreamActiveStatusDisplay(StatusLine)) else {
+    fail("expected active status display to be handled")
+  }
+  guard state.apply(StreamMouseShape(Pointer)) else {
+    fail("expected mouse shape to be handled")
+  }
+  guard state.display_state().status_display() == StatusLine &&
+    state.display_state().mouse_shape() == Pointer else {
+    fail("expected display actions to update state")
+  }
+}
+
+///|
+test "stream terminal bridge/applies cursor movement and mode metadata" {
+  let state = StreamTerminalBridgeState::new()
+
+  guard state.apply(StreamCursorPos({ row: 4, col: 5, })) else {
+    fail("expected cursor position to be handled")
+  }
+  guard state.cursor_x() == 4 && state.cursor_y() == 3 else {
+    fail("expected cursor position update")
+  }
+
+  guard state.apply(StreamCursorCol(CursorMovement(2))) else {
+    fail("expected cursor column to be handled")
+  }
+  guard state.cursor_x() == 1 && state.cursor_y() == 3 else {
+    fail("expected cursor column update")
+  }
+
+  guard state.apply(StreamCursorRow(CursorMovement(6))) else {
+    fail("expected cursor row to be handled")
+  }
+  guard state.cursor_x() == 1 && state.cursor_y() == 5 else {
+    fail("expected cursor row update")
+  }
+
+  guard state.apply(StreamCursorColRelative(CursorMovement(3))) else {
+    fail("expected cursor relative column to be handled")
+  }
+  guard state.cursor_x() == 4 && state.cursor_y() == 5 else {
+    fail("expected cursor relative column update")
+  }
+
+  guard state.apply(StreamCursorRowRelative(CursorMovement(2))) else {
+    fail("expected cursor relative row to be handled")
+  }
+  guard state.cursor_x() == 4 && state.cursor_y() == 7 else {
+    fail("expected cursor relative row update")
+  }
+
+  guard state.apply(StreamCursorUp(CursorMovement(2))) else {
+    fail("expected cursor up to be handled")
+  }
+  guard state.cursor_y() == 5 else { fail("expected cursor up clamp") }
+
+  guard state.apply(StreamCursorDown(CursorMovement(0))) else {
+    fail("expected cursor down to be handled")
+  }
+  guard state.cursor_y() == 6 else {
+    fail("expected cursor down default count")
+  }
+
+  guard state.apply(StreamCursorLeft(CursorMovement(10))) else {
+    fail("expected cursor left to be handled")
+  }
+  guard state.cursor_x() == 0 && !state.cursor_pending_wrap() else {
+    fail("expected cursor left clamp")
+  }
+
+  guard state.apply(StreamCursorRight(CursorMovement(100))) else {
+    fail("expected cursor right to be handled")
+  }
+  guard state.cursor_x() == 79 && !state.cursor_pending_wrap() else {
+    fail("expected cursor right clamp")
+  }
+
+  guard state.apply(StreamCursorColRelative(CursorMovement(65535))) else {
+    fail("expected large relative column to be handled")
+  }
+  guard state.cursor_x() == 79 else {
+    fail("expected large relative column saturation")
+  }
+
+  guard state.apply(StreamCursorStyle(BlinkingUnderline)) else {
+    fail("expected cursor style to be handled")
+  }
+  guard state.cursor_visual_style() == Underline &&
+    state.mode_enabled(CursorBlinking) else {
+    fail("expected cursor style metadata update")
+  }
+
+  guard state.apply(StreamModifyKeyFormat(OtherKeysNumeric)) else {
+    fail("expected modify-key format to be handled")
+  }
+  guard state.modify_other_keys_2() else {
+    fail("expected modify-other-keys state")
+  }
+
+  guard state.apply(StreamModifyKeyFormat(Legacy)) else {
+    fail("expected legacy modify-key format to be handled")
+  }
+  guard !state.modify_other_keys_2() else {
+    fail("expected legacy modify-key format reset")
+  }
+
+  guard state.apply(StreamMouseShiftCapture(true)) else {
+    fail("expected mouse shift capture to be handled")
+  }
+  guard state.mouse_shift_capture() == Some(true) else {
+    fail("expected mouse shift capture state")
+  }
+
+  guard state.apply(StreamSetMode(MouseEventButton)) else {
+    fail("expected mouse event mode to be handled")
+  }
+  guard state.mode_enabled(MouseEventButton) && state.mouse_event() == Button else {
+    fail("expected mouse event mode state")
+  }
+
+  guard state.apply(StreamResetMode(MouseEventButton)) else {
+    fail("expected mouse event reset to be handled")
+  }
+  guard !state.mode_enabled(MouseEventButton) && state.mouse_event() == None else {
+    fail("expected mouse event reset state")
+  }
+
+  guard state.apply(StreamSetMode(MouseEventX10)) else {
+    fail("expected x10 mouse event mode to be handled")
+  }
+  guard state.mouse_event() == X10 else {
+    fail("expected x10 mouse event mode state")
+  }
+  guard state.apply(StreamResetMode(MouseEventX10)) else {
+    fail("expected x10 mouse event reset to be handled")
+  }
+
+  guard state.apply(StreamSetMode(MouseEventNormal)) else {
+    fail("expected normal mouse event mode to be handled")
+  }
+  guard state.mouse_event() == Normal else {
+    fail("expected normal mouse event mode state")
+  }
+  guard state.apply(StreamResetMode(MouseEventNormal)) else {
+    fail("expected normal mouse event reset to be handled")
+  }
+
+  guard state.apply(StreamSetMode(MouseEventAny)) else {
+    fail("expected any mouse event mode to be handled")
+  }
+  guard state.mouse_event() == Any else {
+    fail("expected any mouse event mode state")
+  }
+  guard state.apply(StreamResetMode(MouseEventAny)) else {
+    fail("expected any mouse event reset to be handled")
+  }
+
+  guard state.apply(StreamSetMode(MouseFormatSgr)) else {
+    fail("expected mouse format mode to be handled")
+  }
+  guard state.mode_enabled(MouseFormatSgr) && state.mouse_format() == Sgr else {
+    fail("expected mouse format mode state")
+  }
+
+  guard state.apply(StreamResetMode(MouseFormatSgr)) else {
+    fail("expected mouse format reset to be handled")
+  }
+  guard !state.mode_enabled(MouseFormatSgr) && state.mouse_format() == X10 else {
+    fail("expected mouse format reset state")
+  }
+
+  guard state.apply(StreamSetMode(MouseFormatUtf8)) else {
+    fail("expected utf8 mouse format mode to be handled")
+  }
+  guard state.mouse_format() == Utf8 else {
+    fail("expected utf8 mouse format mode state")
+  }
+  guard state.apply(StreamResetMode(MouseFormatUtf8)) else {
+    fail("expected utf8 mouse format reset to be handled")
+  }
+
+  guard state.apply(StreamSetMode(MouseFormatUrxvt)) else {
+    fail("expected urxvt mouse format mode to be handled")
+  }
+  guard state.mouse_format() == Urxvt else {
+    fail("expected urxvt mouse format mode state")
+  }
+  guard state.apply(StreamResetMode(MouseFormatUrxvt)) else {
+    fail("expected urxvt mouse format reset to be handled")
+  }
+
+  guard state.apply(StreamSetMode(MouseFormatSgrPixels)) else {
+    fail("expected sgr-pixels mouse format mode to be handled")
+  }
+  guard state.mouse_format() == SgrPixels else {
+    fail("expected sgr-pixels mouse format mode state")
+  }
+  guard state.apply(StreamResetMode(MouseFormatSgrPixels)) else {
+    fail("expected sgr-pixels mouse format reset to be handled")
+  }
+
+  guard state.apply(StreamResetMode(CursorVisible)) else {
+    fail("expected cursor-visible reset to be handled")
+  }
+  guard !state.mode_enabled(CursorVisible) else {
+    fail("expected cursor-visible mode reset")
+  }
+
+  guard state.apply(StreamSaveMode(CursorVisible)) else {
+    fail("expected save mode to be handled")
+  }
+  guard state.apply(StreamSetMode(CursorVisible)) else {
+    fail("expected cursor-visible set to be handled")
+  }
+  guard state.mode_enabled(CursorVisible) else {
+    fail("expected cursor-visible mode set")
+  }
+
+  guard state.apply(StreamRestoreMode(CursorVisible)) else {
+    fail("expected restore mode to be handled")
+  }
+  guard !state.mode_enabled(CursorVisible) else {
+    fail("expected restore mode to reapply saved value")
+  }
+}
+
+///|
+test "stream terminal bridge/applies margin actions and cursor save branches" {
+  let state = StreamTerminalBridgeState::new()
+
+  guard state.apply(StreamTopAndBottomMargin({ top_left: 3, bottom_right: 5, })) else {
+    fail("expected top/bottom margins to be handled")
+  }
+  guard state.cursor_top_margin() == 2 &&
+    state.cursor_bottom_margin() == 4 &&
+    state.cursor_x() == 0 &&
+    state.cursor_y() == 0 else {
+    fail("expected top/bottom margin state")
+  }
+
+  guard state.apply(StreamSetMode(Origin)) else {
+    fail("expected origin mode to be handled")
+  }
+  guard state.mode_enabled(Origin) &&
+    state.cursor_x() == 0 &&
+    state.cursor_y() == 2 else {
+    fail("expected origin mode home position")
+  }
+
+  guard state.apply(StreamSetMode(EnableLeftAndRightMargin)) else {
+    fail("expected left/right margin mode to be handled")
+  }
+  guard state.mode_enabled(EnableLeftAndRightMargin) else {
+    fail("expected left/right margin mode state")
+  }
+
+  guard state.apply(
+    StreamLeftAndRightMargin({ top_left: 11, bottom_right: 20, }),
+  ) else {
+    fail("expected left/right margins to be handled")
+  }
+  guard state.cursor_left_margin() == 10 &&
+    state.cursor_right_margin() == 19 &&
+    state.cursor_x() == 10 &&
+    state.cursor_y() == 2 else {
+    fail("expected left/right margin state")
+  }
+
+  guard state.apply(StreamCursorRight(CursorMovement(100))) else {
+    fail("expected cursor right in margins to be handled")
+  }
+  guard state.cursor_x() == 19 else {
+    fail("expected cursor right margin clamp")
+  }
+
+  guard state.apply(StreamCursorPos({ row: 1, col: 3, })) else {
+    fail("expected cursor position inside left/right margins")
+  }
+  guard state.apply(StreamCursorLeft(CursorMovement(5))) else {
+    fail("expected cursor left inside origin margins")
+  }
+  guard state.cursor_x() == 10 else {
+    fail("expected origin left-margin clamp")
+  }
+
+  guard state.apply(StreamHorizontalTabBack(1)) else {
+    fail("expected horizontal tab back at left limit to be handled")
+  }
+  guard state.cursor_x() == 10 else {
+    fail("expected horizontal tab back to stop at origin left limit")
+  }
+
+  guard state.apply(StreamLeftAndRightMarginAmbiguous) else {
+    fail("expected ambiguous left/right margin action to be handled")
+  }
+  guard state.cursor_left_margin() == 0 &&
+    state.cursor_right_margin() == 79 &&
+    state.cursor_x() == 0 &&
+    state.cursor_y() == 2 else {
+    fail("expected enabled ambiguous margin branch")
+  }
+
+  guard state.apply(StreamResetMode(EnableLeftAndRightMargin)) else {
+    fail("expected left/right margin mode reset to be handled")
+  }
+  guard !state.mode_enabled(EnableLeftAndRightMargin) &&
+    state.cursor_left_margin() == 0 &&
+    state.cursor_right_margin() == 79 &&
+    state.cursor_x() == 0 &&
+    state.cursor_y() == 2 else {
+    fail("expected left/right margin reset branch")
+  }
+
+  guard state.apply(StreamCursorPos({ row: 4, col: 5, })) else {
+    fail("expected cursor position after margin reset")
+  }
+  guard state.apply(StreamLeftAndRightMarginAmbiguous) else {
+    fail("expected ambiguous action disabled branch")
+  }
+  guard state.has_saved_cursor() else {
+    fail("expected ambiguous action to save cursor when margins disabled")
+  }
+
+  guard state.apply(StreamCursorPos({ row: 1, col: 1, })) else {
+    fail("expected cursor mutation before restore")
+  }
+  guard state.apply(StreamRestoreCursor) else {
+    fail("expected restore cursor after ambiguous save")
+  }
+  guard state.cursor_x() == 4 &&
+    state.cursor_y() == 4 &&
+    state.mode_enabled(Origin) else {
+    fail("expected restore cursor after ambiguous save")
+  }
+}
+
+///|
+test "stream terminal bridge/applies charset save restore and keyboard state" {
+  let state = StreamTerminalBridgeState::new()
+
+  guard state.apply(StreamConfigureCharset({ slot: G1, charset: British, })) else {
+    fail("expected charset configure to be handled")
+  }
+  guard state.apply(
+    StreamInvokeCharset({ bank: Gl, charset: G1, locking: false, }),
+  ) else {
+    fail("expected locking charset invoke to be handled")
+  }
+  guard state.apply(
+    StreamInvokeCharset({ bank: Gl, charset: G2, locking: true, }),
+  ) else {
+    fail("expected single-shift charset invoke to be handled")
+  }
+  guard state.apply(StreamProtectedModeDec) else {
+    fail("expected protected mode dec before save")
+  }
+  guard state.apply(StreamSetMode(Origin)) else {
+    fail("expected origin mode before save")
+  }
+  guard state.apply(StreamCursorPos({ row: 2, col: 3, })) else {
+    fail("expected cursor position before save")
+  }
+  guard state.apply(StreamSaveCursor) else {
+    fail("expected direct save cursor to be handled")
+  }
+
+  guard state.apply(StreamConfigureCharset({ slot: G1, charset: Ascii, })) else {
+    fail("expected charset reconfigure to be handled")
+  }
+  guard state.apply(
+    StreamInvokeCharset({ bank: Gl, charset: G0, locking: false, }),
+  ) else {
+    fail("expected charset invoke mutation")
+  }
+  guard state.apply(StreamProtectedModeOff) else {
+    fail("expected protected mode off mutation")
+  }
+  guard state.apply(StreamResetMode(Origin)) else {
+    fail("expected origin reset mutation")
+  }
+  guard state.apply(StreamCursorPos({ row: 10, col: 10, })) else {
+    fail("expected cursor mutation before restore")
+  }
+
+  guard state.apply(StreamRestoreCursor) else {
+    fail("expected direct restore cursor to be handled")
+  }
+  guard state.cursor_x() == 2 &&
+    state.cursor_y() == 1 &&
+    state.mode_enabled(Origin) else {
+    fail("expected restored cursor position and origin mode")
+  }
+  guard state.charset(G1) == British &&
+    state.charset_gl() == G1 &&
+    state.charset_single_shift() == Some(G2) else {
+    fail("expected restored charset state")
+  }
+  guard state.protected_state().mode() == Dec &&
+    state.protected_state().cursor_protected() else {
+    fail("expected restored cursor protection")
+  }
+
+  guard state.apply(StreamCursorPos({ row: 5, col: 6, })) else {
+    fail("expected cursor mutation before mode save")
+  }
+  guard state.apply(StreamSetMode(SaveCursor)) else {
+    fail("expected save-cursor mode set to be handled")
+  }
+  guard state.apply(StreamCursorPos({ row: 1, col: 1, })) else {
+    fail("expected cursor mutation before mode restore")
+  }
+  guard state.apply(StreamResetMode(SaveCursor)) else {
+    fail("expected save-cursor mode reset to restore cursor")
+  }
+  guard state.cursor_x() == 5 && state.cursor_y() == 4 else {
+    fail("expected save-cursor mode restore")
+  }
+
+  guard state.apply(StreamKittyKeyboardPush(KittyKeyboardFlags(3))) else {
+    fail("expected kitty keyboard push to be handled")
+  }
+  guard state.apply(StreamKittyKeyboardSetOr(KittyKeyboardFlags(4))) else {
+    fail("expected kitty keyboard set-or to be handled")
+  }
+  guard state.kitty_keyboard_flags() == KittyKeyboardFlags(7) else {
+    fail("expected kitty keyboard or state")
+  }
+
+  guard state.apply(StreamKittyKeyboardSetNot(KittyKeyboardFlags(1))) else {
+    fail("expected kitty keyboard set-not to be handled")
+  }
+  guard state.kitty_keyboard_flags() == KittyKeyboardFlags(6) else {
+    fail("expected kitty keyboard not state")
+  }
+
+  guard state.apply(StreamKittyKeyboardSet(KittyKeyboardFlags(5))) else {
+    fail("expected kitty keyboard set to be handled")
+  }
+  guard state.kitty_keyboard_flags() == KittyKeyboardFlags(5) else {
+    fail("expected kitty keyboard set state")
+  }
+
+  guard state.apply(StreamKittyKeyboardPop(9)) else {
+    fail("expected kitty keyboard pop to be handled")
+  }
+  guard state.kitty_keyboard_flags() == KittyKeyboardFlags(0) else {
+    fail("expected kitty keyboard pop reset")
+  }
+}
+
+///|
+test "stream terminal bridge/applies tab operations" {
+  let state = StreamTerminalBridgeState::new()
+
+  guard state.apply(StreamHorizontalTab(1)) else {
+    fail("expected horizontal tab to be handled")
+  }
+  guard state.cursor_x() == 8 else {
+    fail("expected default horizontal tab stop")
+  }
+
+  guard state.apply(StreamCursorPos({ row: 1, col: 6, })) else {
+    fail("expected cursor position before tab set")
+  }
+  guard state.apply(StreamTabSet) else {
+    fail("expected tab set to be handled")
+  }
+  guard state.apply(StreamCursorPos({ row: 1, col: 1, })) else {
+    fail("expected cursor reset before tab jump")
+  }
+  guard state.apply(StreamHorizontalTab(1)) else {
+    fail("expected horizontal tab after custom set")
+  }
+  guard state.cursor_x() == 5 else { fail("expected custom tab stop") }
+
+  guard state.apply(StreamTabClearCurrent) else {
+    fail("expected tab clear current to be handled")
+  }
+  guard !state.tabstop(5) else { fail("expected current tab stop clear") }
+
+  guard state.apply(StreamCursorPos({ row: 1, col: 1, })) else {
+    fail("expected cursor reset before default tab")
+  }
+  guard state.apply(StreamHorizontalTab(1)) else {
+    fail("expected horizontal tab after clear current")
+  }
+  guard state.cursor_x() == 8 else {
+    fail("expected fallback to default tab stop")
+  }
+
+  guard state.apply(StreamTabClearAll) else {
+    fail("expected tab clear all to be handled")
+  }
+  guard state.apply(StreamCursorPos({ row: 1, col: 1, })) else {
+    fail("expected cursor reset before clear-all tab")
+  }
+  guard state.apply(StreamHorizontalTab(1)) else {
+    fail("expected horizontal tab without tab stops")
+  }
+  guard state.cursor_x() == 79 else {
+    fail("expected tab without stops to run to the right edge")
+  }
+
+  guard state.apply(StreamHorizontalTab(2)) else {
+    fail("expected horizontal tab at the right edge to be handled")
+  }
+  guard state.cursor_x() == 79 else {
+    fail("expected horizontal tab at the right edge to stay put")
+  }
+
+  guard state.apply(StreamTabReset) else {
+    fail("expected tab reset to be handled")
+  }
+  guard state.apply(StreamCursorPos({ row: 1, col: 21, })) else {
+    fail("expected cursor position before horizontal tab back")
+  }
+  guard state.apply(StreamHorizontalTabBack(1)) else {
+    fail("expected horizontal tab back to be handled")
+  }
+  guard state.cursor_x() == 16 else {
+    fail("expected horizontal tab back to previous stop")
+  }
+}
+
+///|
+test "stream terminal bridge/covers cursor movement edge branches" {
+  let state = StreamTerminalBridgeState::new()
+
+  guard state.apply(StreamTopAndBottomMargin({ top_left: 3, bottom_right: 5, })) else {
+    fail("expected top/bottom margin setup")
+  }
+  guard state.apply(StreamCursorPos({ row: 10, col: 1, })) else {
+    fail("expected cursor move below bottom margin")
+  }
+  guard state.apply(StreamCursorDown(CursorMovement(1))) else {
+    fail("expected cursor down below margin to be handled")
+  }
+  guard state.cursor_y() == 10 else {
+    fail("expected cursor down outside-scroll-region branch")
+  }
+
+  guard state.apply(StreamSetMode(EnableLeftAndRightMargin)) else {
+    fail("expected left/right margin mode setup")
+  }
+  guard state.apply(
+    StreamLeftAndRightMargin({ top_left: 11, bottom_right: 20, }),
+  ) else {
+    fail("expected left/right margin setup")
+  }
+  guard state.apply(StreamCursorPos({ row: 1, col: 80, })) else {
+    fail("expected cursor move outside right margin")
+  }
+  guard state.apply(StreamCursorRight(CursorMovement(1))) else {
+    fail("expected cursor right outside margin to be handled")
+  }
+  guard state.cursor_x() == 79 else {
+    fail("expected cursor right outside-scroll-region branch")
+  }
+}
+
+///|
+test "stream terminal bridge/applies color set operations and ignores non-terminal targets" {
+  let state = StreamTerminalBridgeState::new()
+  let command = @osc.ColorCommand::new(
+    Osc4,
+    [
+      Set(@osc.ColoredTarget::new(Palette(1), @color.RGB::new(9, 8, 7))),
+      Set(
+        @osc.ColoredTarget::new(Dynamic(Foreground), @color.RGB::new(1, 2, 3)),
+      ),
+      Set(
+        @osc.ColoredTarget::new(Dynamic(Background), @color.RGB::new(4, 5, 6)),
+      ),
+      Set(@osc.ColoredTarget::new(Dynamic(Cursor), @color.RGB::new(7, 8, 9))),
+      Set(
+        @osc.ColoredTarget::new(
+          Dynamic(PointerForeground),
+          @color.RGB::new(9, 9, 9),
+        ),
+      ),
+      Set(@osc.ColoredTarget::new(Special(Bold), @color.RGB::new(6, 6, 6))),
+    ],
+    St,
+  )
+
+  guard state.apply(StreamColorOperation(command)) else {
+    fail("expected color operation to be handled")
+  }
+  guard state.palette_dirty() else {
+    fail("expected palette writes to mark palette dirty")
+  }
+  guard state.colors().palette_color(1) == @color.RGB::new(9, 8, 7) else {
+    fail("expected palette color write")
+  }
+  guard state.colors().foreground() == Some(@color.RGB::new(1, 2, 3)) else {
+    fail("expected foreground dynamic color write")
+  }
+  guard state.colors().background() == Some(@color.RGB::new(4, 5, 6)) else {
+    fail("expected background dynamic color write")
+  }
+  guard state.colors().cursor() == Some(@color.RGB::new(7, 8, 9)) else {
+    fail("expected cursor dynamic color write")
+  }
+}
+
+///|
+test "stream terminal bridge/applies color resets and reset palette" {
+  let state = StreamTerminalBridgeState::new()
+  guard state.apply(
+    StreamColorOperation(
+      @osc.ColorCommand::new(
+        Osc4,
+        [
+          Set(@osc.ColoredTarget::new(Palette(1), @color.RGB::new(10, 11, 12))),
+          Set(@osc.ColoredTarget::new(Palette(2), @color.RGB::new(20, 21, 22))),
+          Set(
+            @osc.ColoredTarget::new(
+              Dynamic(Foreground),
+              @color.RGB::new(1, 2, 3),
+            ),
+          ),
+          Set(
+            @osc.ColoredTarget::new(
+              Dynamic(Background),
+              @color.RGB::new(4, 5, 6),
+            ),
+          ),
+          Set(
+            @osc.ColoredTarget::new(Dynamic(Cursor), @color.RGB::new(7, 8, 9)),
+          ),
+        ],
+        St,
+      ),
+    ),
+  ) else {
+    fail("expected setup color operation")
+  }
+
+  state.clear_palette_dirty()
+  guard state.apply(
+    StreamColorOperation(
+      @osc.ColorCommand::new(
+        Osc104,
+        [
+          Reset(Palette(1)),
+          Reset(Dynamic(Foreground)),
+          Reset(Dynamic(Background)),
+          Reset(Dynamic(Cursor)),
+          Reset(Dynamic(PointerBackground)),
+        ],
+        Bel,
+      ),
+    ),
+  ) else {
+    fail("expected reset color operation")
+  }
+
+  guard state.palette_dirty() else {
+    fail("expected palette reset to mark palette dirty")
+  }
+  guard state.colors().palette_color(1) == @color.Name::Red.default_rgb() else {
+    fail("expected palette reset to restore default entry")
+  }
+  guard state.colors().foreground() == None &&
+    state.colors().background() == None &&
+    state.colors().cursor() == None else {
+    fail("expected dynamic color resets to restore unset state")
+  }
+
+  state.clear_palette_dirty()
+  guard state.apply(
+    StreamColorOperation(@osc.ColorCommand::new(Osc104, [ResetPalette], St)),
+  ) else {
+    fail("expected reset palette operation")
+  }
+  guard state.palette_dirty() else {
+    fail("expected reset palette to mark palette dirty when changes exist")
+  }
+  guard state.colors().palette_color(2) == @color.Name::Green.default_rgb() else {
+    fail("expected reset palette to restore all palette entries")
+  }
+}
+
+///|
+test "stream terminal bridge/empty and query color operations are handled without mutation" {
+  let state = StreamTerminalBridgeState::new()
+  guard state.apply(StreamColorOperation(@osc.ColorCommand::new(Osc4, [], St))) else {
+    fail("expected empty color operation to be handled")
+  }
+
+  guard state.apply(
+    StreamColorOperation(
+      @osc.ColorCommand::new(
+        Osc4,
+        [Query(Palette(1)), Reset(Special(Bold))],
+        St,
+      ),
+    ),
+  ) else {
+    fail("expected query-only color operation to be handled")
+  }
+  guard !state.palette_dirty() else {
+    fail("expected query-only color operation to leave state unchanged")
+  }
+}
+
+///|
+test "stream terminal bridge/applies query responses and callbacks" {
+  let recorder = BridgeEffectsRecorder::new()
+  let attributes = DeviceAttributes::new(
+    PrimaryDeviceAttributes::new(Vt420, [AnsiColor, Clipboard]),
+    SecondaryDeviceAttributes::new(Vt420, 100, 7),
+    TertiaryDeviceAttributes::new(9U),
+  )
+  let effects = StreamTerminalBridgeEffects::new(
+    write_pty=fn(data) { recorder.write_pty(data) },
+    bell=fn() { recorder.bell() },
+    color_scheme=fn() { Some(Light) },
+    device_attributes=fn() { Some(attributes) },
+    enquiry=fn() { b"ghostty" },
+    size=fn() { Some(Size::new(24, 80, 9, 18)) },
+    title_changed=fn() { recorder.title_changed() },
+    xtversion=fn() { "ghostty 1.2.3" },
+  )
+  let state = StreamTerminalBridgeState::with_effects(effects)
+
+  guard state.apply(StreamBell) else {
+    fail("expected bell callback path to be handled")
+  }
+  guard recorder.bell_count == 1 else { fail("expected bell callback count") }
+
+  guard state.apply(StreamWindowTitle("Hello World")) else {
+    fail("expected window-title action to be handled")
+  }
+  guard state.title() == Some("Hello World") &&
+    recorder.title_changed_count == 1 else {
+    fail("expected title state and callback")
+  }
+
+  guard state.apply(StreamDeviceStatus(OperatingStatus)) &&
+    state.apply(StreamCursorPos({ row: 5, col: 10, })) &&
+    state.apply(StreamDeviceStatus(CursorPosition)) &&
+    state.apply(StreamTopAndBottomMargin({ top_left: 5, bottom_right: 20, })) &&
+    state.apply(StreamSetMode(Origin)) &&
+    state.apply(StreamCursorPos({ row: 3, col: 5, })) &&
+    state.apply(StreamDeviceStatus(CursorPosition)) &&
+    state.apply(StreamRequestMode(Wraparound)) &&
+    state.apply(StreamResetMode(Wraparound)) &&
+    state.apply(StreamRequestMode(Wraparound)) &&
+    state.apply(StreamRequestModeUnknown(mode_tag(9999, false))) &&
+    state.apply(StreamDeviceAttributes(Primary)) &&
+    state.apply(StreamDeviceAttributes(Secondary)) &&
+    state.apply(StreamDeviceAttributes(Tertiary)) &&
+    state.apply(StreamSizeReport(Csi14t)) &&
+    state.apply(StreamSizeReport(Csi16t)) &&
+    state.apply(StreamSizeReport(Csi18t)) &&
+    state.apply(StreamSizeReport(Csi21t)) &&
+    state.apply(StreamXtversion) &&
+    state.apply(StreamKittyKeyboardPush(KittyKeyboardFlags(1))) &&
+    state.apply(StreamKittyKeyboardQuery) &&
+    state.apply(StreamEnquiry) &&
+    state.apply(StreamDeviceStatus(ColorScheme)) else {
+    fail("expected query/effect actions to be handled")
+  }
+
+  guard recorder.writes.length() == 17 else {
+    fail("expected all query/effect writes to be captured")
+  }
+  expect_effect_write(recorder, 0, b"\x1B[0n")
+  expect_effect_write(recorder, 1, b"\x1B[5;10R")
+  expect_effect_write(recorder, 2, b"\x1B[3;5R")
+  expect_effect_write(recorder, 3, b"\x1B[?7;1$y")
+  expect_effect_write(recorder, 4, b"\x1B[?7;2$y")
+  expect_effect_write(recorder, 5, b"\x1B[?9999;0$y")
+  expect_effect_write(recorder, 6, b"\x1B[?64;22;52c")
+  expect_effect_write(recorder, 7, b"\x1B[>41;100;7c")
+  expect_effect_write(recorder, 8, b"\x1BP!|00000009\x1B\\")
+  expect_effect_write(recorder, 9, b"\x1B[4;432;720t")
+  expect_effect_write(recorder, 10, b"\x1B[6;18;9t")
+  expect_effect_write(recorder, 11, b"\x1B[8;24;80t")
+  expect_effect_write(recorder, 12, b"\x1B]lHello World\x1B\\")
+  expect_effect_write(recorder, 13, b"\x1BP>|ghostty 1.2.3\x1B\\")
+  expect_effect_write(recorder, 14, b"\x1B[?1u")
+  expect_effect_write(recorder, 15, b"ghostty")
+  expect_effect_write(recorder, 16, b"\x1B[?997;2n")
+}
+
+///|
+test "stream terminal bridge/covers readonly query branches and truncation" {
+  let recorder = BridgeEffectsRecorder::new()
+  let state = StreamTerminalBridgeState::with_effects(
+    StreamTerminalBridgeEffects::new(
+      write_pty=fn(data) { recorder.write_pty(data) },
+      title_changed=fn() { recorder.title_changed() },
+    ),
+  )
+
+  let long_title = ascii_string(b'x', 1100)
+  guard state.apply(StreamWindowTitle(long_title)) else {
+    fail("expected long window title to be handled")
+  }
+  guard state.title() != Some(long_title) && recorder.title_changed_count == 1 else {
+    fail("expected long title to be truncated to upstream limit")
+  }
+
+  guard state.apply(StreamDeviceAttributes(Primary)) &&
+    state.apply(StreamDeviceStatus(ColorScheme)) &&
+    state.apply(StreamSizeReport(Csi14t)) &&
+    state.apply(StreamEnquiry) &&
+    state.apply(StreamXtversion) else {
+    fail("expected readonly query branches to be handled")
+  }
+  guard recorder.writes.length() == 2 else {
+    fail("expected default DA and default xtversion to write")
+  }
+  expect_effect_write(recorder, 0, b"\x1B[?62;22c")
+  expect_effect_write(recorder, 1, b"\x1BP>|libghostty\x1B\\")
+
+  let untitled_recorder = BridgeEffectsRecorder::new()
+  let untitled_state = StreamTerminalBridgeState::with_effects(
+    StreamTerminalBridgeEffects::new(write_pty=fn(data) {
+      untitled_recorder.write_pty(data)
+    }),
+  )
+  guard untitled_state.apply(StreamSizeReport(Csi16t)) &&
+    untitled_state.apply(StreamSizeReport(Csi18t)) &&
+    untitled_state.apply(StreamSizeReport(Csi21t)) else {
+    fail("expected untitled size-report branches to be handled")
+  }
+  guard untitled_recorder.writes.length() == 1 else {
+    fail("expected only untitled csi-21-t to write")
+  }
+  expect_effect_write(untitled_recorder, 0, b"\x1B]l\x1B\\")
+
+  let dark_recorder = BridgeEffectsRecorder::new()
+  let dark_state = StreamTerminalBridgeState::with_effects(
+    StreamTerminalBridgeEffects::new(
+      write_pty=fn(data) { dark_recorder.write_pty(data) },
+      color_scheme=fn() { Some(Dark) },
+    ),
+  )
+  guard dark_state.apply(StreamDeviceStatus(ColorScheme)) else {
+    fail("expected dark color-scheme branch to be handled")
+  }
+  expect_effect_write(dark_recorder, 0, b"\x1B[?997;1n")
+
+  let overflow_recorder = BridgeEffectsRecorder::new()
+  let overflow_state = StreamTerminalBridgeState::with_effects(
+    StreamTerminalBridgeEffects::new(
+      write_pty=fn(data) { overflow_recorder.write_pty(data) },
+      enquiry=fn() { @utf8.encode(ascii_string(b'e', 256)) },
+      xtversion=fn() { ascii_string(b'v', 257) },
+    ),
+  )
+  guard overflow_state.apply(StreamEnquiry) &&
+    overflow_state.apply(StreamXtversion) else {
+    fail("expected overflow query branches to be handled")
+  }
+  guard overflow_recorder.writes.length() == 0 else {
+    fail("expected oversized enquiry and xtversion to be ignored")
+  }
+}
+
+///|
+test "stream terminal bridge/handles passive effect and passthrough actions" {
+  let state = StreamTerminalBridgeState::new()
+  guard apply_stream_bytes(state, b"\x1B]52;c;?\x07") &&
+    apply_stream_bytes(state, b"\x1B]9;hello world\x07") &&
+    apply_stream_bytes(state, b"\x1B]9;4;3;40\x07") &&
+    apply_stream_bytes(state, b"\x1B]9;9;file:///tmp\x07") &&
+    apply_stream_bytes(state, b"\x1B[22;0t\x1B[22;0;5t\x1B[23;0t\x1B[23;0;5t") &&
+    apply_stream_bytes(state, b"\x1BP1;2+qa\x1B\\z") &&
+    apply_stream_bytes(state, b"\x1B_a\x1B\\z") else {
+    fail("expected passive effect and passthrough actions to be handled")
+  }
+
+  guard expect_bridge_cell(state, 0, 0).codepoint() == b'z'.to_uint() &&
+    expect_bridge_cell(state, 0, 1).codepoint() == b'z'.to_uint() else {
+    fail("expected later printable text to remain functional")
+  }
+}
+
+///|
+test "stream terminal bridge/applies kitty graphics transmit display and delete" {
+  let recorder = BridgeEffectsRecorder::new()
+  let state = StreamTerminalBridgeState::with_effects(
+    StreamTerminalBridgeEffects::new(write_pty=fn(data) {
+      recorder.write_pty(data)
+    }),
+  )
+
+  guard apply_stream_bytes(
+    state, b"\x1B_Ga=T,t=d,f=24,i=1,p=2,s=1,v=2,c=3,r=1;////////\x1B\\",
+  ) else {
+    fail("expected kitty graphics transmit-and-display sequence")
+  }
+
+  guard state.kitty_graphics.images.length() == 1 &&
+    state.kitty_graphics.placements().length() == 1 else {
+    fail("expected stored kitty image and placement")
+  }
+  guard recorder.writes.length() == 1 else {
+    fail("expected kitty graphics success response")
+  }
+  expect_effect_write(recorder, 0, b"\x1B_Gi=1,p=2;OK\x1B\\")
+
+  let image = state.kitty_graphics.images[0]
+  guard image.width == 1U && image.height == 2U && image.data.length() == 6 else {
+    fail("expected stored kitty image metadata")
+  }
+
+  let placement = state.kitty_graphics.placements()[0]
+  guard placement.image_id == 1U &&
+    placement.external &&
+    placement.placement_id == 2U &&
+    !placement.is_virtual() else {
+    fail("expected stored kitty placement metadata")
+  }
+  guard state.cursor_x() == 3 && state.cursor_y() == 1 else {
+    fail("expected cursor movement after placement display")
+  }
+
+  guard apply_stream_bytes(state, b"\x1B_Ga=p,i=1,p=0,c=2,r=1;\x1B\\") else {
+    fail("expected second kitty display sequence")
+  }
+  guard state.kitty_graphics.placements().length() == 2 else {
+    fail("expected internal placement id allocation")
+  }
+
+  guard apply_stream_bytes(state, b"\x1B_Ga=d,d=i,i=1,p=2;\x1B\\") else {
+    fail("expected kitty delete-by-id sequence")
+  }
+  guard state.kitty_graphics.placements().length() == 1 else {
+    fail("expected external placement deletion")
+  }
+
+  guard apply_stream_bytes(state, b"\x1B_Ga=d,d=A;\x1B\\") else {
+    fail("expected kitty delete-all sequence")
+  }
+  guard state.kitty_graphics.images.length() == 0 &&
+    state.kitty_graphics.placements().length() == 0 else {
+    fail("expected delete-all to clear stored graphics")
+  }
+}
+
+///|
+test "stream terminal bridge/handles kitty graphics query chunking and quiet" {
+  let recorder = BridgeEffectsRecorder::new()
+  let state = StreamTerminalBridgeState::with_effects(
+    StreamTerminalBridgeEffects::new(write_pty=fn(data) {
+      recorder.write_pty(data)
+    }),
+  )
+
+  guard apply_stream_bytes(
+    state, b"\x1B_Ga=q,t=d,f=24,i=7,s=1,v=2;////////\x1B\\",
+  ) else {
+    fail("expected kitty query sequence")
+  }
+  guard recorder.writes.length() == 1 else {
+    fail("expected kitty query response")
+  }
+  expect_effect_write(recorder, 0, b"\x1B_Gi=7;OK\x1B\\")
+  guard state.kitty_graphics.images.length() == 0 else {
+    fail("expected query to avoid storage mutation")
+  }
+
+  guard apply_stream_bytes(
+      state, b"\x1B_Ga=t,t=d,f=24,q=1,m=1,i=9,s=1,v=2;////\x1B\\",
+    ) &&
+    apply_stream_bytes(state, b"\x1B_Gm=0;////\x1B\\") else {
+    fail("expected kitty chunked transmit sequence")
+  }
+  guard state.kitty_graphics.images.length() == 1 &&
+    state.kitty_graphics.loading is None else {
+    fail("expected chunked transmit finalization")
+  }
+  guard recorder.writes.length() == 1 else {
+    fail("expected q=1 success suppression for chunked transmit")
+  }
+
+  guard apply_stream_bytes(state, b"\x1B_Ga=f;\x1B\\") else {
+    fail("expected unsupported kitty action to be handled")
+  }
+  guard recorder.writes.length() == 1 else {
+    fail("expected unsupported action without ids to stay silent")
+  }
+}
+
+///|
+test "stream terminal bridge/kitty graphics internal error and helper branches" {
+  let recorder = BridgeEffectsRecorder::new()
+  let state = StreamTerminalBridgeState::with_effects(
+    StreamTerminalBridgeEffects::new(write_pty=fn(data) {
+      recorder.write_pty(data)
+    }),
+  )
+
+  state.write_kitty_graphics_response(
+    Failures,
+    Some(KittyGraphicsResponse::new(id=1U)),
+  )
+  state.write_kitty_graphics_response(
+    Ok,
+    Some(KittyGraphicsResponse::new(id=1U)),
+  )
+  state.write_kitty_graphics_response(No, Some(KittyGraphicsResponse::new()))
+  state.write_kitty_graphics_response(
+    Ok,
+    Some(KittyGraphicsResponse::new(id=2U, message=b"ERR")),
+  )
+  guard recorder.writes.length() == 1 else {
+    fail("expected only failing kitty responses to emit under quiet mode")
+  }
+  expect_effect_write(recorder, 0, b"\x1B_Gi=2;ERR\x1B\\")
+
+  let query_missing = KittyImageTransmission::new()
+  query_missing.format = Rgb
+  query_missing.width = 1U
+  query_missing.height = 1U
+  guard state.execute_kitty_graphics_query(query_missing, b"\x00\x01\x02").message ==
+    b"EINVAL: image ID required" else {
+    fail("expected query image-id validation")
+  }
+
+  let query_medium = KittyImageTransmission::new()
+  query_medium.image_id = 1U
+  query_medium.medium = File
+  guard state.execute_kitty_graphics_query(query_medium, b"").message ==
+    b"EINVAL: unsupported medium" else {
+    fail("expected query medium validation")
+  }
+
+  let query_invalid = KittyImageTransmission::new()
+  query_invalid.image_id = 2U
+  query_invalid.format = Rgb
+  query_invalid.width = 1U
+  query_invalid.height = 1U
+  guard state.execute_kitty_graphics_query(query_invalid, b"\x00").message ==
+    b"EINVAL: invalid data" else {
+    fail("expected query payload validation")
+  }
+
+  let conflicting = KittyImageTransmission::new()
+  conflicting.image_id = 1U
+  conflicting.image_number = 2U
+  let (conflicting_quiet, conflicting_response) = state.execute_kitty_graphics_transmit(
+    conflicting,
+    No,
+    None,
+    b"",
+  )
+  guard conflicting_quiet == No &&
+    conflicting_response is Some(value) &&
+    value.message == b"EINVAL: image ID and number are mutually exclusive" else {
+    fail("expected mutually-exclusive transmit validation")
+  }
+
+  let chunked = KittyImageTransmission::new()
+  chunked.format = Rgb
+  chunked.width = 1U
+  chunked.height = 1U
+  chunked.image_id = 9U
+  chunked.more_chunks = true
+  let (chunk_quiet, chunk_response) = state.execute_kitty_graphics_transmit(
+    chunked,
+    Ok,
+    None,
+    b"\x00",
+  )
+  guard chunk_quiet == Ok &&
+    chunk_response is None &&
+    state.kitty_graphics.loading is Some(loading_started) &&
+    loading_started.quiet == Ok else {
+    fail("expected initial chunked transmit state")
+  }
+
+  let continuation = KittyImageTransmission::new()
+  continuation.more_chunks = true
+  let (continuation_quiet, continuation_response) = state.execute_kitty_graphics_transmit(
+    continuation,
+    No,
+    None,
+    b"\x01",
+  )
+  guard continuation_quiet == Ok &&
+    continuation_response is None &&
+    state.kitty_graphics.loading is Some(loading_continued) &&
+    loading_continued.data.length() == 2 else {
+    fail("expected continued chunk accumulation")
+  }
+
+  let final_chunk = KittyImageTransmission::new()
+  let (final_quiet, final_response) = state.execute_kitty_graphics_transmit(
+    final_chunk,
+    Failures,
+    None,
+    b"",
+  )
+  guard final_quiet == Failures &&
+    final_response is Some(value) &&
+    value.message == b"EINVAL: invalid data" &&
+    state.kitty_graphics.loading is None else {
+    fail("expected final chunk validation error")
+  }
+
+  let unsupported = KittyImageTransmission::new()
+  unsupported.medium = File
+  let (_, unsupported_response) = state.execute_kitty_graphics_transmit(
+    unsupported,
+    No,
+    None,
+    b"",
+  )
+  guard unsupported_response is Some(value) &&
+    value.message == b"EINVAL: unsupported medium" else {
+    fail("expected transmit header validation")
+  }
+
+  let invalid_fresh = KittyImageTransmission::new()
+  invalid_fresh.format = Rgb
+  invalid_fresh.width = 1U
+  invalid_fresh.height = 1U
+  invalid_fresh.image_id = 10U
+  let (_, invalid_fresh_response) = state.execute_kitty_graphics_transmit(
+    invalid_fresh,
+    No,
+    None,
+    b"\x00",
+  )
+  guard invalid_fresh_response is Some(value) &&
+    value.message == b"EINVAL: invalid data" else {
+    fail("expected non-chunked transmit payload validation")
+  }
+
+  let implicit = KittyImageTransmission::new()
+  implicit.format = Rgb
+  implicit.width = 1U
+  implicit.height = 1U
+  let (_, implicit_response) = state.execute_kitty_graphics_transmit(
+    implicit,
+    No,
+    None,
+    b"\x00\x01\x02",
+  )
+  guard implicit_response is Some(value) &&
+    value.empty() &&
+    state.kitty_graphics.images().length() >= 1 &&
+    state.kitty_graphics.images()[state.kitty_graphics.images().length() - 1].implicit_id else {
+    fail("expected implicit-id transmit behavior")
+  }
+}
+
+///|
+test "stream terminal bridge/kitty graphics display and delete edge branches" {
+  let state = StreamTerminalBridgeState::new()
+  state.kitty_graphics.add_image(
+    sample_kitty_image(id=3U, number=7U, transmit_seq=4UL),
+  )
+
+  let missing = KittyImageDisplay::new()
+  guard state.execute_kitty_graphics_display(missing).message ==
+    b"EINVAL: image ID or number required" else {
+    fail("expected display identity validation")
+  }
+
+  let by_number = KittyImageDisplay::new()
+  by_number.image_number = 7U
+  by_number.virtual_placement = true
+  by_number.placement_id = 4U
+  let by_number_result = state.execute_kitty_graphics_display(by_number)
+  guard by_number_result.id == 3U &&
+    state.kitty_graphics.placements().length() == 1 &&
+    state.kitty_graphics.placements()[0].is_virtual() else {
+    fail("expected display lookup by image number")
+  }
+
+  let absent = KittyImageDisplay::new()
+  absent.image_id = 99U
+  guard state.execute_kitty_graphics_display(absent).message ==
+    b"ENOENT: image not found" else {
+    fail("expected display missing-image validation")
+  }
+
+  let parented = KittyImageDisplay::new()
+  parented.image_id = 3U
+  parented.virtual_placement = true
+  parented.parent_id = 1U
+  guard state.execute_kitty_graphics_display(parented).message ==
+    b"EINVAL: virtual placement cannot refer to a parent" else {
+    fail("expected display parent validation")
+  }
+
+  state.execute_kitty_graphics_delete(
+    Newest({ delete: false, image_number: 7U, placement_id: 4U, }),
+  )
+  guard state.kitty_graphics.placements().length() == 0 else {
+    fail("expected newest delete helper usage")
+  }
+
+  state.cursor.x = 65535
+  let pinned = KittyImageDisplay::new()
+  pinned.image_id = 3U
+  guard state.execute_kitty_graphics_display(pinned).message ==
+    b"EINVAL: failed to prepare terminal state" else {
+    fail("expected cursor-pin validation")
+  }
+
+  state.execute_kitty_graphics_delete(Z({ delete: true, z: 1, }))
+  guard state.kitty_graphics.images().length() == 1 else {
+    fail("expected unimplemented delete selectors to stay no-op")
+  }
+}
+
+///|
+test "stream terminal bridge/semantic_prompt_row_range row layout" {
+  let state = StreamTerminalBridgeState::new()
+
+  guard state.resize(80, 5, 0U, 0U) == Success else { fail("resize") }
+
+  guard apply_stream_bytes(state, b"\x1B]133;A\x07prompt>") else { fail("A") }
+  guard apply_stream_bytes(state, b"\x1B]133;C\x07\r\n") else { fail("C") }
+  guard apply_stream_bytes(state, b"output line 1\r\n") else { fail("o1") }
+  guard apply_stream_bytes(state, b"output line 2\r\n") else { fail("o2") }
+  guard apply_stream_bytes(state, b"\x1B]133;A\x07$ ") else { fail("A2") }
+
+  let r0 = expect_bridge_row(state, 0).semantic_prompt()
+  let r1 = expect_bridge_row(state, 1).semantic_prompt()
+  let r2 = expect_bridge_row(state, 2).semantic_prompt()
+  let r3 = expect_bridge_row(state, 3).semantic_prompt()
+  guard r0 == Prompt else { fail("row 0 should be Prompt") }
+  guard r1 == (None : @page.RowSemanticPrompt) else {
+    fail("row 1 should be None")
+  }
+  guard r2 == (None : @page.RowSemanticPrompt) else {
+    fail("row 2 should be None")
+  }
+  guard r3 == Prompt else { fail("row 3 should be Prompt") }
+
+  let range1 = state.semantic_prompt_row_range(1)
+  let range2 = state.semantic_prompt_row_range(2)
+  guard range1 == Some((1, 2)) else { fail("range(1) should be (1,2)") }
+  guard range2 == Some((1, 2)) else { fail("range(2) should be (1,2)") }
+}
+
+///|
+test "stream terminal bridge/a full clear reclaims the intern id space" {
+  let state = StreamTerminalBridgeState::new()
+
+  // Enter the alternate screen. DECSET 1049 clears it on entry, minting fresh
+  // intern tables; capture those so we can prove the next clear swaps them out.
+  state.mode_set(AltScreenSaveCursorClearEnter, true)
+  let first_style_table = state.grid.style_table
+  let first_hyperlink_table = state.grid.hyperlink_table
+  let first_grapheme_table = state.grid.grapheme_table
+
+  // Intern several distinct non-default styles into the alt screen's table.
+  let a = @style.CellStyle::new().apply_attribute(Color256Bg(1))
+  let b = @style.CellStyle::new().apply_attribute(Color256Bg(2))
+  let c = @style.CellStyle::new().apply_attribute(Color256Bg(3))
+  state.grid.write_cell(0, 0, b'A'.to_uint(), Narrow, a, false, Output, None)
+  state.grid.write_cell(0, 1, b'B'.to_uint(), Narrow, b, false, Output, None)
+  state.grid.write_cell(0, 2, b'C'.to_uint(), Narrow, c, false, Output, None)
+  guard state.grid.style_table.len() > 1 else {
+    fail("expected distinct styles to grow the alt-screen style table")
+  }
+
+  // Leave, then re-enter: the second entry clears the alternate screen again. That
+  // clear must reclaim the id space with fresh tables instead of letting the prior
+  // session's ids accumulate toward the 16-bit ceiling.
+  state.mode_set(AltScreenSaveCursorClearEnter, false)
+  state.mode_set(AltScreenSaveCursorClearEnter, true)
+  guard state.grid.style_table.len() == 1 else {
+    fail("expected a full clear to reclaim the style id space")
+  }
+
+  // Fresh tables means new identities, so the active grid resolves against the
+  // same tables the prints intern into, and RenderState's table-reset damage check
+  // repaints rather than trusting reused low ids.
+  guard !physical_equal(state.grid.style_table, first_style_table) &&
+    !physical_equal(state.grid.hyperlink_table, first_hyperlink_table) &&
+    !physical_equal(state.grid.grapheme_table, first_grapheme_table) else {
+    fail("expected the clear to swap in fresh intern tables")
+  }
+}

@@ -1,0 +1,29 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitlang/seekmoon_tui/attachments"
+
+import {
+  "moonbitlang/seekmoon_tui/client",
+  "openseek_desktop/protocol",
+}
+
+// Values
+
+// Errors
+
+// Types and methods
+type Draft
+pub fn Draft::Draft() -> Self
+pub async fn Draft::attach(Self, @client.Client, String, String, @protocol.AttachmentSource) -> String
+pub fn Draft::clear(Self) -> Unit
+pub fn Draft::copy(Self) -> Self
+pub fn Draft::copy_images(Self) -> Self
+pub fn Draft::image_urls(Self) -> Array[String]
+pub fn Draft::is_empty(Self) -> Bool
+pub fn Draft::labels(Self) -> Array[String]
+pub async fn Draft::prepare(Self, @client.Client, String, String, String) -> (String, Array[String])
+pub fn Draft::prepend(Self, Self) -> Unit
+pub fn Draft::remove(Self, Int) -> Bool
+
+// Type aliases
+
+// Traits

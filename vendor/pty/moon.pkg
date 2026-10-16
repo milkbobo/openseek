@@ -1,0 +1,20 @@
+import {
+  "moonbitlang/core/encoding/utf8" @encoding/utf8,
+  "moonbitlang/core/env",
+  "moonbitlang/async",
+  "moonbitlang/async/io" @async/io,
+  "moonbitlang/async/raw_fd" @async/raw_fd,
+  "moonbitlang/async/process" @async/process,
+  "moonbitlang/async/os_error",
+  "moonbit-community/pty/internal/handle",
+}
+
+import {
+  "moonbitlang/async/fs" @async/fs,
+} for "test"
+
+supported_targets = "native"
+
+options(
+  "native-stub": [ "pty.c" ],
+)

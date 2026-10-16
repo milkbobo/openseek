@@ -1,0 +1,6 @@
+# MoonBit
+_build/
+.mooncakes/
+
+# Local checkouts of dependencies under development
+.deps/

@@ -1,0 +1,37 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitlang/seekmoon_tui"
+
+// Values
+
+// Errors
+
+// Types and methods
+type Chat
+
+type ChatKey derive(Eq, Hash)
+
+type Event
+
+type Focus derive(Eq)
+
+type Options
+
+type Regions
+
+type Row
+
+type RowKind derive(Eq)
+
+type SidebarEntry
+
+type SidebarMode
+
+type State
+
+type SteeringDraft
+
+type TerminalTab
+
+// Type aliases
+
+// Traits

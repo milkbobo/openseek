@@ -1,0 +1,9 @@
+import {
+  "moonbitlang/seekmoon_tui/client",
+  "openseek_desktop/commands",
+  "openseek_desktop/protocol",
+  "moonbitlang/core/json",
+  "moonbitlang/core/string",
+}
+
+supported_targets = "native"

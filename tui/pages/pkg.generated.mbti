@@ -1,0 +1,40 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitlang/seekmoon_tui/pages"
+
+import {
+  "moonbit-community/tty/input",
+  "moonbit-community/tui",
+  "moonbitlang/seekmoon_tui/client",
+  "moonbitlang/seekmoon_tui/workbench",
+  "openseek_desktop/protocol",
+}
+
+// Values
+
+// Errors
+
+// Types and methods
+pub(all) enum Page {
+  Skills
+  Settings
+  Schedules
+} derive(Eq)
+pub fn Page::equal(Self, Self) -> Bool
+pub fn Page::not_equal(Self, Self) -> Bool
+
+type State
+pub fn State::State() -> Self
+pub fn State::close(Self) -> Unit
+pub fn State::draw(Self, @tui.Frame, @tui.Rect, focused? : Bool) -> Unit
+pub async fn State::key(Self, @client.Client, @input.KeyEvent, @workbench.Context) -> Bool
+pub async fn State::mouse(Self, @client.Client, @input.MouseEvent, @workbench.Context) -> Bool
+pub async fn State::notification(Self, @client.Client, @protocol.Notification, @workbench.Context) -> Unit
+pub async fn State::open(Self, @client.Client, Page, @workbench.Context) -> Unit
+pub fn State::page(Self) -> Page?
+pub fn State::paste(Self, StringView) -> Bool
+pub fn State::set_demo(Self, Page) -> Unit
+pub fn State::take_open_run(Self) -> @protocol.ScheduleRun?
+
+// Type aliases
+
+// Traits
