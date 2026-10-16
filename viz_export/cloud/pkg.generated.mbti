@@ -1,0 +1,20 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitlang/openseek/viz_export/cloud"
+
+// Values
+pub fn envelope(Int, String, Json, Double) -> Json
+
+pub fn normalized_item(String, Json) -> Json?
+
+pub fn render(Json) -> Json raise
+
+// Errors
+pub(all) suberror SnapshotError {
+  InvalidHistory(String)
+}
+
+// Types and methods
+
+// Type aliases
+
+// Traits

@@ -1,0 +1,11 @@
+import {
+  "moonbitlang/openseek/viz_export/cloud" @cloud_export,
+  "moonbitlang/async",
+  "moonbitlang/async/stdio",
+  "moonbitlang/core/json",
+  "moonbitlang/x/sys",
+}
+
+supported_targets = "+native+wasm"
+
+pkgtype(kind: "executable")

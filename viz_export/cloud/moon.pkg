@@ -1,0 +1,10 @@
+import {
+  "moonbitlang/openseek/viz_export",
+}
+
+import {
+  "moonbitlang/core/json",
+  "moonbitlang/openseek/agent_session/log" @session_log,
+} for "test"
+
+supported_targets = "all"
