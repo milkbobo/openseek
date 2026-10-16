@@ -13,6 +13,4 @@ members = [
   "./desktop/server",
   "./tui",
   "./vendor/tui",
-  "./vendor/ghostty",
-  "./vendor/pty",
 ]

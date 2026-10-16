@@ -32,7 +32,7 @@ binary drives the same tools as the native one.
 ## Monorepo development
 
 The root [`moon.work`](moon.work) develops OpenSeek, the desktop app, its shared
-server, the terminal client, vendored terminal libraries, and the
+server, the terminal client, the vendored TUI library, and the
 [`moonbitlang/editor`](editor/README.md) source together. The editor keeps its
 smaller `editor/moon.work` as a scoped entry point for editor-only builds and
 browser tests; root Moon commands are the integration gate across both projects.
@@ -308,7 +308,8 @@ Run `just seekmoon-tui` for SeekMoon's native terminal interface, or
 `just seekmoon-tui --demo` to explore it offline. The TUI supports OpenSeek and
 Codex chats, streamed reasoning and tool output, projects, approvals, files,
 Git and GitHub review, skills, jobs, schedules, and embedded PTY terminals.
-Its UI and terminal emulator are vendored under `vendor/`.
+Its UI library is vendored under `vendor/tui`; Ghostty terminal emulation and
+PTY support use published mooncakes packages.
 
 The TUI starts a shared backend by default. For a persistent server, run
 `just seekmoon-server --ready-file /tmp/seekmoon-server.json`, then attach with

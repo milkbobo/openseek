@@ -1,6 +1,6 @@
 # SeekMoon terminal client
 
-SeekMoon's native TUI uses the same typed command catalog and backend services as the desktop app. It keeps the conversation sidebar on the left, files and review on the right, an editor/diff area, and a terminal sheet that opens at the bottom. Skills, Settings, and Scheduled tasks are navigable pages with editable controls and clickable actions. It supports OpenSeek and Codex conversations, persistent session history, project worktrees, approvals, file and Git review, skills, jobs, schedules, and real PTYs. The terminal UI library is vendored from `../vendor/tui`; Ghostty interprets PTY output for the embedded terminal pane.
+SeekMoon's native TUI uses the same typed command catalog and backend services as the desktop app. It keeps the conversation sidebar on the left, files and review on the right, an editor/diff area, and a terminal sheet that opens at the bottom. Skills, Settings, and Scheduled tasks are navigable pages with editable controls and clickable actions. It supports OpenSeek and Codex conversations, persistent session history, project worktrees, approvals, file and Git review, skills, jobs, schedules, and real PTYs. The terminal UI library is vendored from `../vendor/tui`; the published mooncakes packages `tonyfettes/ghostty` and `moonbit-community/pty` provide terminal emulation and PTY support.
 
 ## Run
 

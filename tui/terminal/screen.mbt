@@ -10,8 +10,8 @@ pub suberror ScreenError {
 struct Screen {
   terminal : @vt.StreamTerminal
   render : @vt.RenderState
-  keyboard : @vt.KeyEncoder
-  mouse_encoder : @vt.MouseEncoder
+  keyboard : @key_encoder.KeyEncoder
+  mouse_encoder : @mouse_encoder.MouseEncoder
   replies : Buffer
 }
 
@@ -25,8 +25,8 @@ pub fn Screen::Screen(cols~ : Int32, rows~ : Int32) -> Screen raise ScreenError 
   let screen : Screen = {
     terminal,
     render: @vt.RenderState::new(),
-    keyboard: @vt.KeyEncoder::new(),
-    mouse_encoder: @vt.MouseEncoder::new(),
+    keyboard: @key_encoder.KeyEncoder::new(),
+    mouse_encoder: @mouse_encoder.MouseEncoder::new(),
     replies,
   }
   screen.resize(cols~, rows~)
@@ -53,9 +53,9 @@ pub fn Screen::resize(
     raise ResizeFailed(code.code())
   }
   self.terminal.set_size(() => {
-    Some(@vt.Size::new(rows.to_uint16(), cols.to_uint16(), 0U, 0U))
+    Some(@size_report.Size::new(rows.to_uint16(), cols.to_uint16(), 0U, 0U))
   })
-  if @vt.MouseEncoderSize::new(
+  if @mouse_encoder.MouseEncoderSize::new(
       cols.reinterpret_as_uint(),
       rows.reinterpret_as_uint(),
       1U,

@@ -21,7 +21,7 @@ pub fn Screen::key(self : Screen, event : @input.KeyEvent) -> Bytes {
   if event.base_code.unwrap_or(event.code) is @input.Char(c) {
     key.set_unshifted_codepoint(c.to_uint())
   }
-  self.keyboard.sync_from_terminal(self.terminal)
+  self.terminal.sync_key_encoder(self.keyboard)
   self.keyboard.encode(key)
 }
 
@@ -29,7 +29,7 @@ pub fn Screen::key(self : Screen, event : @input.KeyEvent) -> Bytes {
 /// Encode a paste according to bracketed-paste mode. Ghostty sanitizes embedded
 /// terminal control characters and normalizes newlines for ordinary shells.
 pub fn Screen::paste(self : Screen, text : StringView) -> Bytes {
-  @vt.PasteOptions::new(self.terminal.mode_get(BracketedPaste)).encode(
+  @paste.PasteOptions::new(self.terminal.mode_get(BracketedPaste)).encode(
     @utf8.encode(text),
   )
 }
@@ -40,9 +40,9 @@ pub fn Screen::focus(self : Screen, focused : Bool) -> Bytes {
   if !self.terminal.mode_get(FocusEvent) {
     b""
   } else if focused {
-    @vt.FocusEvent::Gained.encode()
+    @focus.FocusEvent::Gained.encode()
   } else {
-    @vt.FocusEvent::Lost.encode()
+    @focus.FocusEvent::Lost.encode()
   }
 }
 
@@ -53,7 +53,7 @@ pub fn Screen::focus(self : Screen, focused : Bool) -> Bytes {
 pub fn Screen::mouse(self : Screen, event : @input.MouseEvent) -> Bytes {
   if !self.terminal.mouse_tracking() {
     if event.kind is @input.Scroll(direction) {
-      if self.terminal.active_screen() is @vt.Alternate &&
+      if self.terminal.active_screen() is Alternate &&
         self.terminal.mode_get(MouseAlternateScroll) {
         let key : @input.KeyCode = match direction {
           Up => @input.Up
@@ -108,7 +108,7 @@ pub fn Screen::mouse(self : Screen, event : @input.MouseEvent) -> Bytes {
       )
     }
   }
-  self.mouse_encoder.sync_from_terminal(self.terminal)
+  self.terminal.sync_mouse_encoder(self.mouse_encoder)
   self.mouse_encoder.encode(mouse)
 }
 
