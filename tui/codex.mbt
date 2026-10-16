@@ -41,7 +41,7 @@ fn State::install_codex(
       kind: match message.role {
         "user" => User
         "assistant" => Assistant
-        "reasoning" => Reasoning
+        "reasoning" => Reasoning(message.id)
         "error" => Error
         "tool" =>
           Tool(

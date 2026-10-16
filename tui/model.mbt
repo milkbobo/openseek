@@ -9,11 +9,19 @@ struct ChatKey {
 enum RowKind {
   User
   Assistant
-  Reasoning
+  Reasoning(String)
   Tool(@toolcall.Call)
   Notice
   Error
 } derive(Eq)
+
+///|
+// Separate namespaces keep tool IDs and durable reasoning IDs independent.
+enum DetailId {
+  ToolDetail(String)
+  ThinkingDetail(String)
+  LiveThinking
+} derive(Eq, Hash)
 
 ///|
 struct Row {
@@ -29,9 +37,9 @@ struct Chat {
   mut title : String
   mut session_root : String?
   rows : Array[Row]
-  expanded_tools : Set[String]
-  mut selected_tool : String?
-  mut pressed_tool : (String, Int32, Int32)?
+  expanded_details : Set[DetailId]
+  mut selected_detail : DetailId?
+  mut pressed_detail : (DetailId, Int32, Int32)?
   mut layout : ChatLayout?
   draft : @editor.Editor
   attachments : @attachments.Draft
@@ -65,9 +73,9 @@ fn Chat::Chat(key : ChatKey, title~ : String = "New chat") -> Chat {
     session_root: None,
     rows: [],
     layout: None,
-    expanded_tools: Set([]),
-    selected_tool: None,
-    pressed_tool: None,
+    expanded_details: Set([]),
+    selected_detail: None,
+    pressed_detail: None,
     draft: @editor.Editor(),
     attachments: @attachments.Draft(),
     scroll: @tui.Scroll(stick_to_bottom=true),

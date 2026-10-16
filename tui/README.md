@@ -50,6 +50,11 @@ Code blocks preserve literal text without syntax highlighting. Images show their
 alt text and target; math remains text, and strikethrough uses muted text because
 the terminal style API has no strike attribute.
 
+Thinking is collapsed to a single row by default, including live reasoning. Click its
+header to expand or fold it, just like a tool call. Each new reasoning step starts
+collapsed. The top-right Editor button shows or hides the editor without losing
+open files or the composer draft; Ctrl+E remains a text-editing key.
+
 ## Controls
 
 | Key | Action |
@@ -58,10 +63,11 @@ the terminal style API has no strike attribute.
 | Alt+Enter / Ctrl+J | Insert a newline |
 | Ctrl+N | New conversation |
 | Ctrl+1 / Ctrl+2 / Ctrl+3 / Ctrl+4 | Chat / Skills / Scheduled tasks / Settings |
-| Ctrl+E | Toggle the editor |
+| Click Editor (top right) | Show or hide the editor |
+| Ctrl+E (composer/editor) | Move to the end of the line |
 | Ctrl+R | Toggle the right Files and Review sidebar |
-| F6 | Cycle focus through visible panes, including transcript tools |
-| Up / Down, Enter / Space (transcript focus) | Select a tool and expand or fold its details |
+| F6 | Cycle focus through visible panes, including transcript details |
+| Up / Down, Enter / Space (transcript focus) | Select thinking or a tool and expand or fold its details |
 | Ctrl+B | Toggle and focus the sidebar |
 | Ctrl+P / F1 | Show commands |
 | Ctrl+T | Open the terminal pane or return to chat |

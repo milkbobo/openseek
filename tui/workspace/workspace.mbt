@@ -54,7 +54,7 @@ pub fn State::State() -> State {
     root: None,
     context: None,
     tree_focused: false,
-    message: "Ctrl+E editor · Ctrl+R files",
+    message: "click Editor above · Ctrl+R files",
     generation: 0,
     watch_generation: None,
     tree_area: @tui.Rect(row=0, col=0, width=0, height=0),
@@ -724,7 +724,7 @@ pub fn State::draw_editor(
   } else {
     frame.lines(body, [
       @tui.Line::from_text("Open a file from the explorer"),
-      @tui.Line::from_text("Ctrl+R files · Ctrl+E editor"),
+      @tui.Line::from_text("Ctrl+R files · click Editor above"),
       @tui.Line::from_text("n creates a new file"),
       @tui.Line::from_text("/diff PATH opens a Git diff"),
     ])

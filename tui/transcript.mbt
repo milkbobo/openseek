@@ -22,7 +22,12 @@ fn Chat::append_item(self : Chat, event : @protocol.SessionEvent) -> Unit {
     }
     @protocol.Assistant(message) => {
       if message.reasoning_content is Some(text) && !text.is_blank() {
-        self.rows.push({ kind: Reasoning, label: "Thinking", text, sequence, })
+        self.rows.push({
+          kind: Reasoning(event.sequence.to_string()),
+          label: "Thinking",
+          text,
+          sequence,
+        })
       }
       if !message.content.is_empty() {
         self.rows.push({
@@ -214,7 +219,12 @@ fn Chat::stream(
 ) -> Unit {
   match event {
     AssistantDelta(content~) => self.live_answer += content
-    ReasoningDelta(content~) => self.live_reasoning += content
+    ReasoningDelta(content~) => {
+      if self.live_reasoning.is_empty() {
+        self.expanded_details.remove(LiveThinking)
+      }
+      self.live_reasoning += content
+    }
     AgentStep(step~) => {
       self.live_answer = ""
       self.live_reasoning = ""

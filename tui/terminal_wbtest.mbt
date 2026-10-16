@@ -349,16 +349,23 @@ async test "sidebar navigation respects pane bounds and wheel events preserve ve
       ignore(tools.view(tools.size))
       let area = tools.regions(tools.size).chat
       let layout = tools.active.layout.unwrap()
-      let (_, header) = layout.tool_headers[0]
+      let (_, header) = layout.detail_headers
+        .iter()
+        .find_first(pair => pair.0 == ToolDetail("demo-test"))
+        .unwrap()
       let y = header - tools.active.scroll.offset() + area.row + 1
       let x = area.col + 2
       tools.mouse(client, None, @input.MouseEvent::new(Press(Left), y, x))
       tools.mouse(client, None, @input.MouseEvent::new(Release(Left), y, x))
-      assert_true(tools.active.expanded_tools.contains("demo-test"))
+      assert_true(
+        tools.active.expanded_details.contains(ToolDetail("demo-test")),
+      )
       assert_true(tools.focus is Transcript)
       assert_true(tools.view(tools.size).to_text().contains("Arguments"))
       assert_true(!tools.key(client, @input.KeyEvent::new(Enter)))
-      assert_true(!tools.active.expanded_tools.contains("demo-test"))
+      assert_true(
+        !tools.active.expanded_details.contains(ToolDetail("demo-test")),
+      )
       assert_eq(tools.active.draft.text(), "unsent draft")
       ignore(tools.view(tools.size))
       // Dragging over a header is selection, not expansion, even if it ends
@@ -366,14 +373,88 @@ async test "sidebar navigation respects pane bounds and wheel events preserve ve
       tools.mouse(client, None, @input.MouseEvent::new(Press(Left), y, x))
       tools.mouse(client, None, @input.MouseEvent::new(Drag(Left), y, x + 3))
       tools.mouse(client, None, @input.MouseEvent::new(Release(Left), y, x))
-      assert_true(!tools.active.expanded_tools.contains("demo-test"))
+      assert_true(
+        !tools.active.expanded_details.contains(ToolDetail("demo-test")),
+      )
       tools.focus = Composer
       assert_true(!tools.key(client, @input.KeyEvent::new(F6)))
       assert_true(tools.focus is Transcript)
       assert_true(!tools.key(client, @input.KeyEvent::new(Enter)))
-      assert_true(tools.active.expanded_tools.contains("demo-test"))
+      assert_true(
+        tools.active.expanded_details.contains(ToolDetail("demo-test")),
+      )
       assert_true(!tools.key(client, @input.KeyEvent::new(Escape)))
       assert_true(tools.focus is Composer)
+      assert_true(!tools.key(client, @input.KeyEvent::new(Home)))
+      assert_true(
+        !tools.key(
+          client,
+          @input.KeyEvent::new(
+            Char('e'),
+            modifiers=@input.KeyModifiers::new(ctrl=true),
+          ),
+        ),
+      )
+      assert_true(tools.focus is Composer)
+      assert_true(!tools.key(client, @input.KeyEvent::new(Char('!'), text="!")))
+      assert_eq(tools.active.draft.text(), "unsent draft!")
+      ignore(tools.view(tools.size))
+      let thinking_area = tools.regions(tools.size).chat
+      let (_, thinking_header) = tools.active.layout.unwrap().detail_headers
+        .iter()
+        .find_first(pair => pair.0 == ThinkingDetail("demo-thinking"))
+        .unwrap()
+      let thinking_y = thinking_header -
+        tools.active.scroll.offset() +
+        thinking_area.row +
+        1
+      let thinking_x = thinking_area.col + 2
+      tools.mouse(
+        client,
+        None,
+        @input.MouseEvent::new(Press(Left), thinking_y, thinking_x),
+      )
+      tools.mouse(
+        client,
+        None,
+        @input.MouseEvent::new(Release(Left), thinking_y, thinking_x),
+      )
+      assert_true(
+        tools.active.expanded_details.contains(ThinkingDetail("demo-thinking")),
+      )
+      assert_true(
+        tools.view(tools.size).to_text().contains("The existing backend"),
+      )
+      for width in [120, 80, 25] {
+        tools.size = @tui.Size(width~, height=40)
+        tools.editor_visible = false
+        tools.focus = Composer
+        let button = tools.regions(tools.size).editor_toggle
+        assert_true(tools.view(tools.size).to_text().contains("[Editor: off]"))
+        tools.mouse(
+          client,
+          None,
+          @input.MouseEvent::new(Press(Left), button.row + 1, button.col + 1),
+        )
+        assert_true(tools.focus is Workspace)
+        assert_true(tools.regions(tools.size).editor.width > 0)
+        assert_true(tools.view(tools.size).to_text().contains("[Editor: on ]"))
+        tools.mouse(
+          client,
+          None,
+          @input.MouseEvent::new(Release(Left), button.row + 1, button.col + 1),
+        )
+        assert_true(tools.editor_visible)
+        tools.mouse(
+          client,
+          None,
+          @input.MouseEvent::new(Press(Left), button.row + 1, button.col + 1),
+        )
+        assert_true(!tools.editor_visible)
+        assert_true(tools.focus is Composer)
+        assert_eq(tools.active.draft.text(), "unsent draft!")
+      }
+
       let state = State(None)
       state.size = @tui.Size(width=120, height=40)
       state.terminals.push({

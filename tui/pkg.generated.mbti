@@ -10,6 +10,8 @@ type Chat
 
 type ChatKey derive(Eq, Hash)
 
+type DetailId derive(Eq, Hash)
+
 type Event
 
 type Focus derive(Eq)

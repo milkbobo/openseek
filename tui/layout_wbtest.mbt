@@ -44,6 +44,8 @@ test "small terminals keep interactive rectangles within the frame" {
         let regions = state.regions(size, terminal~)
         for
           area in [
+            regions.editor_toggle,
+            regions.tabs,
             regions.chat,
             regions.composer,
             regions.editor,
@@ -102,9 +104,20 @@ test "transcript layout refreshes replaced content streaming and resized wraps" 
   chat.queued["next"] = "queued"
   let live = text(40)
   for
-    expected in ["Goal · finish", "thinking", "partial", "steering", "queued"] {
+    expected in ["Goal · finish", "Thinking", "partial", "steering", "queued"] {
     assert_true(live.contains(expected))
   }
+  assert_true(!live.contains("thinking"))
+  chat.toggle_detail(LiveThinking)
+  assert_true(text(40).contains("thinking"))
+  chat.stream(ReasoningDelta(content=" continued"))
+  assert_true(text(40).contains("thinking continued"))
+  chat.toggle_detail(LiveThinking)
+  assert_true(!text(40).contains("thinking continued"))
+  chat.toggle_detail(LiveThinking)
+  chat.live_reasoning = ""
+  chat.stream(ReasoningDelta(content="next step"))
+  assert_true(!text(40).contains("next step"))
   let wide_count = chat.lines(40).length()
   assert_true(chat.lines(8).length() > wide_count)
   assert_true(text(8).contains("新的消息\nnew\nmessage"))
@@ -118,6 +131,22 @@ test "transcript layout refreshes replaced content streaming and resized wraps" 
   for removed in ["finish\n", "thinking", "partial", "steering", "queued"] {
     assert_true(!finished.contains(removed))
   }
+  chat.rows.push({
+    kind: Reasoning("stable-id"),
+    label: "Thinking",
+    text: "private reasoning",
+    sequence: None,
+  })
+  assert_true(!text(40).contains("private reasoning"))
+  chat.toggle_detail(ThinkingDetail("stable-id"))
+  assert_true(text(40).contains("private reasoning"))
+  chat.rows[1] = { ..chat.rows[1], text: "updated reasoning", }
+  assert_true(text(40).contains("updated reasoning"))
+  assert_true(!text(40).contains("private reasoning"))
+  // A same-named tool never controls reasoning expansion.
+  chat.toggle_detail(ToolDetail("stable-id"))
+  chat.toggle_detail(ThinkingDetail("stable-id"))
+  assert_true(!text(40).contains("updated reasoning"))
   chat.rows.clear()
   assert_true(text(40).contains("What would you like to build?"))
   assert_true(!text(40).contains("new message"))

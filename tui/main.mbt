@@ -93,7 +93,7 @@ fn demo_state() -> State {
       sequence: Some(1),
     },
     {
-      kind: Reasoning,
+      kind: Reasoning("demo-thinking"),
       label: "Thinking",
       text: "The existing backend owns durable sessions and connection-scoped PTYs. Both clients can use its typed command catalog.",
       sequence: Some(2),
@@ -229,8 +229,11 @@ async fn main {
               } else {
                 Transcript
               }
-              state.active.select_tool(0, state.regions(state.size).chat.height)
-            } else if state.tool_key(key) {
+              state.active.select_detail(
+                0,
+                state.regions(state.size).chat.height,
+              )
+            } else if state.detail_key(key) {
               ()
             } else if key.modifiers.ctrl() && key.code is Char('1') {
               state.pages.close()
@@ -249,7 +252,7 @@ async fn main {
             }
           }
           Input(Mouse(mouse)) =>
-            if !state.tool_mouse(mouse) {
+            if !state.editor_toggle_mouse(mouse) && !state.detail_mouse(mouse) {
               if mouse.kind is Scroll(Up) {
                 state.active.scroll.scroll_by(-3)
               }

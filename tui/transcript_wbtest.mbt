@@ -142,7 +142,7 @@ test "canonical assistant commit settles live preview without duplication" {
   assert_true(chat.rows[3].kind is Tool({ id: "two", status: Failed, .. }))
   let collapsed = chat.lines(80).map(line => line.to_text()).join("\n")
   assert_true(!collapsed.contains("SECOND OUTPUT"))
-  chat.toggle_tool("two")
+  chat.toggle_detail(ToolDetail("two"))
   assert_true(
     chat
     .lines(80)
@@ -177,7 +177,7 @@ test "canonical assistant commit settles live preview without duplication" {
   // Result-only history remains inspectable when the call is absent.
   let orphan = test_chat("/orphan")
   orphan.append_item(result)
-  orphan.toggle_tool("two")
+  orphan.toggle_detail(ToolDetail("two"))
   assert_true(
     orphan
     .lines(80)

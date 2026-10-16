@@ -57,7 +57,7 @@ async fn State::key(
     let delta = if key.modifiers.shift() { -1 } else { 1 }
     self.focus = panes[(current + delta + panes.length()) % panes.length()]
     if self.focus is Transcript {
-      self.active.select_tool(0, regions.chat.height)
+      self.active.select_detail(0, regions.chat.height)
     }
     if self.focus is Workspace {
       if self.editor_visible {
@@ -91,21 +91,6 @@ async fn State::key(
       Char('4') => {
         self.terminal_focus(client, false)
         self.show_page(client, Some(@pages.Settings))
-        return false
-      }
-      Char('e') => {
-        self.terminal_focus(client, false)
-        let workspace_focused = self.focus is Workspace
-        self.show_page(client, None)
-        if self.editor_visible && workspace_focused {
-          self.editor_visible = false
-          self.focus = Composer
-        } else {
-          self.editor_visible = true
-          self.workspace.focus_editor()
-          self.focus = Workspace
-        }
-        self.resize_terminals(client)
         return false
       }
       Char('r') => {
@@ -191,7 +176,7 @@ async fn State::key(
     }
     return false
   }
-  if self.tool_key(key) {
+  if self.detail_key(key) {
     return false
   }
   if self.sidebar_key(client, key) {
@@ -269,7 +254,16 @@ async fn State::mouse(
   // tty reports one-based cells; layout and Screen use zero-based cells.
   let row = mouse.row - 1
   let col = mouse.col - 1
-  if self.tool_mouse(mouse) {
+  // Release terminal focus before the local toggle changes the active pane.
+  if self.size.width >= 25 &&
+    self.size.height >= 7 &&
+    mouse.kind is Press(Left) &&
+    contains_point(regions.editor_toggle, row, col) {
+    self.terminal_focus(client, false)
+    ignore(self.editor_toggle_mouse(mouse))
+    return
+  }
+  if self.detail_mouse(mouse) {
     self.terminal_focus(client, false)
     return
   }

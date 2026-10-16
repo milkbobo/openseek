@@ -22,7 +22,7 @@ fn local_help() -> Array[String] {
     "/attach <server path> · /upload <local path> · /attachments · /detach <number|all>",
     "FILES",
     "/edit <file> · /file <file> · /read <file> · /diff <file> open native editor tabs.",
-    "File tabs: Ctrl+S save · Ctrl+D diff view · Ctrl+R explorer · Ctrl+E editor.",
+    "File tabs: Ctrl+S save · Ctrl+D diff view · Ctrl+R explorer · click Editor above.",
     "TERMINAL",
     "/terminal [command] · !<command> · /terminal close",
     "Ctrl+T switches chat/terminal; Ctrl+Left/Right switches terminals; Alt+W closes one.",

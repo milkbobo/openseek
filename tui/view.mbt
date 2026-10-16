@@ -13,7 +13,7 @@ fn row_style(kind : RowKind) -> @tui.Style {
   match kind {
     User => @tui.Style(fg=Rgb(126, 221, 185), bold=true)
     Assistant => accent()
-    Reasoning => muted()
+    Reasoning(_) => muted()
     Tool(_) => @tui.Style(fg=Rgb(219, 192, 132))
     Notice => muted()
     Error => @tui.Style(fg=Rgb(255, 136, 145))
@@ -36,9 +36,9 @@ priv struct ChatLayout {
   width : Int32
   rows : Array[Row]
   row_lines : Array[Array[@tui.Line]]
-  tool_headers : Array[(String, Int32)]
-  expanded_tools : Set[String]
-  selected_tool : String?
+  detail_headers : Array[(DetailId, Int32)]
+  expanded_details : Set[DetailId]
+  selected_detail : DetailId?
   goal : String?
   live_reasoning : String
   live_answer : String
@@ -48,12 +48,35 @@ priv struct ChatLayout {
 }
 
 ///|
+fn thinking_lines(
+  text : String,
+  width : Int32,
+  expanded~ : Bool,
+  selected~ : Bool,
+  live~ : Bool = false,
+) -> Array[@tui.Line] {
+  let marker = if expanded { "▾" } else { "▸" }
+  let label = if live { "Thinking…" } else { "Thinking" }
+  let lines = [
+    @tui.Line::from_text(
+      "\{marker} \{label}",
+      style=if selected { accent() } else { muted() },
+    ),
+  ]
+  if expanded {
+    lines.append(markdown_lines(text, width, dim=true))
+    lines.push(@tui.Line::from_text(""))
+  }
+  lines
+}
+
+///|
 fn Chat::lines(self : Chat, width : Int32) -> Array[@tui.Line] {
   let cached = self.layout.filter(layout => layout.width == width)
   if cached is Some(layout) &&
     layout.rows == self.rows &&
-    layout.expanded_tools == self.expanded_tools &&
-    layout.selected_tool == self.selected_tool &&
+    layout.expanded_details == self.expanded_details &&
+    layout.selected_detail == self.selected_detail &&
     layout.goal == self.goal &&
     layout.live_reasoning == self.live_reasoning &&
     layout.live_answer == self.live_answer &&
@@ -63,7 +86,7 @@ fn Chat::lines(self : Chat, width : Int32) -> Array[@tui.Line] {
   }
   let lines : Array[@tui.Line] = []
   let row_lines : Array[Array[@tui.Line]] = []
-  let tool_headers : Array[(String, Int32)] = []
+  let detail_headers : Array[(DetailId, Int32)] = []
   if self.goal is Some(goal) {
     lines.append(markdown_lines("Goal · \{goal}", width))
     lines.push(@tui.Line::from_text(""))
@@ -83,16 +106,30 @@ fn Chat::lines(self : Chat, width : Int32) -> Array[@tui.Line] {
   }
   for index, row in self.rows {
     let wrapped = if row.kind is Tool(call) {
-      tool_headers.push((call.id, lines.length()))
-      let expanded = self.expanded_tools.contains(call.id)
-      let selected = self.selected_tool == Some(call.id)
+      let id = ToolDetail(call.id)
+      detail_headers.push((id, lines.length()))
+      let expanded = self.expanded_details.contains(id)
+      let selected = self.selected_detail == Some(id)
       if cached is Some(layout) &&
         layout.rows.get(index) == Some(row) &&
-        layout.expanded_tools.contains(call.id) == expanded &&
-        (layout.selected_tool == Some(call.id)) == selected {
+        layout.expanded_details.contains(id) == expanded &&
+        (layout.selected_detail == Some(id)) == selected {
         layout.row_lines[index]
       } else {
         call.lines(width, expanded~, selected~)
+      }
+    } else if row.kind is Reasoning(key) {
+      let id = ThinkingDetail(key)
+      detail_headers.push((id, lines.length()))
+      let expanded = self.expanded_details.contains(id)
+      let selected = self.selected_detail == Some(id)
+      if cached is Some(layout) &&
+        layout.rows.get(index) == Some(row) &&
+        layout.expanded_details.contains(id) == expanded &&
+        (layout.selected_detail == Some(id)) == selected {
+        layout.row_lines[index]
+      } else {
+        thinking_lines(row.text, width, expanded~, selected~)
       }
     } else if cached is Some(layout) && layout.rows.get(index) == Some(row) {
       layout.row_lines[index]
@@ -109,7 +146,7 @@ fn Chat::lines(self : Chat, width : Int32) -> Array[@tui.Line] {
           .flat_map(raw => @tui.Line::from_text(raw).wrap(width.max(1)).iter())
           .collect()
         } else {
-          markdown_lines(row.text, width, dim=row.kind is Reasoning)
+          markdown_lines(row.text, width)
         },
         @tui.Line::from_text(""),
       ]
@@ -118,9 +155,16 @@ fn Chat::lines(self : Chat, width : Int32) -> Array[@tui.Line] {
     lines.append(wrapped)
   }
   if !self.live_reasoning.is_empty() {
-    lines.push(@tui.Line::from_text("Thinking…", style=muted()))
-    lines.append(markdown_lines(self.live_reasoning, width, dim=true))
-    lines.push(@tui.Line::from_text(""))
+    detail_headers.push((LiveThinking, lines.length()))
+    lines.append(
+      thinking_lines(
+        self.live_reasoning,
+        width,
+        expanded=self.expanded_details.contains(LiveThinking),
+        selected=self.selected_detail == Some(LiveThinking),
+        live=true,
+      ),
+    )
   }
   if !self.live_answer.is_empty() {
     lines.push(@tui.Line::from_text("SeekMoon · streaming", style=accent()))
@@ -136,9 +180,9 @@ fn Chat::lines(self : Chat, width : Int32) -> Array[@tui.Line] {
     width,
     rows: self.rows.copy(),
     row_lines,
-    tool_headers,
-    expanded_tools: self.expanded_tools.copy(),
-    selected_tool: self.selected_tool,
+    detail_headers,
+    expanded_details: self.expanded_details.copy(),
+    selected_detail: self.selected_detail,
     goal: self.goal,
     live_reasoning: self.live_reasoning,
     live_answer: self.live_answer,
@@ -193,6 +237,17 @@ fn State::view(self : State, size : @tui.Size) -> @tui.Frame {
     @tui.Line::from_text(
       " Chat · \{provider} / \{model}  ·  \{if self.active.codex_id() is Some(_) { self.codex_effort.unwrap_or("default") } else { self.thinking.wire() }}",
       style=muted(),
+    ),
+  )
+  frame.line(
+    regions.editor_toggle,
+    @tui.Line::from_text(
+      if regions.editor.width > 0 {
+        "[Editor: on ]"
+      } else {
+        "[Editor: off]"
+      },
+      style=accent(),
     ),
   )
   if self.pages.page() is Some(_) {
@@ -260,7 +315,7 @@ fn State::view(self : State, size : @tui.Size) -> @tui.Frame {
   let footer = if self.focus is Terminal {
     " Ctrl+T hide terminal · Ctrl+←/→ tabs · Alt+W close · F6 focus chat"
   } else if self.focus is Transcript {
-    " ↑/↓ tool · Enter expand/fold · PgUp/PgDn scroll · Esc composer"
+    " ↑/↓ details · Enter expand/fold · PgUp/PgDn scroll · Esc composer"
   } else if self.focus is Workspace {
     " Ctrl+S save · Ctrl+W close tab · F6 next pane · Ctrl+T terminal"
   } else if self.pages.page() is Some(_) {

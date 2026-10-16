@@ -7,6 +7,7 @@ struct Regions {
   left_chats : @tui.Rect
   left_nav : @tui.Rect
   main : @tui.Rect
+  editor_toggle : @tui.Rect
   tabs : @tui.Rect
   chat : @tui.Rect
   composer : @tui.Rect
@@ -70,6 +71,7 @@ fn State::regions(
   let editor_col = main_col +
     chat_width +
     (if chat_width > 0 && editor_width > 0 { 1 } else { 0 })
+  let toggle_width = main_width.min(13)
   let rect = fn(row, col, width, height) {
     @tui.Rect(row~, col~, width~, height~)
   }
@@ -79,7 +81,18 @@ fn State::regions(
     left_chats: rect(5, 0, left_width, (height - 12).max(0)),
     left_nav: rect((height - 6).max(1), 0, left_width, main_height.min(5)),
     main: rect(1, main_col, main_width, (main_height - sheet_total).max(0)),
-    tabs: rect(1, main_col, main_width, main_height.min(1)),
+    tabs: rect(
+      1,
+      main_col,
+      (main_width - toggle_width).max(0),
+      main_height.min(1),
+    ),
+    editor_toggle: rect(
+      1,
+      width - toggle_width,
+      toggle_width,
+      main_height.min(1),
+    ),
     chat: rect(2, main_col, chat_width, (body_height - composer_height).max(0)),
     composer: rect(
       2 + body_height - composer_height,
@@ -157,4 +170,34 @@ async fn State::open_schedule_run(
       chat
     })
   self.load_chat(client, chat)
+}
+
+///|
+fn State::editor_shown(self : State) -> Bool {
+  self.regions(self.size).editor.width > 0
+}
+
+///|
+fn State::editor_toggle_mouse(self : State, mouse : @input.MouseEvent) -> Bool {
+  guard self.size.width >= 25 &&
+    self.size.height >= 7 &&
+    mouse.kind is Press(Left) &&
+    contains_point(
+      self.regions(self.size).editor_toggle,
+      mouse.row - 1,
+      mouse.col - 1,
+    ) else {
+    return false
+  }
+  let shown = self.editor_shown()
+  self.pages.close()
+  self.panel_title = None
+  self.editor_visible = !shown
+  if self.editor_visible {
+    self.workspace.focus_editor()
+    self.focus = Workspace
+  } else {
+    self.focus = Composer
+  }
+  true
 }
