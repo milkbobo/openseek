@@ -54,6 +54,8 @@ struct Chat {
   mut run_id : String?
   mut lifecycle_generation : Int32
   mut snapshot_generation : Int32
+  // The immediately preceding no-tool provider answer may be echoed by Finished.
+  mut terminal_echo_candidate : String?
   mut live_answer : String
   mut live_reasoning : String
   mut status : String
@@ -89,6 +91,7 @@ fn Chat::Chat(key : ChatKey, title~ : String = "New chat") -> Chat {
     run_id: None,
     lifecycle_generation: 0,
     snapshot_generation: 0,
+    terminal_echo_candidate: None,
     live_answer: "",
     live_reasoning: "",
     status: "Ready",

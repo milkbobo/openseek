@@ -102,6 +102,119 @@ test "canonical assistant commit settles live preview without duplication" {
   assert_eq(chat.live_answer, "")
   assert_eq(chat.live_reasoning, "")
   assert_eq(chat.rows.map(row => row.text), ["reason", "complete"])
+  chat.append_item({
+    sequence: 2,
+    ts: None,
+    item: Terminal(Finished("complete")),
+  })
+  assert_eq(chat.rows.map(row => row.text), ["reason", "complete", "Completed"])
+  assert_eq(chat.rows[1].sequence, Some(1))
+
+  // The same durable pair projects identically during live commits and reloads.
+  let assistant : @protocol.SessionEvent = {
+    sequence: 1,
+    ts: None,
+    item: Assistant({
+      content: "answer",
+      reasoning_content: Some("reason"),
+      tool_calls: None,
+      is_replay: None,
+    }),
+  }
+  let finished : @protocol.SessionEvent = {
+    sequence: 2,
+    ts: None,
+    item: Terminal(Finished("answer")),
+  }
+  let streamed = test_chat("/streamed")
+  for event in [assistant, finished] {
+    streamed.commit({
+      session: "same-id",
+      session_root: "/streamed/.openseek",
+      sequence: event.sequence,
+      event,
+    })
+  }
+  let loaded = test_chat("/loaded")
+  loaded.snapshot({
+    session: {
+      version: Some(1),
+      id: Some("same-id"),
+      system_prompt: None,
+      events: Some([assistant, finished]),
+    },
+    watermark: Some(2),
+    prediction: None,
+  })
+  assert_true(loaded.rows == streamed.rows)
+  assert_eq(loaded.watermark, 2)
+  assert_eq(loaded.rows.map(row => row.text), ["reason", "answer", "Completed"])
+  // Different final prose and context-yield notices must remain visible.
+  for
+    terminal in [
+      @protocol.Finished("different final"),
+      @protocol.ContextYield("answer"),
+    ] {
+    let other = test_chat("/other")
+    other.append_item(assistant)
+    other.append_item({ ..finished, item: Terminal(terminal), })
+    assert_eq(other.rows.length(), 4)
+  }
+  // Whitespace normalization only compares; it doesn't rewrite the answer.
+  let whitespace = test_chat("/whitespace")
+  whitespace.append_item(assistant)
+  whitespace.append_item({ ..finished, item: Terminal(Finished(" answer\n")), })
+  assert_eq(whitespace.rows.map(row => row.text), [
+    "reason", "answer", "Completed",
+  ])
+  for replay in [false, true] {
+    let separate = test_chat("/separate")
+    separate.append_item({
+      ..assistant,
+      item: Assistant({
+        content: "answer",
+        reasoning_content: None,
+        tool_calls: None,
+        is_replay: Some(replay),
+      }),
+    })
+    if !replay {
+      separate.append_item(user_event(2, "another turn"))
+    }
+    separate.append_item({ ..finished, sequence: 3, })
+    assert_eq(separate.rows.filter(row => row.kind is Assistant).length(), 2)
+  }
+  let tool_answer = test_chat("/tool-answer")
+  tool_answer.append_item({
+    ..assistant,
+    item: Assistant({
+      content: "answer",
+      reasoning_content: None,
+      is_replay: None,
+      tool_calls: Some([{ id: "call", name: "finish", arguments: "{}", }]),
+    }),
+  })
+  tool_answer.append_item(finished)
+  assert_eq(tool_answer.rows.filter(row => row.kind is Assistant).length(), 2)
+  let terminal_only = test_chat("/terminal-only")
+  terminal_only.append_item(finished)
+  assert_eq(terminal_only.rows.map(row => row.text), ["answer", "Completed"])
+  // Loading a terminal-only history cannot reuse a candidate from the old view.
+  let stale = test_chat("/stale")
+  stale.append_item(assistant)
+  stale.snapshot({
+    session: {
+      version: Some(1),
+      id: Some("same-id"),
+      system_prompt: None,
+      events: Some([finished]),
+    },
+    watermark: Some(2),
+    prediction: None,
+  })
+  assert_true(stale.rows == terminal_only.rows)
+  let chat = test_chat("/one")
+  chat.append_item(assistant)
   let calls : @protocol.SessionEvent = {
     sequence: 2,
     ts: None,

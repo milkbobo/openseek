@@ -1,6 +1,8 @@
 ///|
 fn Chat::append_item(self : Chat, event : @protocol.SessionEvent) -> Unit {
   let sequence = Some(event.sequence)
+  let preceding_answer = self.terminal_echo_candidate
+  self.terminal_echo_candidate = None
   match event.item {
     @protocol.User(message) => {
       self.rows.push({
@@ -21,6 +23,11 @@ fn Chat::append_item(self : Chat, event : @protocol.SessionEvent) -> Unit {
       self.prediction = None
     }
     @protocol.Assistant(message) => {
+      if message.is_replay != Some(true) &&
+        message.tool_calls.unwrap_or([]).is_empty() &&
+        !message.content.is_blank() {
+        self.terminal_echo_candidate = Some(message.content.trim().to_owned())
+      }
       if message.reasoning_content is Some(text) && !text.is_blank() {
         self.rows.push({
           kind: Reasoning(event.sequence.to_string()),
@@ -113,13 +120,20 @@ fn Chat::append_item(self : Chat, event : @protocol.SessionEvent) -> Unit {
         }
       }
       match terminal {
-        Finished(answer) | ContextYield(answer) if !answer.is_empty() =>
-          self.rows.push({
-            kind: Assistant,
-            label: "SeekMoon",
-            text: answer,
-            sequence,
-          })
+        Finished(answer) | ContextYield(answer) if !answer.is_blank() => {
+          // Finished seals the provider answer; only differing or standalone
+          // terminal prose needs another bubble. Never deduplicate across turns.
+          let confirms_answer = terminal is Finished(_) &&
+            preceding_answer == Some(answer.trim().to_owned())
+          if !confirms_answer {
+            self.rows.push({
+              kind: Assistant,
+              label: "SeekMoon",
+              text: answer,
+              sequence,
+            })
+          }
+        }
         _ => ()
       }
       self.live_answer = ""
@@ -180,6 +194,7 @@ fn Chat::snapshot(self : Chat, reply : @protocol.LoadSessionReply) -> Unit {
     return
   }
   self.rows.clear()
+  self.terminal_echo_candidate = None
   self.goal = None
   for event in reply.session.events.unwrap_or([]) {
     self.append_item(event)
