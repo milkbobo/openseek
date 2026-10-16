@@ -366,6 +366,9 @@ pub fn openseek_capability(
     endpoint.name() != @commands.session_export.name()
   })
   let window_only = [
+    WindowEndpoint(@commands.host_open_path_preview, (_, payload) => {
+      @host.open_path_preview(payload)
+    }),
     WindowEndpoint(@commands.host_connect, (context, _) => {
       // A reloaded page allocates browser ids from scratch; the previous
       // page's native views must not survive its attachment.
