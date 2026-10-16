@@ -40,7 +40,7 @@ moon run desktop/server --target native -- \
 ```
 
 Launch SeekMoon with `--server-url` set to `entry_url`, or set
-`OPENSEEK_SERVER_URL`. This window uses the server's frontend and backend.
+`SEEKMOON_SHARED_SERVER_URL`. This window uses the server's frontend and backend.
 Its token-bearing URL sets the session cookie before the WebSocket connects.
 Opening the same URL in a system browser also works.
 

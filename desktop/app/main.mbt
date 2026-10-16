@@ -389,7 +389,7 @@ let command : @argparse.Command = Command(
     OptionArg(
       "server-url",
       long="server-url",
-      env="OPENSEEK_SERVER_URL",
+      env="SEEKMOON_SHARED_SERVER_URL",
       about="Open the frontend URL of a shared SeekMoon server, including its launch token. This window uses that server's backend.",
     ),
     OptionArg(
