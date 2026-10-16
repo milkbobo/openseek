@@ -479,11 +479,25 @@ fn Model::sidebar_component_sections(
       continue
     }
     let conversations = ordered_by_recency(stamped)
+    let host_name = if dev.channel == Local {
+      None
+    } else {
+      self.console.roster
+      .iter()
+      .find_first(host => host.id == dev.channel.device_id())
+      .map(host => host.name)
+    }
     projects.push(
       @section.Project({
         id: @project.Id(source="openseek.projects", channel~, root=path.path),
-        title: path.path,
-        label: @resource.label(path),
+        title: match host_name {
+          None => path.path
+          Some(name) => name + " · " + path.path
+        },
+        label: match host_name {
+          None => @resource.label(path)
+          Some(name) => @resource.label(path) + " · " + name
+        },
         // The Chat and Codex screens are exclusive, so at most one side
         // claims the row's activation.
         activation: if openseek_activation is Some(_) {
@@ -534,7 +548,9 @@ fn Model::sidebar_component_sections(
   }
   match self.sidebar_mode {
     ChatMode => {
-      sections.push(self.cloud_chat_section(channel))
+      if dev.channel == self.focused {
+        sections.push(self.cloud_chat_section(channel))
+      }
       sections.push(
         self.local_chat_section(
           channel~,
@@ -605,7 +621,7 @@ fn Model::sidebar_component_sections(
       )
     }
   }
-  if self.sidebar_mode is ChatMode {
+  if self.sidebar_mode is ChatMode && dev.channel == self.focused {
     for row in ordered_by_recency(self.cloud_chat_rows(archived=true)) {
       archived_entries.push(@section.Conversation(row))
     }
@@ -694,54 +710,78 @@ fn Model::sidebar_component_input(self : Model) -> @sidebar.Input {
   if self.cloud.notice is Some(notice) {
     notices.push(notice)
   }
-  let sections = match self.focused_device() {
-    Some(dev) => {
-      if dev.chat_root is Some(Err(message)) {
-        notices.push(
-          dynamic_text(self.locale, DStorageUnavailable(message.to_string())),
-        )
-      }
-      self.sidebar_component_sections(dev)
-    }
-    None => {
-      match self.console.roster_sync {
-        RosterLoading => notices.push(shell_text(self.locale, LoadingDevice))
-        RosterFailed(message) => notices.push(message)
-        RosterReady =>
-          if self.console.roster.is_empty() {
-            notices.push(shell_text(self.locale, NoDevices))
-          } else {
-            notices.push(shell_text(self.locale, NoOnlineDevice))
+  let sections = if self.is_desktop && !self.devices.is_empty() {
+    let combined : Array[@section.Input] = []
+    for dev in self.devices {
+      for section in self.sidebar_component_sections(dev) {
+        match
+          combined.search_by(item => item.id.source() == section.id.source()) {
+          Some(index) => {
+            let previous = combined[index]
+            combined[index] = {
+              ..previous,
+              entries: previous.entries + section.entries,
+              activation: match section.activation {
+                Some(_) => section.activation
+                None => previous.activation
+              },
+            }
           }
+          None => combined.push(section)
+        }
       }
-      if self.sidebar_mode is ChatMode {
-        let archived_entries = ordered_by_recency(
-          self.cloud_chat_rows(archived=true),
-        ).map(row => @section.Conversation(row))
-        [
-          self.cloud_chat_section(self.focused.uri_authority()),
-          self.local_chat_section(
-            channel=self.focused.uri_authority(),
-            activation=None,
-            rows=[],
-          ),
-          {
-            id: @section.Id(
-              source="archived",
+    }
+    combined
+  } else {
+    match self.focused_device() {
+      Some(dev) => {
+        if dev.chat_root is Some(Err(message)) {
+          notices.push(
+            dynamic_text(self.locale, DStorageUnavailable(message.to_string())),
+          )
+        }
+        self.sidebar_component_sections(dev)
+      }
+      None => {
+        match self.console.roster_sync {
+          RosterLoading => notices.push(shell_text(self.locale, LoadingDevice))
+          RosterFailed(message) => notices.push(message)
+          RosterReady =>
+            if self.console.roster.is_empty() {
+              notices.push(shell_text(self.locale, NoDevices))
+            } else {
+              notices.push(shell_text(self.locale, NoOnlineDevice))
+            }
+        }
+        if self.sidebar_mode is ChatMode {
+          let archived_entries = ordered_by_recency(
+            self.cloud_chat_rows(archived=true),
+          ).map(row => @section.Conversation(row))
+          [
+            self.cloud_chat_section(self.focused.uri_authority()),
+            self.local_chat_section(
               channel=self.focused.uri_authority(),
+              activation=None,
+              rows=[],
             ),
-            label: @sidebar_messages.text(
-              self.locale,
-              ArchivedChats(archived_entries.length()),
-            ),
-            initially_collapsed: true,
-            activation: None,
-            action: None,
-            entries: archived_entries,
-          },
-        ]
-      } else {
-        []
+            {
+              id: @section.Id(
+                source="archived",
+                channel=self.focused.uri_authority(),
+              ),
+              label: @sidebar_messages.text(
+                self.locale,
+                ArchivedChats(archived_entries.length()),
+              ),
+              initially_collapsed: true,
+              activation: None,
+              action: None,
+              entries: archived_entries,
+            },
+          ]
+        } else {
+          []
+        }
       }
     }
   }
@@ -877,7 +917,7 @@ fn codex_account_rows(
         desc=@settings.text(model.locale, SignOutDescription),
       ),
     )
-  } else if codex.sign_in_required() {
+  } else if codex.sign_in_required() && !@interop.is_native_ssh(channel) {
     rows.push(
       @settings.row(
         @settings.text(model.locale, SignIn),
@@ -920,6 +960,22 @@ fn codex_account_rows(
         desc=@settings.text(model.locale, FinishSignIn),
       ),
     )
+  }
+  if @interop.is_native_ssh(channel) {
+    rows.push(
+      @settings.row(
+        "Remote Codex",
+        [
+          @html.button(
+            class="button secondary",
+            on_click=dispatch(Codex(channel~, @codex.Msg::refresh())),
+            "Refresh account",
+          ),
+        ],
+        desc="Run codex login --device-auth in this host's terminal. Configure ~/.codex/config.toml on the remote host; credentials remain there.",
+      ),
+    )
+    return rows
   }
   rows.push(
     @settings.row(
@@ -1418,6 +1474,11 @@ fn settings_page(dispatch : @cmd.Emit[Msg], model : Model) -> @html.Html {
   ]
   let api_rows : Array[@html.Html] = api_settings_rows(dispatch, model)
   let groups : Array[@html.Html] = [
+    ..if model.is_desktop {
+      [ssh_settings(dispatch, model)]
+    } else {
+      []
+    },
     @settings.group(icon_sparkle, @settings.text(locale, Engine), engine_rows),
     @settings.group(icon_key, "API", api_rows),
     @settings.group(
@@ -2335,6 +2396,11 @@ fn view(
         locale=model.locale,
         dispatch.map(msg => ProjectPicker(msg)),
         picker,
+        location?=if model.is_desktop {
+          Some(ssh_locations(dispatch, model))
+        } else {
+          None
+        },
       ),
     )
   }
@@ -2364,6 +2430,7 @@ fn view(
   // rendered device readable while its topbar and composer show reconnecting.
   if !model.cloud_selected() &&
     model.is_desktop &&
+    model.focused == Local &&
     model.bridge_state() is BridgeLost(message) {
     children.push(bridge_lost_overlay(locale=model.locale, message))
   }

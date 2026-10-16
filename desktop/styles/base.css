@@ -499,3 +499,6 @@ html.native-titlebar-overlay .app
 .content.panel-expanded .editor-tabsbar {
   padding-inline-start: var(--main-titlebar-leading-inset);
 }
+
+.ssh-locations { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 20px; border-bottom: 1px solid var(--border); }
+.ssh-error { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--color-danger, #c74949); padding: 8px 16px; }

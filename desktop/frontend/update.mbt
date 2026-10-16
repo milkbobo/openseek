@@ -5191,6 +5191,7 @@ fn update_msg(
         },
       )
     }
+    Ssh(msg) => update_ssh(dispatch, msg, model)
     PickProject(channel) => {
       // Focus moves for the surrounding UI, while the picker itself keeps
       // `channel` as its owner through every later navigation and confirm.
@@ -7132,6 +7133,9 @@ fn update_device_msg(
           dispatch, channel, connection_generation, projects_request_generation,
         ),
       ]
+      if channel == Local && model.is_desktop {
+        commands.push(ssh_load(dispatch))
+      }
       // The focused-scoped half: the host-settings mirror and installed
       // skills (they feed the composer's `$` completion, so
       // they load on connect rather than when the Skills page opens) follow
