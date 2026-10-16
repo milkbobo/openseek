@@ -1,0 +1,21 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "openseek_desktop/backend/internal/ssh_shell"
+
+import {
+  "moonbitlang/async/io",
+}
+
+// Values
+pub fn command(String) -> String
+
+pub fn quote(String) -> String
+
+pub async fn read_marker(&@io.Reader, String) -> Bool
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits

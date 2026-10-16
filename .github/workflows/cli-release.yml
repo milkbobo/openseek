@@ -55,9 +55,11 @@ jobs:
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash -s -- "$version"
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
       - name: Build and package the native CLI
+        env:
+          CL: ${{ runner.os == 'Windows' && '/bigobj' || '' }}
         run: |
           # The CLI needs these workspace modules, without Desktop's Proton prebuild.
-          printf 'members = [".", "./protocol", "./tools_sdk", "./editor"]\n' > moon.work
+          printf 'members = [".", "./protocol", "./tools_sdk", "./editor", "./desktop", "./desktop/backend"]\n' > moon.work
           moon update
           moon test installation --target native
           moon build . --target native --release
