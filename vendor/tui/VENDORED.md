@@ -17,3 +17,5 @@ Local changes:
   and rendering tests. The fields remain read-only outside the library.
 - Added `Editor(preserve_text=true)` for file editors to preserve tabs, CRLF,
   and other source text while retaining the existing composer defaults.
+- Added opt-in `Frame(inherit_colors=true)` so text can retain painted panel
+  colors instead of reverting to the outer terminal's default palette.

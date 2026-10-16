@@ -18,7 +18,7 @@ type Options
 
 type Regions
 
-type Row
+type Row derive(Eq)
 
 type RowKind derive(Eq)
 

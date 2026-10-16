@@ -47,7 +47,7 @@ pub(all) enum Flex {
 pub fn Flex::equal(Self, Self) -> Bool
 
 type Frame
-pub fn Frame::Frame(width~ : Int, height~ : Int) -> Self
+pub fn Frame::Frame(width~ : Int, height~ : Int, inherit_colors? : Bool) -> Self
 pub fn Frame::area(Self) -> Rect
 pub fn Frame::cursor(Self) -> Cursor?
 pub fn Frame::fill(Self, Rect, style? : Style) -> Unit

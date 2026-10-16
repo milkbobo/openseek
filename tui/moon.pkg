@@ -28,6 +28,7 @@ pkgtype(kind: "executable")
 supported_targets = "native"
 
 import {
+  "moonbitlang/core/bench",
   "moonbitlang/async/socket",
   "moonbitlang/async/http",
   "moonbitlang/async/websocket",

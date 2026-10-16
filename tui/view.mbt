@@ -53,8 +53,34 @@ fn markdown_lines(
 }
 
 ///|
+// Keep source values as well as wrapped lines: reconnects and Codex updates
+// can replace rows without changing their count or sequence numbers.
+priv struct ChatLayout {
+  width : Int32
+  rows : Array[Row]
+  row_lines : Array[Array[@tui.Line]]
+  goal : String?
+  live_reasoning : String
+  live_answer : String
+  pending : Map[String, String]
+  queued : Map[String, String]
+  lines : Array[@tui.Line]
+}
+
+///|
 fn Chat::lines(self : Chat, width : Int32) -> Array[@tui.Line] {
+  let cached = self.layout.filter(layout => layout.width == width)
+  if cached is Some(layout) &&
+    layout.rows == self.rows &&
+    layout.goal == self.goal &&
+    layout.live_reasoning == self.live_reasoning &&
+    layout.live_answer == self.live_answer &&
+    layout.pending == self.pending &&
+    layout.queued == self.queued {
+    return layout.lines
+  }
   let lines : Array[@tui.Line] = []
+  let row_lines : Array[Array[@tui.Line]] = []
   if self.goal is Some(goal) {
     lines.append(markdown_lines("Goal · \{goal}", width))
     lines.push(@tui.Line::from_text(""))
@@ -72,13 +98,23 @@ fn Chat::lines(self : Chat, width : Int32) -> Array[@tui.Line] {
       lines.append(markdown_lines(text, width, dim=true))
     }
   }
-  for row in self.rows {
-    let sequence = row.sequence.map(n => " · #\{n}").unwrap_or("")
-    lines.push(
-      @tui.Line::from_text("\{row.label}\{sequence}", style=row_style(row.kind)),
-    )
-    lines.append(markdown_lines(row.text, width, dim=row.kind is Reasoning))
-    lines.push(@tui.Line::from_text(""))
+  for index, row in self.rows {
+    let wrapped = if cached is Some(layout) &&
+      layout.rows.get(index) == Some(row) {
+      layout.row_lines[index]
+    } else {
+      let sequence = row.sequence.map(n => " · #\{n}").unwrap_or("")
+      [
+        @tui.Line::from_text(
+          "\{row.label}\{sequence}",
+          style=row_style(row.kind),
+        ),
+        ..markdown_lines(row.text, width, dim=row.kind is Reasoning),
+        @tui.Line::from_text(""),
+      ]
+    }
+    row_lines.push(wrapped)
+    lines.append(wrapped)
   }
   if !self.live_reasoning.is_empty() {
     lines.push(@tui.Line::from_text("Thinking…", style=muted()))
@@ -95,12 +131,31 @@ fn Chat::lines(self : Chat, width : Int32) -> Array[@tui.Line] {
   for id, text in self.queued {
     lines.append(markdown_lines("◷ Queued \{id}: \{text}", width, dim=true))
   }
+  self.layout = Some({
+    width,
+    rows: self.rows.copy(),
+    row_lines,
+    goal: self.goal,
+    live_reasoning: self.live_reasoning,
+    live_answer: self.live_answer,
+    pending: self.pending.copy(),
+    queued: self.queued.copy(),
+    lines,
+  })
   lines
 }
 
 ///|
 fn State::view(self : State, size : @tui.Size) -> @tui.Frame {
-  let frame = @tui.Frame(width=size.width, height=size.height)
+  let frame = @tui.Frame(
+    width=size.width,
+    height=size.height,
+    inherit_colors=true,
+  )
+  frame.fill(
+    frame.area(),
+    style=@tui.Style(bg=Rgb(17, 22, 30), fg=Rgb(221, 227, 235)),
+  )
   if size.width < 25 || size.height < 7 {
     frame.line(
       frame.area(),
@@ -109,10 +164,6 @@ fn State::view(self : State, size : @tui.Size) -> @tui.Frame {
     return frame
   }
   let regions = self.regions(size)
-  frame.fill(
-    frame.area(),
-    style=@tui.Style(bg=Rgb(17, 22, 30), fg=Rgb(221, 227, 235)),
-  )
   frame.fill(regions.header, style=@tui.Style(bg=Rgb(28, 36, 49)))
   frame.line(
     regions.header,

@@ -21,7 +21,7 @@ struct Row {
   label : String
   text : String
   sequence : Int32?
-}
+} derive(Eq)
 
 ///|
 struct Chat {
@@ -29,6 +29,7 @@ struct Chat {
   mut title : String
   mut session_root : String?
   rows : Array[Row]
+  mut layout : ChatLayout?
   draft : @editor.Editor
   attachments : @attachments.Draft
   scroll : @tui.Scroll
@@ -59,6 +60,7 @@ fn Chat::Chat(key : ChatKey, title~ : String = "New chat") -> Chat {
     title,
     session_root: None,
     rows: [],
+    layout: None,
     draft: @editor.Editor(),
     attachments: @attachments.Draft(),
     scroll: @tui.Scroll(stick_to_bottom=true),

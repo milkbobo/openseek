@@ -26,6 +26,21 @@ The following issues are implemented and covered by regressions. They are needed
 - **Live schedule status — fixed.** The Scheduled tasks page refreshes its snapshot on `session.changed`, so a run finishing asynchronously or in another client updates the displayed runs without reopening the page. Desktop evidence: `desktop/frontend/update.mbt` `SessionsChanged` schedule refresh.
 - **Repeated server launches and exports — fixed.** Restarting the standalone server with an existing explicit runtime directory accepts that directory. Repeated HTML exports accept an existing exports directory and retain separate files for each export. Existing non-directory paths still fail through the filesystem error channel. Evidence: native server restart runtime smoke and `desktop/backend/host/session_export_wbtest.mbt`.
 
+## Terminal rendering and scrolling
+
+- **Light outer-terminal palettes — fixed.** The workspace paints an explicit
+  palette and opts into frame color inheritance. Text retains its panel's
+  foreground/background instead of resetting to terminal defaults, which used
+  to produce white rectangles on a dark workspace. Explicit code, selection,
+  editor and embedded-terminal colors are preserved.
+- **Long transcript scrolling — fixed.** Wrapped transcript rows are cached by
+  width and source content. Scrolling reuses the layout; streaming or replaced
+  messages only rewrap changed rows. The cache also tracks goals and follow-up
+  queues and refreshes after resize or reconnect. Run
+  `moon bench tui/view_bench_wbtest.mbt --target native` for the fixed-size view
+  benchmark with 20, 200 and 1,000 mixed Chinese/English messages. This measures
+  view construction, excluding terminal output and the terminal emulator.
+
 ## Remaining observations
 
 - In a wide diff editor, the original pane remains at its own scroll position while moving through the editable pane. The unified preview has one scroll position. A later improvement can map corresponding lines through the diff hunks and synchronize both panes without changing file contents.

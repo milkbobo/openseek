@@ -58,3 +58,67 @@ test "small terminals keep interactive rectangles within the frame" {
     }
   }
 }
+
+///|
+test "workspace text has explicit colors on light outer terminals" {
+  let state = demo_state()
+  let frame = state.view(@tui.Size(width=150, height=40))
+  for row in 0..<frame.height() {
+    for col in 0..<frame.width() {
+      let style = frame.style_at(row~, col~)
+      assert_true(
+        !(style.bg is Default),
+        msg="default background at \{row},\{col}",
+      )
+      assert_true(
+        !(style.fg is Default),
+        msg="default foreground at \{row},\{col}",
+      )
+    }
+  }
+}
+
+///|
+test "transcript layout refreshes replaced content streaming and resized wraps" {
+  let chat = Chat({ session: "layout", workspace: None, archived: false, })
+  chat.notice("old message")
+  let text = fn(width) {
+    chat.lines(width).map(line => line.to_text()).join("\n")
+  }
+  assert_true(text(40).contains("old message"))
+  // A reconnect can replace a row with the same count and no sequence.
+  chat.rows[0] = {
+    ..chat.rows[0],
+    text: "新的消息 new message",
+    label: "New",
+    kind: Assistant,
+  }
+  assert_true(text(40).contains("New\n新的消息 new message"))
+  assert_true(!text(40).contains("old message"))
+  chat.goal = Some("finish")
+  chat.live_reasoning = "thinking"
+  chat.live_answer = "partial"
+  chat.pending["steer"] = "steering"
+  chat.queued["next"] = "queued"
+  let live = text(40)
+  for
+    expected in ["Goal · finish", "thinking", "partial", "steering", "queued"] {
+    assert_true(live.contains(expected))
+  }
+  let wide_count = chat.lines(40).length()
+  assert_true(chat.lines(8).length() > wide_count)
+  assert_true(text(8).contains("新的消息\nnew\nmessage"))
+  chat.goal = None
+  chat.live_reasoning = ""
+  chat.live_answer = "finished"
+  chat.pending.clear()
+  chat.queued.clear()
+  let finished = text(40)
+  assert_true(finished.contains("finished"))
+  for removed in ["finish\n", "thinking", "partial", "steering", "queued"] {
+    assert_true(!finished.contains(removed))
+  }
+  chat.rows.clear()
+  assert_true(text(40).contains("What would you like to build?"))
+  assert_true(!text(40).contains("new message"))
+}
