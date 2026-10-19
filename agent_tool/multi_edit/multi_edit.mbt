@@ -324,12 +324,7 @@ async fn multi_edit_files(
     prepared.push({ file: group.file, path: group.path, content, plans, })
   }
   if failures.length() > 0 {
-    return @agent_tool.respond(
-      failure_report(failures),
-      is_error=true,
-      brief~,
-      data=failures_data(failures),
-    )
+    return reject_failures(failures, brief)
   }
   // Render each file and run the write guard before touching disk, so a guarded
   // path aborts the whole batch instead of leaving earlier files written. The
@@ -368,12 +363,7 @@ async fn multi_edit_files(
     }
   }
   if failures.length() > 0 {
-    return @agent_tool.respond(
-      failure_report(failures),
-      is_error=true,
-      brief~,
-      data=failures_data(failures),
-    )
+    return reject_failures(failures, brief)
   }
   // Pre-write syntax gate over the rendered batch (see parse_gate.mbt): if
   // any edited `.mbt` file would gain new lex/parse errors, reject the whole
@@ -1400,6 +1390,21 @@ fn apply_plans(content : String, plans : Array[PlannedEdit]) -> String {
   ordered.fold(init=content, (output, plan) => {
     "\{output.unsafe_substring(start=0, end=plan.start)}\{plan.new_string}\{output.unsafe_substring(start=plan.end, end=output.length())}"
   })
+}
+
+///|
+/// The batch rejection shared by every all-or-nothing failure collected before
+/// the first write: one report of every failing edit, with nothing written.
+fn reject_failures(
+  failures : Array[EditFailure],
+  brief : String,
+) -> @agent_tool.ToolAction {
+  @agent_tool.respond(
+    failure_report(failures),
+    is_error=true,
+    brief~,
+    data=failures_data(failures),
+  )
 }
 
 ///|
