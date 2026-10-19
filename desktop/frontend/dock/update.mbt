@@ -170,3 +170,64 @@ pub fn open_jobs(state : State) -> State {
 pub fn open_github(state : State) -> State {
   open_tab(state, Github)
 }
+
+///|
+/// Open side chat `chat` of the conversation `owner` and make it the active
+/// tab of `owner`'s strip, whichever conversation is on screen: the live strip
+/// when `owner` is on screen, its parked strip otherwise (like
+/// `open_browser_for`), to be found there when that conversation returns.
+pub fn open_side_chat_for(
+  state : State,
+  owner : @interop.ConversationKey,
+  chat : @interop.ConversationKey,
+) -> State {
+  let tab = DockTab::SideChat(owner=chat)
+  if state.owner == Some(owner) {
+    return open_tab(state, tab)
+  }
+  let tabs = match state.remembered.get(owner) {
+    Some(parked) if parked.tabs.contains(tab) => parked.tabs
+    Some(parked) => [..parked.tabs, tab]
+    None => [tab]
+  }
+  let remembered = state.remembered.copy()
+  remembered[owner] = { tabs, active: Some(tab), }
+  { ..state, remembered, }
+}
+
+///|
+/// Make the live strip's side-chat tabs match `chats`, the side chats of the
+/// strip's conversation that exist: a side chat's tab lives exactly as long
+/// as its record. A missing tab is appended without taking the screen — this
+/// is how a strip gets its side chats back after a restart, when no parked
+/// strip survived — and a tab whose record is gone closes the way its close
+/// button would. Other tabs are left alone.
+///
+/// Only the live strip is reconciled; a parked strip catches up when its
+/// conversation returns and is synced in.
+pub fn reconcile_side_chats(
+  state : State,
+  chats : Array[@interop.ConversationKey],
+) -> State {
+  let gone = state.tabs.filter(tab => {
+    tab is SideChat(owner~) && !chats.contains(owner)
+  })
+  let state = gone.fold(init=state, (state, tab) => {
+    update(TabClosed(tab), state)
+  })
+  let missing = chats.filter(chat => {
+    !state.tabs.contains(DockTab::SideChat(owner=chat))
+  })
+  guard !missing.is_empty() else { return state }
+  let tabs = [
+    ..state.tabs,
+    ..missing.map(chat => DockTab::SideChat(owner=chat)),
+  ]
+  // An empty strip has no active tab; keep the invariant that a non-empty one
+  // does, without letting a restored side chat cover a tab the reader chose.
+  let active = match state.active {
+    Some(_) => state.active
+    None => tabs.get(0)
+  }
+  { ..state, tabs, active, }
+}

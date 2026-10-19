@@ -276,3 +276,68 @@ test "historical diffs deduplicate exact commits and distinguish revisions" {
   assert_true(@dock.file_paths(state).is_empty())
   assert_true(@dock.active_file(state) is None)
 }
+
+///|
+fn side_chat(session : String) -> @dock.DockTab {
+  @dock.DockTab::SideChat(owner=owner(session))
+}
+
+///|
+test "side-chat tabs follow the side chats that exist" {
+  let state = @dock.State::empty()
+    |> @dock.sync(owner("chat"))
+    |> @dock.open_file(work_file("a.mbt"))
+  // After a restart nothing was parked: the records bring the tabs back,
+  // behind the tab the reader is on.
+  let restored = @dock.reconcile_side_chats(state, [
+    owner("chat-sc-1"),
+    owner("chat-sc-2"),
+  ])
+  assert_true(
+    restored.tabs ==
+    [file_tab("a.mbt"), side_chat("chat-sc-1"), side_chat("chat-sc-2")],
+  )
+  assert_true(restored.active == Some(file_tab("a.mbt")))
+  // Reconciling again changes nothing.
+  assert_true(
+    @dock.reconcile_side_chats(restored, [
+      owner("chat-sc-1"),
+      owner("chat-sc-2"),
+    ]) ==
+    restored,
+  )
+  // A record that went away (deleted, or archived with its conversation)
+  // takes its tab along, the way closing it would.
+  let shown = @dock.update(TabActivated(side_chat("chat-sc-2")), restored)
+  let closed = @dock.reconcile_side_chats(shown, [owner("chat-sc-1")])
+  assert_true(closed.tabs == [file_tab("a.mbt"), side_chat("chat-sc-1")])
+  assert_true(closed.active == Some(side_chat("chat-sc-1")))
+}
+
+///|
+test "a side chat restored into an empty strip is the active tab" {
+  let state = @dock.State::empty() |> @dock.sync(owner("chat"))
+  let restored = @dock.reconcile_side_chats(state, [owner("chat-sc-1")])
+  assert_true(restored.active == Some(side_chat("chat-sc-1")))
+}
+
+///|
+test "a side chat opened for a conversation off screen waits in its strip" {
+  let state = @dock.State::empty()
+    |> @dock.sync(owner("chat"))
+    |> @dock.open_file(work_file("a.mbt"))
+    |> @dock.sync(owner("other"))
+  let opened = @dock.open_side_chat_for(
+    state,
+    owner("chat"),
+    owner("chat-sc-1"),
+  )
+  // The strip on screen is untouched.
+  assert_true(opened.tabs.is_empty())
+  let back = @dock.sync(opened, owner("chat"))
+  assert_true(back.tabs == [file_tab("a.mbt"), side_chat("chat-sc-1")])
+  assert_true(back.active == Some(side_chat("chat-sc-1")))
+  // On screen, it opens in the live strip.
+  let again = @dock.open_side_chat_for(back, owner("chat"), owner("chat-sc-2"))
+  assert_true(again.active == Some(side_chat("chat-sc-2")))
+}

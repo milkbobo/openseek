@@ -46,6 +46,7 @@ fn tab_menu_target(state : State, tab : DockTab) -> String {
     Workflows => "workflows"
     Github => "github"
     Jobs => "jobs"
+    SideChat(owner~) => "side-chat:\{owner.session.length()}:\{owner.session}"
   }
   "dock:\{owner}:\{identity}"
 }
