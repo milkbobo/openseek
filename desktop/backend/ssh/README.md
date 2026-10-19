@@ -37,7 +37,7 @@ moon build . desktop/backend/server --target native --release
 # _build/native/release/build/openseek_desktop/backend/server/server.exe -> openseek-app-server
 ```
 
-Use **Add project → Add SSH remote…**, or **Settings → SSH remotes**. Enter
+Use **Add project → Add SSH host**, or **Settings → SSH hosts → Add SSH host**. Enter
 `ssh user@host`, `ssh alias`, or a command with `-p`, `-i`, `-J`, `-l`, or `-F`.
 The parser preserves quoted arguments and never evaluates the input as a local
 shell command. Put additional connection settings in SSH config. Password and
@@ -45,8 +45,16 @@ host-key prompts must first be completed in a terminal; batch-mode failures are
 shown in the UI. Existing profiles with an explicit executable path continue
 to use that path without automatic preparation; new profiles need only an SSH command.
 
-Select **Add project** on the connected host, browse to a remote directory, and
-add it. The sidebar combines local and remote projects, with host-qualified
+After connecting, the remote folder picker opens automatically. Browse to a
+remote directory and add it. Cancelling host creation returns to the previous
+folder selection. Saved hosts can also connect through **Add project**.
+
+An optional display name overrides the SSH alias or hostname. Projects use a
+compact single-line row with the folder name and a separate host label. Click
+the host label for connection status, rename, disconnect or reconnect. The
+original command is available under **Connection details**. Renaming preserves
+the host ID, connection, project positions and execution command. Older profile
+files without a display name continue to load. The sidebar combines local and remote projects, with host-qualified
 identities. Chat, history, approvals, attachments, worktrees, file browsing,
 file watching, search, Git changes/history/review, language navigation/hover,
 and PTYs reuse the existing backend API and frontend components. MoonBit tools,

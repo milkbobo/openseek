@@ -20,9 +20,14 @@ pub fn goal_set(String, auto~ : Bool) -> @openseek_protocol.Command
 
 pub fn prompt(@openseek_protocol.Content, submission_id? : String) -> @openseek_protocol.Command
 
+pub fn ssh_connection_arguments(String) -> Array[String] raise
+
 pub fn steer(@openseek_protocol.Content, submission_id? : String) -> @openseek_protocol.Command
 
 // Errors
+pub(all) suberror SshCommandError {
+  SshCommandError(String)
+}
 
 // Types and methods
 pub(all) struct AccountSession {
@@ -3622,7 +3627,10 @@ pub(all) struct SshProfile {
   id : String
   command : String
   server : String
+  display_name : String?
 } derive(Eq)
+pub fn SshProfile::connection_label(Self) -> String
+pub fn SshProfile::display_label(Self) -> String
 pub fn SshProfile::equal(Self, Self) -> Bool
 pub fn SshProfile::from_json(Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
 pub fn SshProfile::not_equal(Self, Self) -> Bool

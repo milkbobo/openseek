@@ -31,8 +31,16 @@ pub async fn save(profile : @protocol.SshProfile) -> @protocol.SshProfile {
     },
   }
   let current = profiles()
-  let hosts = current.hosts.filter(host => host.id != profile.id)
-  hosts.push(profile)
+  let hosts = current.hosts.map(host => {
+    if host.id == profile.id {
+      profile
+    } else {
+      host
+    }
+  })
+  if !current.hosts.any(host => host.id == profile.id) {
+    hosts.push(profile)
+  }
   let path = @pathx.Path(profile_path())
   @fs.mkdir(path.dirname().to_string(), recursive=true, allow_exist=true)
   let next = path.to_string() + "." + @uuid.mint() + ".tmp"

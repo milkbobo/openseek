@@ -494,9 +494,15 @@ fn Model::sidebar_component_sections(
           None => path.path
           Some(name) => name + " · " + path.path
         },
-        label: match host_name {
-          None => @resource.label(path)
-          Some(name) => @resource.label(path) + " · " + name
+        label: @resource.label(path),
+        host: if dev.channel == Local {
+          None
+        } else {
+          Some({
+            name: host_name.unwrap_or("Remote"),
+            online: dev.bridge is Connected,
+            details: @interop.is_native_ssh(dev.channel),
+          })
         },
         // The Chat and Codex screens are exclusive, so at most one side
         // claims the row's activation.
@@ -505,7 +511,7 @@ fn Model::sidebar_component_sections(
         } else {
           codex_activation
         },
-        can_start: true,
+        can_start: dev.bridge is Connected,
         managed: true,
         conversations,
       }),
@@ -2141,6 +2147,10 @@ fn view(
       )
     Schedules => @page_shell.header(ui(model.locale, ScheduledTasks))
   }
+  if @interop.is_native_ssh(model.focused) &&
+    model.screen.work_screen() is Some(_) {
+    header.insert(0, ssh_context(dispatch, model))
+  }
   let content = match model.screen {
     // `Model::chat_column` is the one fork that decides what the conversation
     // column is; the transcript component's lifetime follows the same value.
@@ -2403,6 +2413,9 @@ fn view(
         },
       ),
     )
+  }
+  if model.ssh_ui.editor_open || model.ssh_ui.details is Some(_) {
+    children.push(ssh_modal(dispatch, model))
   }
   if model.archive_confirm is Some(confirm) {
     children.push(
