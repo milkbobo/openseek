@@ -1629,7 +1629,8 @@ fn sync_file_panel(
     ..model,
     file_panel: panel,
   })
-  (model, @cmd.batch([cmd, side_chat_cmd]))
+  let (model, closing_cmd) = model.advance_side_chat_closing(dispatch)
+  (model, @cmd.batch([cmd, side_chat_cmd, closing_cmd]))
 }
 
 ///|
@@ -5671,6 +5672,15 @@ fn update_msg(
       model.edit_user_message(dispatch, slot, sequence, draft)
     ForkRequested(slot~, through~) =>
       model.request_fork(dispatch, slot, through)
+    SideChatRequested(owner~, quote~) =>
+      model.request_side_chat(dispatch, owner, quote)
+    SideChatCloseFailed(chat~, message~) =>
+      {
+        ..model,
+        closing_side_chats: model.closing_side_chats.filter(closing => {
+          closing.chat != chat
+        }),
+      }.notify_error(dispatch, message)
     ForkCompleted(pending, result, fresh_session~) =>
       model.finish_fork(dispatch, pending, result, fresh_session~)
     // A transcript link naming a session on the device already focused. It
@@ -6226,7 +6236,13 @@ fn update_msg(
             } else {
               model
             }
-            match tab {
+            // A side chat's tab is the side chat: closing it deletes it.
+            let (close_side_chat, model) = if tab is SideChat(owner~) {
+              model.close_side_chat(dispatch, owner)
+            } else {
+              (@cmd.none, model)
+            }
+            let (cmd, model) = match tab {
               File(path~) => {
                 let (cmd, panel) = @fileeditor.close_document(
                   femit,
@@ -6341,6 +6357,7 @@ fn update_msg(
                   (@cmd.none, model)
                 }
             }
+            (@cmd.batch([close_side_chat, cmd]), model)
           } else {
             (@cmd.none, model)
           }

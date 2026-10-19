@@ -189,3 +189,124 @@ test "the dock's composer stays with the side-chat tab while the dock is hidden"
     @interop.Host(side_chat_owner()),
   )
 }
+
+///|
+/// The fixture conversation in the column with one finished turn, ending at
+/// sequence 4, and nothing beside it yet.
+fn side_chat_source_model() -> Model {
+  test_model().replace_conversation({
+    ..test_conversation(),
+    sync: Synced,
+    task: "",
+    messages: [
+      { kind: @transcript.Answer("done"), sequence: Some(4), ts: None, },
+    ],
+  })
+}
+
+///|
+test "a side chat opens beside its conversation with the quote in its draft" {
+  let model = side_chat_source_model()
+  assert_true(model.can_open_side_chat())
+  let owner : @interop.ConversationKey = {
+    channel: @interop.ChannelId::Local,
+    session: "desktop-test",
+  }
+  let (_, requested) = update(
+    test_dispatch(),
+    SideChatRequested(owner~, quote="the parser"),
+    model,
+  )
+  guard requested.conversation_fork is Some(pending) &&
+    pending.kind is SideChat(through=4, quote="the parser") else {
+    fail("a side chat forks through the last finished turn")
+  }
+  // One fork at a time: the selection bar offers no second side chat.
+  assert_false(requested.can_open_side_chat())
+  let (_, opened) = update(
+    test_dispatch(),
+    ForkCompleted(
+      pending,
+      Ok({ session: SideChatId, title: "Title", }),
+      fresh_session="desktop-unused",
+    ),
+    requested,
+  )
+  // Nothing navigates: the conversation stays in the column, and the side
+  // chat is on screen in the dock with the quote waiting in its draft.
+  assert_eq(opened.active_session, "desktop-test")
+  assert_true(opened.right_panel_open)
+  assert_true(opened.dock.active == Some(SideChat(owner=side_chat_owner())))
+  assert_true(opened.mounted_side_chat_owner() == Some(side_chat_owner()))
+  guard opened.find_conversation(@interop.ChannelId::Local, SideChatId)
+    is Some(side) else {
+    fail("the side chat must be held")
+  }
+  assert_eq(side.task, "> the parser\n\n")
+  assert_true(opened.conversation_fork is None)
+}
+
+///|
+test "closing an idle side chat's tab deletes it, and a failed delete brings it back" {
+  let model = side_chat_model()
+  let idle = model.replace_conversation({
+    ..empty_conversation(
+      @interop.ChannelId::Local,
+      SideChatId,
+      @interop.ChannelId::Local.test_project(),
+    ),
+  })
+  let (_, closed) = update(
+    test_dispatch(),
+    Dock(TabClosed(SideChat(owner=side_chat_owner()))),
+    idle,
+  )
+  // The tab is gone at once, though the listing still has the record.
+  assert_true(closed.dock.tabs.is_empty())
+  assert_true(
+    closed.closing_side_chats == [{ chat: side_chat_owner(), stage: Deleting, }],
+  )
+  let (_, failed) = update(
+    test_dispatch(),
+    SideChatCloseFailed(chat=side_chat_owner(), message="kept"),
+    closed,
+  )
+  assert_true(failed.closing_side_chats.is_empty())
+  assert_true(failed.dock.tabs == [SideChat(owner=side_chat_owner())])
+  // A deleted record leaves the listing, and the closing entry with it.
+  let (_, deleted) = update(
+    test_dispatch(),
+    CloseSelectMenu,
+    closed.with_listed(["desktop-test"]),
+  )
+  assert_true(deleted.closing_side_chats.is_empty())
+  assert_true(deleted.dock.tabs.is_empty())
+}
+
+///|
+test "a running side chat is stopped before it is deleted" {
+  let model = side_chat_model()
+  let (_, closed) = update(
+    test_dispatch(),
+    Dock(TabClosed(SideChat(owner=side_chat_owner()))),
+    model,
+  )
+  assert_true(
+    closed.closing_side_chats == [{ chat: side_chat_owner(), stage: Stopping, }],
+  )
+  guard closed.find_conversation(@interop.ChannelId::Local, SideChatId)
+    is Some(side) else {
+    fail("the side chat must be held")
+  }
+  assert_true(side.run is Open(stage=Cancelling, ..))
+  // Its turn ends: now it is deleted.
+  let (_, ended) = update(
+    test_dispatch(),
+    CloseSelectMenu,
+    closed.replace_conversation({ ..side, run: NoRun(ended=None), }),
+  )
+  assert_true(
+    ended.closing_side_chats == [{ chat: side_chat_owner(), stage: Deleting, }],
+  )
+  assert_true(ended.dock.tabs.is_empty())
+}

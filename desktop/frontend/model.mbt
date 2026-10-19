@@ -1633,6 +1633,8 @@ priv struct Model {
   // this page-lifetime log in order, so a background session cannot regain an
   // old component-local draft when the same session id is later unarchived.
   composer_entry_retirements : Array[@interop.ConversationIdentity]
+  // Side chats whose tab was closed and whose record is on its way out.
+  closing_side_chats : Array[ClosingSideChat]
   // Cmd/Ctrl+P/T unified Quick Open in the native window and browser console.
   // It is global UI for the focused conversation, not durable conversation
   // state. Owned by the `quick_open` package: this shell only opens it, fences
@@ -2014,6 +2016,11 @@ priv enum Msg {
     draft~ : @composer.Draft
   )
   ForkRequested(slot~ : String, through~ : Int32)
+  // Start a side chat of `owner`, the conversation in the column, from text
+  // selected in its transcript.
+  SideChatRequested(owner~ : @interop.ConversationKey, quote~ : String)
+  // Deleting a closed side chat's record failed; its tab comes back.
+  SideChatCloseFailed(chat~ : @interop.ConversationKey, message~ : String)
   ForkCompleted(
     ConversationFork,
     Result[@protocol.SessionForkReply, String],
@@ -2872,6 +2879,7 @@ fn initial_model(desktop~ : Bool) -> Model {
     select_menu: None,
     project_menu_query: "",
     composer_entry_retirements: [],
+    closing_side_chats: [],
     quick_open: @quick_open.State::empty(),
     git_request_generation: 0,
     git_details_open: false,
@@ -3930,6 +3938,9 @@ fn Model::side_chats_of(
   for item in dev.sessions {
     if @protocol.split_side_chat_id(item.id) is Some(parent) &&
       parent == owner.session &&
+      !self.closing_side_chats.any(closing => {
+        closing.chat == { channel: owner.channel, session: item.id, }
+      }) &&
       project.map_or(true, project => item.workspace == project) {
       chats.push(item.id)
     }
