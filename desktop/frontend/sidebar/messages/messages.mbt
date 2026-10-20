@@ -32,6 +32,8 @@ pub(all) enum Message {
   Scheduled
   Settings
   RefreshDevices
+  ChooseDevice
+  NoDevicesOnline
   Refresh
   SignOut
 }
@@ -220,6 +222,17 @@ pub fn text(locale : @i18n.Locale, message : Message) -> String {
     (SimplifiedChinese, Settings) => "设置"
     (TraditionalChinese, Settings) => "設定"
     (Japanese, Settings) => "設定"
+    (English, ChooseDevice) => "Choose a device"
+    (Spanish, ChooseDevice) => "Elegir un dispositivo"
+    (SimplifiedChinese, ChooseDevice) => "选择设备"
+    (TraditionalChinese, ChooseDevice) => "選擇裝置"
+    (Japanese, ChooseDevice) => "デバイスを選択"
+    (English, NoDevicesOnline) => "No devices online"
+    (Spanish, NoDevicesOnline) => "No hay dispositivos en línea"
+    (SimplifiedChinese, NoDevicesOnline) => "没有在线设备"
+    (TraditionalChinese, NoDevicesOnline) => "沒有在線裝置"
+    (Japanese, NoDevicesOnline) =>
+      "オンラインのデバイスはありません"
     (English, RefreshDevices) => "Refresh the device list"
     (Spanish, RefreshDevices) => "Actualizar la lista de dispositivos"
     (SimplifiedChinese, RefreshDevices) => "刷新设备列表"

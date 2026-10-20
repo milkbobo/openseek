@@ -137,6 +137,17 @@ html.is-resizing .sidebar-resize-handle {
   line-height: 20px;
 }
 
+/* the console's device selector, above the account row */
+.sidebar-button.device-selector {
+  grid-template-columns: 20px minmax(0, 1fr) 16px;
+
+  & .sidebar-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 /* the console's account row in the sidebar footer */
 .console-account {
   display: flex;

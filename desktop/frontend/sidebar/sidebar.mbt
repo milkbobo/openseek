@@ -1,10 +1,25 @@
 ///|
+/// One device the account can switch the page to.
+pub(all) struct DeviceChoice {
+  id : String
+  name : String
+} derive(Debug, Eq)
+
+///|
 pub(all) struct Account {
   login : String
   avatar : String
   busy : Bool
   notice : String?
+  // The page's device, when it has one; a Cloud page has none.
+  device : DeviceChoice?
+  // The account's online devices, in roster order; the selector offers these.
+  online_devices : Array[DeviceChoice]
 } derive(Debug, Eq)
+
+///|
+/// The action-menu target of the footer's device selector.
+const DeviceSelectorTarget : String = "sidebar:device-selector"
 
 ///|
 /// The id of the grab strip the sidebar renders on its right edge. The
@@ -47,6 +62,8 @@ pub(all) struct Actions {
   open_settings : @cmd.Cmd
   refresh_account : @cmd.Cmd
   sign_out : @cmd.Cmd
+  // Switch the page to the device with this id.
+  select_device : (String) -> @cmd.Cmd
   select_mode : (Mode) -> @cmd.Cmd
   section : @section.Actions
 }
@@ -105,6 +122,9 @@ fn Input::menu_definition(
   target : String,
   actions : Actions,
 ) -> @action_menu.Definition? {
+  if target == DeviceSelectorTarget && self.account is Some(account) {
+    return Some(account.device_menu(actions.select_device, locale=self.locale))
+  }
   if self.find_project(target) is Some(project) {
     return Some({
       label: @messages.text(self.locale, WorkspaceActions),
@@ -117,6 +137,45 @@ fn Input::menu_definition(
     return None
   }
   Some({ label: @messages.text(self.locale, ConversationActions), entries, })
+}
+
+///|
+/// The selector's menu: online devices only, the page's own one checked and
+/// inert. With none online, one inert row says so.
+fn Account::device_menu(
+  self : Account,
+  select_device : (String) -> @cmd.Cmd,
+  locale~ : @i18n.Locale,
+) -> @action_menu.Definition {
+  let entries : Array[@action_menu.Entry] = self.online_devices.map(choice => {
+    let current = self.device.map(device => device.id) == Some(choice.id)
+    Action({
+      label: choice.name,
+      title: choice.name,
+      icon: if current {
+        Some(@icons.icon(@icons.icon_check))
+      } else {
+        None
+      },
+      enabled: !current,
+      destructive: false,
+      command: select_device(choice.id),
+    })
+  })
+  if entries.is_empty() {
+    let label = @messages.text(locale, NoDevicesOnline)
+    entries.push(
+      Action({
+        label,
+        title: label,
+        icon: None,
+        enabled: false,
+        destructive: false,
+        command: @cmd.none,
+      }),
+    )
+  }
+  { label: @messages.text(locale, ChooseDevice), entries, }
 }
 
 ///|
@@ -319,6 +378,34 @@ pub fn component(
           @messages.text(input.locale, SignOut),
         ),
       )
+      let choose = @messages.text(input.locale, ChooseDevice)
+      footer.push(
+        @html.button(
+          class="sidebar-button device-selector",
+          type_="button",
+          title=choose,
+          // The footer sits at the bottom edge, so the menu opens upward.
+          attrs=@action_menu.button_attrs(
+            DeviceSelectorTarget,
+            align_right=false,
+            open_upward=true,
+          ).aria_label(choose),
+          [
+            @html.span(class="sidebar-icon", @icons.icon(@icons.icon_vm)),
+            @html.span(
+              class="sidebar-label",
+              match account.device {
+                Some(device) => device.name
+                None => choose
+              },
+            ),
+            @html.span(
+              class="sidebar-icon device-selector-chevron",
+              @icons.icon(@icons.icon_chevron_down),
+            ),
+          ],
+        ),
+      )
       footer.push(@html.div(class="console-account", account_row))
       if account.notice is Some(notice) {
         footer.push(@html.div(class="console-notice", notice))
@@ -382,3 +469,9 @@ pub extend Mode with Eq::{equal, not_equal}
 
 ///|
 pub extend Input with Eq::{equal, not_equal}
+
+///|
+pub extend DeviceChoice with Debug::{to_repr}
+
+///|
+pub extend DeviceChoice with Eq::{equal, not_equal}

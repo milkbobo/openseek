@@ -4508,10 +4508,14 @@ fn update_msg(
     ToggleSidebar =>
       (@cmd.none, { ..model, sidebar_open: !model.sidebar_open, })
     SidebarModeSelected(sidebar_mode) => (@cmd.none, { ..model, sidebar_mode, })
-    // A conversation already on screen has claimed the list; the stored pick
-    // only decides what an empty page shows.
+    DeviceChosen(id) => (@nav.load(@routes.device_entry_path(id)), model)
+    // A conversation already on screen has claimed the list, and a Cloud
+    // destination shows the Chat list; the stored pick only decides what any
+    // other empty page shows.
     SidebarModeLoaded(sidebar_mode) =>
-      if model.sidebar_revealed is None {
+      if model.sidebar_revealed is None &&
+        !(model.navigation.location is Some(location) &&
+        location.target.is_cloud()) {
         (@cmd.none, { ..model, sidebar_mode, })
       } else {
         (@cmd.none, model)

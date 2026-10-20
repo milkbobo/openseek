@@ -126,11 +126,16 @@ fn dispatch_open(open : Open) -> @cmd.Cmd {
 ///|
 /// Build an ellipsis trigger for a stable target. The menu component owns
 /// toggle state, positioning, and focus.
-pub fn button_attrs(target : String, align_right~ : Bool = true) -> @html.Attrs {
+pub fn button_attrs(
+  target : String,
+  align_right~ : Bool = true,
+  open_upward~ : Bool = false,
+) -> @html.Attrs {
   @html.Attrs::build()
   .id(trigger_id(target))
   .data_set("action-menu-owner", target)
   .data_set("action-menu-align", if align_right { "end" } else { "start" })
+  .data_set("action-menu-side", if open_upward { "top" } else { "bottom" })
   .aria_haspopup("menu")
   .aria_controls(menu_id(target))
   .on_click(event => {
@@ -297,7 +302,16 @@ fn position(target : String, anchor : Anchor) -> @cmd.Cmd {
           let trigger_rect = trigger.get_bounding_client_rect()
           let below = viewport_top + viewport_height - trigger_rect.get_bottom()
           let above = trigger_rect.get_top() - viewport_top
-          let top = if below >= menu_height || below >= above {
+          // The preferred side wins while the menu fits there or that side
+          // still has more room; otherwise the menu flips.
+          let open_upward = trigger.get_attribute("data-action-menu-side")
+            is Some("top")
+          let opens_below = if open_upward {
+            !(above >= menu_height || above >= below)
+          } else {
+            below >= menu_height || below >= above
+          }
+          let top = if opens_below {
             trigger_rect.get_bottom() + gap
           } else {
             trigger_rect.get_top() - menu_height - gap

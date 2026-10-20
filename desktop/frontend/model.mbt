@@ -1949,6 +1949,9 @@ priv enum Msg {
   // startup.
   SidebarModeSelected(@sidebar.Mode)
   SidebarModeLoaded(@sidebar.Mode)
+  // The sidebar's device selector chose a device by id. A page owns its
+  // device for its lifetime, so the choice loads that device's page.
+  DeviceChosen(String)
   // A Settings selection fixes the page to Light or Dark and persists it.
   ThemeChanged(String)
   LanguageLoaded(@i18n.Preference?, Array[String])
@@ -2746,10 +2749,10 @@ fn initial_model(desktop~ : Bool) -> Model {
     Some(width) => width <= NarrowBreakpoint
     None => false
   }
-  // Every page has one page-lifetime device. The desktop window's is its own
-  // host, `local`; a browser console requires `?device=` (minted by the
-  // relay's redirect off retired `/d/<id>/` routes). An optional
-  // `?workspace=` places that device's first conversation.
+  // A Connect page has one page-lifetime device. The desktop window's is its
+  // own host, `local`; a browser page names it with `/device/<id>/` (or a
+  // legacy `?device=`). Without one, the page serves Cloud Chat. An
+  // optional `?workspace=` places that device's first conversation.
   let page_device = if desktop {
     Some(@interop.LocalDeviceId)
   } else if navigation_device_from_location() is Some(device) {
@@ -2823,9 +2826,9 @@ fn initial_model(desktop~ : Bool) -> Model {
     app_version: "development",
     console_url: None,
     // Every page is the console. A browser page signs in against the relay
-    // and verifies its required query-selected device before that channel
-    // opens; the desktop window starts where that ends, signed in to its own
-    // host with its one device already listed.
+    // and verifies its selected device, if any, before that channel opens;
+    // the desktop window starts where that ends, signed in to its own host
+    // with its one device already listed.
     console: if desktop {
       local_console_state(login_return_to~)
     } else {

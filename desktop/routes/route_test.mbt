@@ -132,3 +132,13 @@ test "application and Cloud path predicates ignore target validity" {
     assert_false(@routes.is_application_path(path))
   }
 }
+
+///|
+test "a device entry is that device's Chat route" {
+  for device in ["d_1", "a/b?#"] {
+    assert_true(
+      @routes.parse(@routes.device_entry_path(device)) ==
+      Ok({ device: Some(device), target: Chat, }),
+    )
+  }
+}

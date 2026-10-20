@@ -25,6 +25,8 @@ pub(all) struct Account {
   avatar : String
   busy : Bool
   notice : String?
+  device : DeviceChoice?
+  online_devices : Array[DeviceChoice]
 } derive(Eq, @debug.Debug)
 pub fn Account::equal(Self, Self) -> Bool
 pub fn Account::not_equal(Self, Self) -> Bool
@@ -38,9 +40,18 @@ pub(all) struct Actions {
   open_settings : @cmd.Cmd
   refresh_account : @cmd.Cmd
   sign_out : @cmd.Cmd
+  select_device : (String) -> @cmd.Cmd
   select_mode : (Mode) -> @cmd.Cmd
   section : @section.Actions
 }
+
+pub(all) struct DeviceChoice {
+  id : String
+  name : String
+} derive(Eq, @debug.Debug)
+pub fn DeviceChoice::equal(Self, Self) -> Bool
+pub fn DeviceChoice::not_equal(Self, Self) -> Bool
+pub fn DeviceChoice::to_repr(Self) -> @debug.Repr
 
 pub(all) struct Input {
   search : @session_search.Model

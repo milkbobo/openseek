@@ -99,6 +99,12 @@ pub fn parse(path : String) -> Result[Location, RouteError] {
 }
 
 ///|
+/// Entering a device opens its Chat page.
+pub fn device_entry_path(device : String) -> String {
+  "/device/" + @percent.encode(device) + "/chat"
+}
+
+///|
 /// Encode an application target; account identity never enters the URL.
 pub fn Location::path(self : Location) -> String? {
   match self.target {

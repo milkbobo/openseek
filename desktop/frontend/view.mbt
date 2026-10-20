@@ -819,6 +819,15 @@ fn Model::sidebar_component_input(self : Model) -> @sidebar.Input {
         avatar,
         busy: self.console.busy,
         notice: self.console.notice,
+        device: self.console.page_device.bind(id => {
+          self.console.roster
+          .iter()
+          .find_first(meta => meta.id == id)
+          .map(meta => meta.device_choice())
+        }),
+        online_devices: self.console.roster
+        .filter(meta => meta.online)
+        .map(meta => meta.device_choice()),
       })
     _ => None
   }
@@ -1903,9 +1912,11 @@ fn console_gate_view(
         card.push(@html.h2(shell_text(locale, SignInLabel)))
         card.push(@html.p(shell_text(locale, BrowserAccess)))
         card.push(
+          // The relay's sign-in is a page load, not an application route.
           @html.a(
             class="portal-button-link",
             href=console.login_url(),
+            escape=true,
             shell_text(locale, SignInGitHub),
           ),
         )

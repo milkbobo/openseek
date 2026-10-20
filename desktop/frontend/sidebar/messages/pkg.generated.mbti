@@ -41,6 +41,8 @@ pub(all) enum Message {
   Scheduled
   Settings
   RefreshDevices
+  ChooseDevice
+  NoDevicesOnline
   Refresh
   SignOut
 }

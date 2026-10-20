@@ -1,9 +1,10 @@
 // The page's account layer: the relay session and the device roster. A
 // browser console signs in against the relay, fetches the devices the
-// account owns, and holds only the channel named by its required `?device=`
-// query. The roster verifies that target and reports its availability; it
-// never makes the page fall through to another device. The desktop window
-// owns its host outright, so it carries the same state already settled: it
+// account owns. A `/device/<id>/` page holds only that device's channel;
+// without one, the page serves Cloud Chat, and the sidebar's device
+// selector loads a device's own page. The roster verifies the page's device
+// and reports its availability; it never makes the page fall through to
+// another device. The desktop window owns its host outright, so it carries the same state already settled: it
 // is signed in to its one device `local` from the first render
 // (`local_console_state`) and never asks the relay anything.
 
@@ -38,6 +39,12 @@ priv struct DeviceMeta {
 } derive(Eq)
 
 ///|
+/// How the sidebar's device selector names a roster entry.
+fn DeviceMeta::device_choice(self : DeviceMeta) -> @sidebar.DeviceChoice {
+  { id: self.id, name: self.name, }
+}
+
+///|
 /// A page's account state: fetched and verified in a browser console, fixed
 /// from the start in the desktop window.
 priv struct ConsoleState {
@@ -49,9 +56,10 @@ priv struct ConsoleState {
   // The newest device-roster request. Replies carry this generation so a
   // slower pre-mutation snapshot cannot overwrite a newer roster.
   roster_request_generation : Int32
-  // The required `?device=` from the page's own query. It remains for the
-  // page's lifetime: one browser page/tab owns one device and never falls
-  // through to another roster entry.
+  // The `/device/<id>/` path (or a legacy `?device=`) names this page's
+  // Connect host for its entire lifetime. Cloud Chat needs no host; a page
+  // never falls through to another roster entry, and choosing another
+  // device loads that device's own page.
   page_device : String?
   // The exact page-local pathname and query to restore after OAuth. Packaged
   // releases retain their versioned frontend instead of falling through to
@@ -128,6 +136,31 @@ fn local_console_state(login_return_to~ : String) -> ConsoleState {
 fn ConsoleState::login_url(self : ConsoleState) -> String {
   let version = if self.page_device == Some("host") { "v1" } else { "v2" }
   "/\{version}/auth/login?prompt=select_account&return_to=\{@uri.encode_component(self.login_return_to)}"
+}
+
+///|
+test "a Cloud route keeps the Chat list over the stored sidebar pick" {
+  let model = {
+    ..console_test_model(),
+    console: empty_console_state(None, None, login_return_to="/cloud"),
+    navigation: {
+      ..console_test_model().navigation,
+      location: Some({ device: None, target: Cloud, }),
+    },
+    sidebar_mode: ChatMode,
+    sidebar_revealed: None,
+  }
+  let (_, next) = update(test_dispatch(), SidebarModeLoaded(WorkMode), model)
+  assert_true(next.sidebar_mode is ChatMode)
+  let settings = {
+    ..model,
+    navigation: {
+      ..model.navigation,
+      location: Some({ device: None, target: Settings, }),
+    },
+  }
+  let (_, next) = update(test_dispatch(), SidebarModeLoaded(WorkMode), settings)
+  assert_true(next.sidebar_mode is WorkMode)
 }
 
 ///|
@@ -394,6 +427,39 @@ fn console_test_roster() -> Array[DeviceMeta] {
     { id: "d_on", name: "Mac", hostname: Some("mac.local"), online: true, },
     { id: "d_off", name: "PC", hostname: None, online: false, },
   ]
+}
+
+///|
+test "the sidebar's device selector names the page device and lists only online ones" {
+  let roster = [
+    ..console_test_roster(),
+    { id: "d_air", name: "Air", hostname: None, online: true, },
+  ]
+  let model = {
+    ..console_test_model(),
+    console: {
+      ..empty_console_state(Some("d_on"), None),
+      auth: AuthSignedIn(login="octocat", avatar=""),
+      roster,
+      roster_sync: RosterReady,
+    },
+  }
+  guard model.sidebar_component_input().account is Some(account) else {
+    fail("a signed-in browser page shows its account")
+  }
+  assert_eq(account.device, Some({ id: "d_on", name: "Mac", }))
+  assert_eq(account.online_devices, [
+    { id: "d_on", name: "Mac", },
+    { id: "d_air", name: "Air", },
+  ])
+  let cloud = { ..model, console: { ..model.console, page_device: None, }, }
+  guard cloud.sidebar_component_input().account is Some(account) else {
+    fail("a Cloud page shows its account")
+  }
+  assert_eq(account.device, None)
+  // Choosing a device leaves this page's model alone; the load replaces it.
+  let (_, chosen) = update_msg(test_dispatch(), DeviceChosen("d_air"), model)
+  assert_true(chosen == model)
 }
 
 ///|

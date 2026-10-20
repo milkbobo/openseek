@@ -512,8 +512,10 @@ export class DesktopBrowserHarness {
 
   async install() {
     this.page.on('pageerror', error => this.pageErrors.push(error.message));
-    // Match openseek-api's stable page entry and versioned asset base.
-    await this.page.route('**/device/**', async route => {
+    // Match openseek-api's stable page entry and versioned asset base: it
+    // serves the document on `/device/:device/*page`, `/cloud` and `/cloud/*page`.
+    await this.page.route(url => url.pathname.startsWith('/device/') || url.pathname === '/cloud' ||
+      url.pathname.startsWith('/cloud/'), async route => {
       if (!route.request().isNavigationRequest()) return route.continue();
       const url = new URL('/dist/browser/index.html', route.request().url());
       const response = await route.fetch({ url: url.href });

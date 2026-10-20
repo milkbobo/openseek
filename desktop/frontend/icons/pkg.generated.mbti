@@ -132,6 +132,8 @@ pub fn icon_tools() -> @html.Html
 
 pub fn icon_trash() -> @html.Html
 
+pub fn icon_vm() -> @html.Html
+
 pub fn icon_watch() -> @html.Html
 
 pub fn icon_worktree() -> @html.Html
