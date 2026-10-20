@@ -2587,6 +2587,26 @@ fn update_msg(
               @cloud.Submit(identity.owner, draft),
               model,
             )
+          @composer.MentionOpened(identity~, mention~) => {
+            guard mention.ref_ is File(path~) else { return (@cmd.none, model) }
+            return open_cloud_file(
+              dispatch,
+              model,
+              identity.owner,
+              path,
+              mention.range,
+            )
+          }
+          @composer.FileIndexEnsured(identity~) => {
+            guard model.cloud_identity() == Some(identity.owner) else {
+              return (@cmd.none, model)
+            }
+            return update_msg(
+              dispatch,
+              FileEditor(@fileeditor.EnsureFileIndex),
+              model,
+            )
+          }
           _ => return (@cmd.none, model)
         }
       }
@@ -4997,9 +5017,20 @@ fn update_msg(
       update_msg(dispatch, OpenFile(path), model)
     }
     TranscriptLocationOpened(slot~, target) => {
-      guard !model.cloud_selected() &&
-        model.transcript_slot().map(current => current.key()) == Some(slot) else {
+      guard model.transcript_slot().map(current => current.key()) == Some(slot) else {
         return (@cmd.none, model)
+      }
+      if model.cloud_selected() {
+        guard model.cloud_identity() is Some(owner) else {
+          return (@cmd.none, model)
+        }
+        return open_cloud_file(
+          dispatch,
+          model,
+          owner,
+          target.file,
+          target.range,
+        )
       }
       update_msg(
         dispatch,
@@ -5798,16 +5829,15 @@ fn update_msg(
     }
     OpenFile(path) => {
       if model.cloud_selected() {
-        return (
-          if path.has_prefix("https://") ||
-            path.has_prefix("http://") ||
-            path.has_prefix("mailto:") {
-            open_external_link(dispatch, path)
-          } else {
-            @cmd.none
-          },
-          model,
-        )
+        if path.has_prefix("https://") ||
+          path.has_prefix("http://") ||
+          path.has_prefix("mailto:") {
+          return (open_external_link(dispatch, path), model)
+        }
+        guard model.cloud_identity() is Some(owner) else {
+          return (@cmd.none, model)
+        }
+        return open_cloud_file(dispatch, model, owner, path, None)
       }
       request_open_path(dispatch, model, path, None)
     }
@@ -12192,7 +12222,7 @@ test "a reconnect retires the file index watcher until placement returns" {
   let (_, ready) = @fileeditor.update(
     file_emit,
     @fileeditor.FilesIndexed(
-      owner~,
+      owner=@interop.Host(owner),
       epoch=loading.request_epoch,
       files=[],
       truncated=false,
@@ -22230,7 +22260,7 @@ test "file watcher failures toast once and retain lifecycle state" {
   let (_, ready) = @fileeditor.update(
     file_emit,
     @fileeditor.FilesIndexed(
-      owner=owner.host().unwrap(),
+      owner~,
       epoch=loading.request_epoch,
       files=[],
       truncated=false,
