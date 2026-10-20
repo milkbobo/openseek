@@ -24,6 +24,9 @@ export class DesktopBrowserHarness {
     // What `mcp.status` answers for a conversation: by default no engine is
     // running for it.
     this.mcpStatus = { engine: 'stopped' };
+    // The `JobView`s `jobs.list` answers for session-1, newest first; other
+    // sessions have none. Specs that read output use BackgroundJobsHarness.
+    this.jobs = [];
     this.textSearchMatches = [];
     this.semanticSearchMatches = [];
     this.textSearchMatchCount = undefined;
@@ -639,6 +642,16 @@ export class DesktopBrowserHarness {
       }
       case 'mcp.status':
         return this.mcpStatus;
+      case 'jobs.list': {
+        const jobs = request.params.scope.session === 'session-1' ? this.jobs : [];
+        const { offset } = request.params;
+        return {
+          jobs: jobs.slice(offset, offset + 100),
+          next_offset: offset + 100 < jobs.length ? offset + 100 : null,
+          errors: [],
+          selected: null,
+        };
+      }
       case 'settings.get':
         return this.hostSettings;
       case 'settings.set': {

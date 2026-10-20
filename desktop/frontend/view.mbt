@@ -1739,8 +1739,32 @@ fn Model::overview_environment(
 }
 
 ///|
-/// The overview beside `conv`: where it runs and what its engine is connected
-/// to.
+/// What `conv` runs in the background, for the overview's card; `None` while
+/// nothing runs. The jobs listing counts only while it is `conv`'s own.
+fn Model::overview_background(
+  self : Model,
+  dispatch : @cmd.Emit[Msg],
+  conv : Conversation,
+) -> @conversation_overview.Background? {
+  let own_jobs = self.jobs.owner is Some(owner) &&
+    owner.channel == conv.device &&
+    owner.scope.session == conv.session_id
+  let tasks = @conversation_overview.BackgroundTasks::from_listing(
+    jobs=if own_jobs { self.jobs.jobs } else { [] },
+    more_jobs=own_jobs && self.jobs.next_offset is Some(_),
+    workflows=conv.workflows,
+  )
+  tasks.map(tasks => {
+    tasks,
+    now_ms: @interop.now_ms(),
+    open_jobs: dispatch(JobsRequested),
+    open_workflows: dispatch(WorkflowsRequested),
+  })
+}
+
+///|
+/// The overview beside `conv`: where it runs, what its engine is connected
+/// to, and what it runs in the background.
 fn overview_view(
   dispatch : @cmd.Emit[Msg],
   model : Model,
@@ -1763,6 +1787,7 @@ fn overview_view(
         Some(dispatch(Mcp(Refresh(key))))
       },
     },
+    background?=model.overview_background(dispatch, conv),
     dispatch.map(msg => Overview(msg)),
   )
 }
