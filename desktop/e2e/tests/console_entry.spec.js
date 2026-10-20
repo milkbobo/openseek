@@ -128,7 +128,7 @@ test('Chat is the signed-out launch page and a saved Work preference cannot repl
   const app = await installConsole(page);
   await page.addInitScript(() => localStorage.setItem('openseek.sidebar_mode', 'work'));
   await page.route('**/v2/auth/me', route => route.fulfill({ status: 401 }));
-  await page.goto('/dist/browser/index.html');
+  await page.goto('/index.html');
   await expect(page).toHaveURL(/\/cloud$/);
   await expect(page.getByRole('main').getByRole('heading', { name: 'Cloud', level: 2, exact: true })).toBeVisible();
   await expect(page.getByRole('main').getByRole('button', { name: 'Sign in with GitHub' })).toBeEnabled();
