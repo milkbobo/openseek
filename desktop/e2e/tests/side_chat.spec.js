@@ -92,12 +92,12 @@ async function setupFork(page) {
   const original = app.replyFor.bind(app);
   app.replyFor = request => {
     if (request.method === 'session.fork' && request.params.side_chat === true) {
-      app.liveSessions.push({ id: 'session-1-sc-1', title: request.params.source_title, updated_at_ms: 3 });
-      return { session: 'session-1-sc-1', title: request.params.source_title };
+      app.liveSessions.push({ id: 'session-1-sc-0a1b2c3d', title: request.params.source_title, updated_at_ms: 3 });
+      return { session: 'session-1-sc-0a1b2c3d', title: request.params.source_title };
     }
-    if (request.method === 'session.load' && request.params.session === 'session-1-sc-1') {
+    if (request.method === 'session.load' && request.params.session === 'session-1-sc-0a1b2c3d') {
       const events = mainHistory.filter(e => e.sequence <= 2);
-      return { session: { version: 1, id: 'session-1-sc-1', events }, watermark: 2, prediction: null };
+      return { session: { version: 1, id: 'session-1-sc-0a1b2c3d', events }, watermark: 2, prediction: null };
     }
     return original(request);
   };
@@ -137,7 +137,7 @@ test('a selection opens a side chat beside the conversation with the selection q
   // Closing the tab deletes the side chat.
   await tab.locator('.tab-close').click();
   await expect.poll(() => app.requests.find(r => r.method === 'session.delete')?.params.session)
-    .toBe('session-1-sc-1');
+    .toBe('session-1-sc-0a1b2c3d');
   await expect(tab).toHaveCount(0);
   await expect(page.locator('#side-chat-transcript')).toHaveCount(0);
   expect(app.pageErrors).toEqual([]);
