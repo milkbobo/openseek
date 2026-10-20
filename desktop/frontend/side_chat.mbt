@@ -29,31 +29,18 @@ fn Model::close_side_chat(
   guard !self.closing_side_chats.any(closing => closing.chat == chat) else {
     return (@cmd.none, self)
   }
-  let closing = [..self.closing_side_chats, { chat, stage: Stopping, }]
-  let (stop, model) = match self.find_conversation(chat.channel, chat.session) {
-    Some(conv) =>
-      match conv.run {
-        Open(run_id~, stage~) if !(stage is Cancelling) =>
-          (
-            cancel_openseek(locale=self.locale, dispatch, chat.channel, run_id),
-            self.replace_conversation({
-              ..conv,
-              run: Open(run_id~, stage=Cancelling),
-            }),
-          )
-        _ => (@cmd.none, self)
-      }
-    None => (@cmd.none, self)
-  }
-  let (model, delete) = { ..model, closing_side_chats: closing, }.advance_side_chat_closing(
-    dispatch,
-  )
-  (@cmd.batch([stop, delete]), model)
+  let (model, commands) = {
+    ..self,
+    closing_side_chats: [..self.closing_side_chats, { chat, stage: Stopping, }],
+  }.advance_side_chat_closing(dispatch)
+  (commands, model)
 }
 
 ///|
-/// Move every closing side chat along: delete one whose turn has ended, and
-/// forget one whose record the listing no longer has.
+/// Move every closing side chat along: stop a turn that has a run to stop
+/// — including one that was still starting when its tab closed, once its run
+/// opens — delete one whose turn has ended, and forget one whose record the
+/// listing no longer has.
 fn Model::advance_side_chat_closing(
   self : Model,
   dispatch : @cmd.Emit[Msg],
@@ -61,33 +48,59 @@ fn Model::advance_side_chat_closing(
   guard !self.closing_side_chats.is_empty() else { return (self, @cmd.none) }
   let commands : Array[@cmd.Cmd] = []
   let closing : Array[ClosingSideChat] = []
+  let mut model = self
   for entry in self.closing_side_chats {
-    guard self.device_state(entry.chat.channel) is Some(dev) &&
+    guard model.device_state(entry.chat.channel) is Some(dev) &&
       dev.sessions.iter().find_first(item => item.id == entry.chat.session)
       is Some(listed) else {
       continue
     }
-    match entry.stage {
-      Deleting => closing.push(entry)
-      Stopping => {
-        let running = self
-          .find_conversation(entry.chat.channel, entry.chat.session)
-          .map_or(false, conv => conv.is_running())
-        if running {
-          closing.push(entry)
-        } else {
-          commands.push(
-            delete_side_chat(dispatch, entry.chat, listed.workspace),
-          )
-          closing.push({ ..entry, stage: Deleting, })
-        }
+    let conv = model.find_conversation(entry.chat.channel, entry.chat.session)
+    match (entry.stage, conv) {
+      (Deleting, _) => closing.push(entry)
+      (Stopping, Some({ run: Open(run_id~, stage~), .. } as conv)) if !(stage
+        is Cancelling) => {
+        commands.push(
+          cancel_openseek(
+            locale=model.locale,
+            dispatch,
+            entry.chat.channel,
+            run_id,
+          ),
+        )
+        model = model.replace_conversation({
+          ..conv,
+          run: Open(run_id~, stage=Cancelling),
+        })
+        closing.push(entry)
+      }
+      (Stopping, Some(conv)) if conv.is_running() => closing.push(entry)
+      (Stopping, _) => {
+        commands.push(delete_side_chat(dispatch, entry.chat, listed.workspace))
+        closing.push({ ..entry, stage: Deleting, })
       }
     }
   }
-  if closing == self.closing_side_chats {
-    return (self, @cmd.batch(commands))
+  if closing == model.closing_side_chats && commands.is_empty() {
+    return (model, @cmd.none)
   }
-  ({ ..self, closing_side_chats: closing, }, @cmd.batch(commands))
+  ({ ..model, closing_side_chats: closing, }, @cmd.batch(commands))
+}
+
+///|
+/// Stopping a closing side chat failed, so its turn may still be running: its
+/// tab comes back, where its turn can be stopped again or its question
+/// answered.
+fn Model::reopen_side_chat_after_cancel_failure(
+  self : Model,
+  chat : @interop.ConversationKey,
+) -> Model {
+  {
+    ..self,
+    closing_side_chats: self.closing_side_chats.filter(closing => {
+      closing.chat != chat
+    }),
+  }
 }
 
 ///|

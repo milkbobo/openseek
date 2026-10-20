@@ -7709,10 +7709,16 @@ fn update_device_msg(
       }
       // Stop was optimistic. If delivery failed, hand the control back while
       // a runs snapshot determines whether the engine is in fact still live.
-      let retryable = model.replace_conversation({
-        ..conv,
-        run: Open(run_id~, stage=AtStep(None)),
-      })
+      // A side chat closed with its turn running gets its tab back for that.
+      let retryable = model
+        .replace_conversation({
+          ..conv,
+          run: Open(run_id~, stage=AtStep(None)),
+        })
+        .reopen_side_chat_after_cancel_failure({
+          channel: conv.device,
+          session: conv.session_id,
+        })
       let (notice, notified) = retryable.notify_error(dispatch, message)
       (
         @cmd.batch([

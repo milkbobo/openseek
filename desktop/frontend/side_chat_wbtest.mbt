@@ -310,3 +310,62 @@ test "a running side chat is stopped before it is deleted" {
   )
   assert_true(ended.dock.tabs.is_empty())
 }
+
+///|
+test "a side chat closed while its turn starts is stopped once the run opens" {
+  let model = side_chat_model()
+  guard model.find_conversation(@interop.ChannelId::Local, SideChatId)
+    is Some(side) else {
+    fail("the side chat must be held")
+  }
+  let starting = model.replace_conversation({
+    ..side,
+    run: Starting(submission_id="s1"),
+  })
+  let (_, closed) = update(
+    test_dispatch(),
+    Dock(TabClosed(SideChat(owner=side_chat_owner()))),
+    starting,
+  )
+  assert_true(
+    closed.closing_side_chats == [{ chat: side_chat_owner(), stage: Stopping, }],
+  )
+  // Its run opens: now it can be, and is, stopped.
+  let (_, opened) = update(
+    test_dispatch(),
+    CloseSelectMenu,
+    closed.replace_conversation({
+      ..side,
+      run: Open(run_id="r9", stage=Opened),
+    }),
+  )
+  guard opened.find_conversation(@interop.ChannelId::Local, SideChatId)
+    is Some(stopping) else {
+    fail("the side chat must be held")
+  }
+  assert_true(stopping.run is Open(run_id="r9", stage=Cancelling))
+  assert_true(opened.dock.tabs.is_empty())
+}
+
+///|
+test "a side chat whose stop failed gets its tab back" {
+  let model = side_chat_model()
+  let (_, closed) = update(
+    test_dispatch(),
+    Dock(TabClosed(SideChat(owner=side_chat_owner()))),
+    model,
+  )
+  assert_true(closed.dock.tabs.is_empty())
+  let (_, failed) = update_dev(
+    test_dispatch(),
+    CancelFailed(run_id="r7", message="cancel transport failed"),
+    closed,
+  )
+  assert_true(failed.closing_side_chats.is_empty())
+  assert_true(failed.dock.tabs == [SideChat(owner=side_chat_owner())])
+  guard failed.find_conversation(@interop.ChannelId::Local, SideChatId)
+    is Some(side) else {
+    fail("the side chat must be held")
+  }
+  assert_true(side.run is Open(run_id="r7", stage=AtStep(None)))
+}
