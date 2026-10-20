@@ -62,7 +62,8 @@ The host control tunnel and the private local Dev console retain `/v1`:
 |---|---|
 | `GET /device/<device>/…`, `GET /cloud…` | Client page routes; each serves the current Browser document without redirecting the requested location. Packaged Desktop links a device to `/device/<device>/chat` |
 | `GET /assets/…` | The current Browser bundle's resources, at the same path as in the packaged Desktop host and local console |
-| `GET /console/`, `GET /console/releases/v<version>/index.html` | Legacy entries kept for links from older Desktop builds; they open the current Browser document |
+| `GET /console/` | Redirects to the current release's `/console/releases/v<version>/index.html`, preserving the query |
+| `GET /console/releases/v<version>/…` | One published release's own files, kept so links from older Desktop builds keep opening their release |
 | `GET /d/<device>/…` | Retired: `302` to `/console/?device=<device>` with the original query appended, so old deep links keep their device target |
 | `GET /healthz` | Relay liveness probe, `200 ok` |
 | `/v2/auth/account/*`, `/v2/auth/session`, `/v2/auth/login` | Account sign-in and browser session recovery (see Authentication) |
