@@ -53,9 +53,15 @@ fn Model::right_panel_input(self : Model) -> @right_panel.Input {
       .unwrap_or([]),
     // Numbered by their place among the strip's side-chat tabs.
     side_chats=self.dock.tabs
-      .filter_map(tab => if tab is SideChat(owner~) { Some(owner) } else { None })
+      .filter_map(tab => {
+        if tab is SideChat(owner~) {
+          Some(owner)
+        } else {
+          None
+        }
+      })
       .mapi((index, owner) => {
-        ({ owner, number: index + 1 } : @right_panel.SideChatTab)
+        ({ owner, number: index + 1, } : @right_panel.SideChatTab)
       }),
   )
 }
