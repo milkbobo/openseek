@@ -147,7 +147,7 @@ test "a saved change asks again only for the conversation on show" {
 }
 
 ///|
-test "removing an item waits for the host and applies the list it leaves" {
+test "removing an item waits for the host, then reads the list again" {
   let one = conversation("s-1")
   let state = loaded(one, [pull(1), branch("feature")])
   let (_, removing) = @session_changes.update(
@@ -164,22 +164,32 @@ test "removing an item waits for the host and applies the list it leaves" {
     removing,
   )
   assert_true(twice == removing)
-  // A list question sent before the removal finished may still answer with
-  // the item; the removal's reply supersedes it.
+  // Another client attaches a pull request while the removal is out; the
+  // list question that announcement starts may still predate the removal.
   let (_, asked) = @session_changes.update(quiet(), Changed(one), removing)
   let (_, removed) = @session_changes.update(
     quiet(),
     Removed(one, pull(1), listed([branch("feature")])),
     asked,
   )
-  assert_true(removed.phase is Loaded([item]) && item == branch("feature"))
+  // What the removal left shows at once, and the list is asked for again:
+  // the removal's reply is not the last word on it.
+  assert_true(removed.phase is Reloading([item]) && item == branch("feature"))
   assert_true(removed.removing.is_empty())
+  assert_true(removed.serial != asked.serial)
   let (_, stale) = @session_changes.update(
     quiet(),
     Listed(serial=asked.serial, listed([pull(1), branch("feature")])),
     removed,
   )
   assert_true(stale == removed)
+  // The fresh answer keeps the other client's attachment.
+  let (_, settled) = @session_changes.update(
+    quiet(),
+    Listed(serial=removed.serial, listed([pull(3)])),
+    removed,
+  )
+  assert_true(settled.phase is Loaded([item]) && item == pull(3))
 }
 
 ///|
@@ -231,7 +241,7 @@ test "the folded summary counts the checkout and what is attached" {
   let on_branch : @session_changes.Checkout = {
     branch: "feature",
     pull_request: None,
-    diff: Some({ added: 3, removed: 1, files: 2, }),
+    diff: Some({ added: 3, removed: 1, files: 2, partial: false, }),
   }
   let on_pull_request = { ..on_branch, pull_request: Some(current), }
   // Nothing to describe: the card stays away, even while the list is read.

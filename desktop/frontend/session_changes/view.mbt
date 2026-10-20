@@ -30,11 +30,13 @@ pub extend PullRequest with Eq::{equal, not_equal}
 pub extend PullRequest with Debug::{to_repr}
 
 ///|
-/// The branch's line delta, measured locally.
+/// The branch's line delta, measured locally. `partial` marks a count that
+/// stopped short of every untracked file, so it is a floor, not a total.
 pub(all) struct Diff {
   added : Int32
   removed : Int32
   files : Int32
+  partial : Bool
 } derive(Eq, Debug)
 
 ///|
@@ -188,12 +190,25 @@ fn checkout_row(locale : @i18n.Locale, checkout : Checkout) -> @html.Html {
     }
     None => {
       let aside : Array[@html.Html] = []
-      if checkout.diff is Some(diff) && diff.files > 0 {
+      if checkout.diff is Some(diff) && (diff.files > 0 || diff.partial) {
+        let counts : Array[@html.Html] = []
+        if diff.files > 0 {
+          counts.push(@html.span(class="added", "+\{diff.added}"))
+          counts.push(@html.span(class="removed", "−\{diff.removed}"))
+        }
+        if diff.partial {
+          counts.push(@html.span(class="partial", "…"))
+        }
         aside.push(
-          @html.span(class="conv-changes-diff", [
-            @html.span(class="added", "+\{diff.added}"),
-            @html.span(class="removed", "−\{diff.removed}"),
-          ]),
+          @html.span(
+            class="conv-changes-diff",
+            title?=if diff.partial {
+              Some(text(locale, PartialCount))
+            } else {
+              None
+            },
+            counts,
+          ),
         )
       }
       aside.push(current)

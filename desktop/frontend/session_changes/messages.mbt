@@ -7,6 +7,7 @@ priv enum UiMessage {
   BranchCount(Int32)
   CheckFailed
   RemoveFailed
+  PartialCount
   Remove
   StateOpen
   StateDraft
@@ -47,6 +48,12 @@ fn text(locale : @i18n.Locale, message : UiMessage) -> String {
     (SimplifiedChinese, RemoveFailed) => "未能移除"
     (TraditionalChinese, RemoveFailed) => "未能移除"
     (Japanese, RemoveFailed) => "削除できませんでした"
+    (English, PartialCount) => "Some untracked files were not counted"
+    (Spanish, PartialCount) => "No se contaron algunos archivos sin seguimiento"
+    (SimplifiedChinese, PartialCount) => "部分未跟踪文件未计入"
+    (TraditionalChinese, PartialCount) => "部分未追蹤檔案未計入"
+    (Japanese, PartialCount) =>
+      "一部の未追跡ファイルは集計されていません"
     (English, Remove) => "Remove from this conversation"
     (Spanish, Remove) => "Quitar de esta conversación"
     (SimplifiedChinese, Remove) => "从此对话中移除"

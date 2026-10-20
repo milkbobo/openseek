@@ -33,6 +33,7 @@ pub(all) struct Diff {
   added : Int32
   removed : Int32
   files : Int32
+  partial : Bool
 } derive(Eq, @debug.Debug)
 pub fn Diff::equal(Self, Self) -> Bool
 pub fn Diff::not_equal(Self, Self) -> Bool

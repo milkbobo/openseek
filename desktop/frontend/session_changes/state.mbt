@@ -161,9 +161,10 @@ pub fn update(
       )
       (cmd, { ..state, removing: [..state.removing, artifact], })
     }
-    // The reply is the list as the removal left it, which is newer than any
-    // answer still out: that answer is superseded so it cannot put the item
-    // back. Later changes arrive as `Changed`.
+    // The reply is the list as the removal left it, which another client may
+    // already have changed again, and an answer still out may predate the
+    // removal. Neither is the last word: the list is asked for again, showing
+    // what the removal left until the answer arrives.
     Removed(conversation, artifact, result) => {
       guard state.conversation == Some(conversation) else {
         return (@cmd.none, state)
@@ -171,15 +172,11 @@ pub fn update(
       let removing = state.removing.filter(item => item != artifact)
       match result {
         Ok(list) =>
-          (
-            @cmd.none,
-            {
-              ..state,
-              phase: Loaded(list.artifacts),
-              serial: state.serial + 1,
-              removing,
-              remove_error: None,
-            },
+          ask(
+            emit,
+            conversation,
+            { ..state, removing, remove_error: None, },
+            waiting=Reloading(list.artifacts),
           )
         Err(message) =>
           (@cmd.none, { ..state, removing, remove_error: Some(message), })

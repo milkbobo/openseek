@@ -114,3 +114,25 @@ test('the changes card appears when the agent attaches something to a conversati
   expect(requests(app, 'session.artifacts_list')).toHaveLength(2);
   expect(app.pageErrors).toEqual([]);
 });
+
+test('a checkout without a pull request reads as its branch and local diff, marked when the count stopped short', async ({ page }) => {
+  const app = new DesktopBrowserHarness(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  app.gitBranch = {
+    branch: 'haoxiang/unpublished',
+    diffstat: { added: 42, removed: 3, files: 4, partial: true },
+  };
+  await app.install();
+  await app.goto();
+  await app.openSession();
+  const panel = await showOverview(page);
+  const current = changesCard(panel).locator('.conv-changes-row').first();
+  await expect(current.getByText('haoxiang/unpublished', { exact: true })).toBeVisible();
+  await expect(current.getByText('+42', { exact: true })).toBeVisible();
+  await expect(current.getByText('−3', { exact: true })).toBeVisible();
+  // Untracked files past the host's limits were not counted: the totals are a
+  // floor, and the row says so instead of presenting them as the whole size.
+  await expect(current.locator('.conv-changes-diff')).toHaveAttribute('title', 'Some untracked files were not counted');
+  await expect(current.getByRole('link')).toHaveCount(0);
+  expect(app.pageErrors).toEqual([]);
+});

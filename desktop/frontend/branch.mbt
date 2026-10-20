@@ -215,6 +215,7 @@ fn Conversation::overview_checkout(
       added: stat.added,
       removed: stat.removed,
       files: stat.files,
+      partial: stat.partial,
     }),
   })
 }

@@ -278,6 +278,9 @@ a.conv-changes-link:hover {
 .conv-changes-diff .removed {
   color: var(--color-danger);
 }
+.conv-changes-diff .partial {
+  color: var(--color-text-faint);
+}
 
 /* The remove button stays out of the way until the row is hovered or
    focused, like the transcript's row actions. */
