@@ -152,8 +152,8 @@ async fn capture(
         Err(error) => raise ExportError(error.label())
       }
       let exporter = @viz_export.StandaloneExport(
-        asset("viz/index.html"),
-        asset("viz/viz_app.js"),
+        asset("/assets/viz/index.html"),
+        asset("/assets/viz/viz_app.js"),
       )
       let json = exporter.json([
         @viz_export.Session(

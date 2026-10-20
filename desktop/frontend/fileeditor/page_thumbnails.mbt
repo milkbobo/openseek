@@ -70,6 +70,8 @@ fn office_pages_command(
       config,
       OfficePageListId,
       enabled=state.office_pages_open,
+      // Root-absolute: the page route never moves the shared resources.
+      runtime_url="/assets/page-thumbnails.js",
     ),
     @cmd.custom_cmd(
       _ => observe_office_page_layout(OfficePagesId),

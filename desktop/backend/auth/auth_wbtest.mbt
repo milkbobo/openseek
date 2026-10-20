@@ -182,7 +182,6 @@ async test "a device refusal preserves the account and parks its connector" {
       device_token: "dev",
       device_name: "desktop",
     }),
-    app_version: "development",
     wakeups: Queue(kind=DiscardOldest(1)),
     session: None,
     connected: false,
@@ -201,7 +200,7 @@ async test "a device refusal preserves the account and parks its connector" {
 
 ///|
 test "status shapes" {
-  let store = AuthStore::empty(app_version="0.1.16")
+  let store = AuthStore::empty()
   let empty = store.status()
   assert_false(empty.connected)
   assert_eq(empty.server_url, None)
@@ -224,7 +223,7 @@ test "status shapes" {
     Some({
       id: "d_abc",
       name: "My Mac",
-      url: "https://openseek-api.moonbitlang.cn/console/releases/v0.1.16/index.html?device=d_abc",
+      url: "https://openseek-api.moonbitlang.cn/device/d_abc/chat",
     }),
   )
   // The transport encoding must not accidentally disclose the stored token.

@@ -54,16 +54,15 @@ new subscription and resync. Paused subscriptions do not replay missed events.
 
 ## Transport
 
-All HTTP lives at the relay. Browser releases are versioned alongside Desktop
-releases. Public account, device, and share management APIs use `/v2`.
+All HTTP lives at the relay, which serves one current Browser bundle to every
+host. Public account, device, and share management APIs use `/v2`.
 The host control tunnel and the private local Dev console retain `/v1`:
 
 | Route | What |
 |---|---|
-| `GET /console/` | The server-selected Browser release |
-| `GET /console/releases/v<version>/index.html` | One published Browser bundle. Device consoles require `?device=<id>` to fix the page/tab to that device; optional `?workspace=<path>` selects where its first conversation lands. Cloud chats use the same console without requiring a device. Packaged Desktop links here with its installed version |
-| `GET /device/<device>/…` | Stable client page route; serves the current Browser document without redirecting the requested location |
-| `GET /assets/v<version>/…` | Immutable frontend resources, using the same path prefix as the packaged Desktop host and local console |
+| `GET /device/<device>/…`, `GET /cloud…` | Client page routes; each serves the current Browser document without redirecting the requested location. Packaged Desktop links a device to `/device/<device>/chat` |
+| `GET /assets/…` | The current Browser bundle's resources, at the same path as in the packaged Desktop host and local console |
+| `GET /console/`, `GET /console/releases/v<version>/index.html` | Legacy entries kept for links from older Desktop builds; they open the current Browser document |
 | `GET /d/<device>/…` | Retired: `302` to `/console/?device=<device>` with the original query appended, so old deep links keep their device target |
 | `GET /healthz` | Relay liveness probe, `200 ok` |
 | `/v2/auth/account/*`, `/v2/auth/session`, `/v2/auth/login` | Account sign-in and browser session recovery (see Authentication) |
@@ -73,7 +72,11 @@ Everything else — commands, queries, and host-pushed events — travels over
 `GET /v2/devices/<device>/ws`, upgraded from the same origin the bundle was
 served from and spliced through to the host. A browser page takes its one
 `<device>` from the page route (or the legacy `?device=` entry query) and verifies it against
-`GET /v2/devices`; other roster devices need their own page/tab. Frames are
+`GET /v2/devices`; other roster devices need their own page/tab. Once the
+socket is up, the page asks `app.info` for the host's `protocol` revision; a
+host built for another revision (or one that predates the field) is shown as
+unavailable and its socket is closed without retrying. There is no
+compatibility layer for older hosts. Frames are
 JSON text, shaped as **JSON-RPC 2.0**:
 
 ```jsonc
@@ -500,6 +503,7 @@ still signs out a session whose issuer no longer matches the origin.
 
 | method | params | result |
 |---|---|---|
+| `app.info` | `{}` | `{version, console_url?, protocol?}` — the installed package version, a development build's loopback console URL, and the host's `HostProtocolRevision` (absent from hosts that predate it) |
 | `settings.get` | `{}` | the status shape below |
 | `settings.set` | `{provider?, custom_api_url?, deepseek_api_key?, glm_api_key?, custom_api_key?}` — absent fields stay unchanged; a present string field is trimmed and, when empty, **clears** the stored value; an unknown `provider` is refused. | the status shape below, post-write |
 | `mcp.status` | `{session}` | what that conversation's engine holds of its MCP servers: `{engine:"stopped"}` when it has no engine running, `{engine:"connecting"}` when its engine is running and has not reported yet, else `{engine:"running", status}`. `status` is the engine's latest `mcp_status` event on the serve protocol, kept by the host and returned unchanged: `{configs, servers}`, each config `{path, state:"loaded"}` or `{path, state:"failed", error}` in the order the engine was given them, each server `{name, transport:"stdio"\|"http", target, state, …}` with `state:"connected"` or `"lost"` plus `tools:[{name, description}]`, `"no_tools"`, `"failed"` plus `error`, or `"skipped"`; no configuration at all is `{configs:[], servers:[]}`. The request reads what the host kept: it starts nothing and does not ask the engine. An engine reports when it has connected its servers and again on every change — a connected server exiting. Each report also reaches connected clients as an `agent.event` carrying `mcp_status`, which is transient like every notification — a client that shows this state re-reads `mcp.status` when one arrives, and on reconnect. An engine that exits sends nothing more, so a client re-reading later gets `stopped` |
@@ -820,7 +824,7 @@ The status shape, also the params of every `auth.changed` notification:
   "connected": false,            // control WS currently registered
   "managed_by_env": true,        // present only under the OPENSEEK_RELAY_URL override
   "user":   {"login": "…", "avatar_url": "…"},   // absent when signed out
-  "device": {"id": "d_…", "name": "…", "url": "…/console/releases/v0.1.16/index.html?device=d_…"}  // absent when ordinary remote access is disabled
+  "device": {"id": "d_…", "name": "…", "url": "…/device/d_…/chat"}  // absent when ordinary remote access is disabled
 }
 ```
 

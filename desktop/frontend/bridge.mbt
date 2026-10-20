@@ -367,6 +367,8 @@ fn DeviceState::bridge_subscription(
     Local => @bridge.local_connection(bridge_dispatch)
     Remote(device) => {
       guard account is Some(_) || device == "host" else { return @sub.none }
+      // Dropping the subscription closes the socket without a down event.
+      guard !(self.bridge is HostIncompatible) else { return @sub.none }
       @bridge.remote_connection(
         device_id=device,
         websocket_epoch=self.websocket_epoch,

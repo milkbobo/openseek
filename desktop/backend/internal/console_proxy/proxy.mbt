@@ -96,8 +96,8 @@ fn Proxy::install(self : Proxy, ctx : @moonback.ModuleContext) -> Unit raise {
 }
 
 ///|
-/// The entry document at an application path, pinned to the bundle root
-/// with `<base href="/">` as openseek-api pins it to its release.
+/// The entry document at an application path. It names its resources with
+/// root-absolute `/assets/` paths, so it is served unchanged at any route.
 async fn Proxy::send_document(self : Proxy, res : @moonback.Responder) -> Unit {
   let html = @fs.read_file("\{self.bundle}/index.html").text() catch {
     error => {
@@ -107,10 +107,7 @@ async fn Proxy::send_document(self : Proxy, res : @moonback.Responder) -> Unit {
       return
     }
   }
-  res.send_html(
-    @moonback.Html::raw(
-      html.replace(old="<head>", new="<head><base href=\"/\">"),
-    ),
-    headers={ "Cache-Control": "no-cache" },
-  )
+  res.send_html(@moonback.Html::raw(html), headers={
+    "Cache-Control": "no-cache",
+  })
 }

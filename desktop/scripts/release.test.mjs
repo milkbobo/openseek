@@ -80,7 +80,7 @@ test("mutating requests fail without retrying", async t => {
   assert.equal(requests, 1);
 });
 
-test("verify checks console redirects and the versioned asset bytes", async t => {
+test("verify checks the current Browser bundle the API serves", async t => {
   const release = new Release();
   release.dist = await fs.mkdtemp(join(tmpdir(), "openseek-release-"));
   t.after(() => fs.rm(release.dist, { recursive: true, force: true }));
@@ -94,16 +94,15 @@ test("verify checks console redirects and the versioned asset bytes", async t =>
   const bytes = Buffer.from("release artifact fixture");
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   for (const file of Object.values(files)) await fs.writeFile(join(release.dist, file), bytes);
-  await fs.mkdir(join(release.dist, "browser/assets/v0.1.9"), { recursive: true });
+  await fs.mkdir(join(release.dist, "browser/assets"), { recursive: true });
   const documents = new Map([
-    ["/console/releases/v0.1.9/index.html", "packaged document"],
-    ["/assets/v0.1.9/frontend.js", "packaged frontend"],
+    ["/cloud", "packaged document"],
+    ["/assets/frontend.js", "packaged frontend"],
   ]);
   await fs.writeFile(join(release.dist, "browser/index.html"), "packaged document");
-  await fs.writeFile(join(release.dist, "browser/assets/v0.1.9/frontend.js"), "packaged frontend");
+  await fs.writeFile(join(release.dist, "browser/assets/frontend.js"), "packaged frontend");
   const manifest = { version: "0.1.9", platforms: {} };
-  let status = 302;
-  let headers = {};
+  let current = "0.1.8";
   const url = await server(t, (request, response) => {
     if (request.method === "HEAD") {
       response.writeHead(200, { "content-length": String(bytes.length), "x-oss-meta-sha256": sha256, "x-oss-hash-crc64ecma": "1" });
@@ -111,10 +110,7 @@ test("verify checks console redirects and the versioned asset bytes", async t =>
     } else if (request.url === "/desktop/releases/latest.json") {
       response.end(JSON.stringify(manifest));
     } else if (request.url === "/browser/releases/current.json") {
-      response.end(JSON.stringify({ version: "0.1.9" }));
-    } else if (request.url === "/console/") {
-      response.writeHead(status, headers);
-      response.end();
+      response.end(JSON.stringify({ version: current }));
     } else if (request.url.startsWith("/v0.1.9/")) {
       response.end(bytes);
     } else if (documents.has(request.url)) {
@@ -128,17 +124,13 @@ test("verify checks console redirects and the versioned asset bytes", async t =>
     manifest.platforms[platform] = { url: `${url}/v0.1.9/${file}`, sha256 };
   }
   t.mock.method(release, "apiOrigin", () => url);
-  await assert.rejects(release.verify("v0.1.9"), /redirect is missing Location: HTTP 302/);
-  status = 200;
-  await assert.rejects(release.verify("v0.1.9"), /did not redirect: HTTP 200/);
-  status = 302;
-  headers = { location: "/console/releases/v0.1.8/index.html" };
-  await assert.rejects(release.verify("v0.1.9"), /did not select \/console\/releases\/v0\.1\.9\/index\.html/);
-  headers = { location: "/console/releases/v0.1.9/index.html" };
+  await assert.rejects(release.verify("v0.1.9"), /browser current\.json version 0\.1\.8 is not 0\.1\.9/);
+  current = "0.1.9";
   await release.verify("v0.1.9");
-  documents.set("/assets/v0.1.9/frontend.js", "wrong version");
-  await assert.rejects(release.verify("v0.1.9"), /served assets\/v0\.1\.9\/frontend.js does not match/);
-
+  documents.set("/assets/frontend.js", "previous frontend");
+  await assert.rejects(release.verify("v0.1.9"), /served assets\/frontend\.js does not match/);
+  documents.delete("/cloud");
+  await assert.rejects(release.verify("v0.1.9"), /GET \/cloud failed: HTTP 404/);
 });
 
 test("artifact checks preserve non-missing filesystem errors", async t => {

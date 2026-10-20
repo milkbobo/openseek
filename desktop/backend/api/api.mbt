@@ -304,7 +304,7 @@ pub fn ApiState::ApiState(
     hub: Hub(),
     auth: match auth {
       Some(store) => store
-      None => @auth.AuthStore::empty(app_version~)
+      None => @auth.AuthStore::empty()
     },
     app_version,
     console_url,
@@ -687,6 +687,7 @@ pub fn endpoints(
     @endpoint.Endpoint::sync(@commands.app_info, _ => {
       version: state.app_version,
       console_url: state.console_url,
+      protocol: Some(@protocol.HostProtocolRevision),
     }),
     Endpoint(@commands.settings_set, payload => {
       // The store commit and its broadcast are one finite cancellation-

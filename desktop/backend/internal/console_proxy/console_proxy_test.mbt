@@ -79,7 +79,8 @@ async fn with_bundle(body : async (String) -> Unit) -> Unit {
     "\{root}/index.html",
     "<!doctype html><html><head><title>t</title></head></html>",
   )
-  @fs.write_file("\{root}/frontend.js", "void 0")
+  @fs.mkdir("\{root}/assets")
+  @fs.write_file("\{root}/assets/frontend.js", "void 0")
   body(root)
 }
 
@@ -110,11 +111,14 @@ async test "the proxy serves the bundle and forwards relay traffic as a bearer c
         fake_relay(relay_server, seen, verifiers)
       })
       let origin = start_proxy(group, Relay(relay), bundle)
-      // Application paths get the document, pinned to the bundle root.
+      // Application paths get the bundle's document unchanged.
       let (document, html) = @http.get(origin + "/cloud/devices")
       assert_eq(document.code, 200)
-      assert_true(html.text().contains("<head><base href=\"/\">"))
-      let (asset, _) = @http.get(origin + "/frontend.js")
+      assert_eq(
+        html.text(),
+        "<!doctype html><html><head><title>t</title></head></html>",
+      )
+      let (asset, _) = @http.get(origin + "/assets/frontend.js")
       assert_eq(asset.code, 200)
       let (missing, _) = @http.get(origin + "/missing.js")
       assert_eq(missing.code, 404)

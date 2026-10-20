@@ -10,6 +10,8 @@ import {
 // Values
 pub fn render_markdown(String, options? : MarkdownRenderOptions, target? : @dom.Element) -> RenderedMarkdown
 
+pub fn set_mermaid_module_url(String) -> Unit
+
 // Errors
 
 // Types and methods

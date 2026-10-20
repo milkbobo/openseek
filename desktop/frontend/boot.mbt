@@ -459,30 +459,11 @@ fn SidebarDispatcher::actions(self : SidebarDispatcher) -> @sidebar.Actions {
 }
 
 ///|
-/// Asset URLs are stamped by the packager, independently of the page route.
-/// PDF and Mermaid also resolve lazy resources against document.baseURI.
-/// Update Proton's existing base, or create one for browser documents, before
-/// mounting any viewers. This startup effect is outside update/view.
-fn initialize_asset_base() -> Unit {
-  let document = @dom.document()
-  guard document.query_selector("meta[name='seekmoon-asset-base']").to_option()
-    is Some(metadata) &&
-    metadata.get_attribute("content") is Some(base) else {
-    return
-  }
-  if document.query_selector("base").to_option() is Some(element) {
-    element.set_attribute("href", base)
-  } else if document.query_selector("head").to_option() is Some(head) {
-    let element = document.create_element("base")
-    element.set_attribute("href", base)
-    head.append_child(element.as_node())
-  }
-}
-
-///|
 #warnings("-alert_unstable")
 fn main {
-  initialize_asset_base()
+  // Every host serves the frontend's resources under /assets/, independent of
+  // the page route (index.html names the same root-absolute directory).
+  @editor_viewer.set_mermaid_module_url("/assets/mermaid/mermaid.esm.min.mjs")
   // Proton installs the bridge synchronously when the page's JS context is
   // created, so this is a one-time read of the page's environment, not a
   // wait for something that may still arrive.

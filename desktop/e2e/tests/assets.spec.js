@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { DesktopBrowserHarness } from './support/desktop_browser_harness.js';
 
 for (const entry of ['deep link', 'host base']) {
-  test(`packaged assets retain their base across navigation and reload: ${entry}`, async ({ page }) => {
+  test(`packaged assets stay under /assets/ across navigation and reload: ${entry}`, async ({ page }) => {
     const app = new DesktopBrowserHarness(page);
     app.sessionEvents = [
       { sequence: 1, item: { kind: 'user', payload: { content: 'Show the browser fixture assets' } } },
@@ -10,7 +10,8 @@ for (const entry of ['deep link', 'host base']) {
     ];
     await app.install();
     if (entry === 'host base') {
-      // Proton prepends its own root base before running application scripts.
+      // Proton prepends its own root base before running application scripts;
+      // root-absolute resource paths do not depend on it.
       await page.route('**/index.html*', async route => {
         const response = await route.fetch();
         const origin = new URL(route.request().url()).origin;
@@ -26,19 +27,15 @@ for (const entry of ['deep link', 'host base']) {
       }
     });
     await page.goto(entry === 'deep link' ? '/device/device-a/settings' : '/index.html?device=device-a');
-    const assetBase = await page.locator('meta[name="seekmoon-asset-base"]').getAttribute('content');
-    expect(assetBase).toMatch(/^\/assets\/v[^/]+\/$/);
-    await expect.poll(() => page.evaluate(() => new URL(document.baseURI).pathname)).toBe(assetBase);
-    await expect(page.locator('base')).toHaveCount(1);
+    await expect(page.locator('base')).toHaveCount(entry === 'deep link' ? 0 : 1);
     await app.openSession();
     await expect(page.locator('.chat-mermaid svg')).toContainText('Loaded');
     await page.reload();
     await expect(page.locator('.chat-mermaid svg')).toContainText('Loaded');
-    expect(await page.evaluate(() => new URL(document.baseURI).pathname)).toBe(assetBase);
-    expect(assets.some(asset => asset.url.endsWith('/frontend.js'))).toBe(true);
-    expect(assets.some(asset => asset.url.endsWith('/mermaid.esm.min.mjs'))).toBe(true);
+    expect(assets.some(asset => asset.url.endsWith('/assets/frontend.js'))).toBe(true);
+    expect(assets.some(asset => asset.url.endsWith('/assets/mermaid/mermaid.esm.min.mjs'))).toBe(true);
     for (const asset of assets) {
-      expect(new URL(asset.url).pathname).toMatch(new RegExp(`^${assetBase.replaceAll('.', '\\.')}`));
+      expect(new URL(asset.url).pathname).toMatch(/^\/assets\//);
       expect(asset.status).toBe(200);
     }
     expect(app.pageErrors).toEqual([]);

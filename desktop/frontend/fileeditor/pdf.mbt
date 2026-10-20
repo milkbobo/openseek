@@ -140,6 +140,8 @@ fn show_pdf_document(
         ),
       )
     },
+    // Root-absolute: the page route never moves the shared resources.
+    runtime_url="/assets/pdf-runtime.js",
   )
   @cmd.batch([load, office_pinch_command(dispatch, config)])
 }

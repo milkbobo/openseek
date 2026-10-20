@@ -1439,6 +1439,13 @@ pub impl ToJson for SettingsStatusPayload with fn to_json(self) {
 }
 
 ///|
+/// The host protocol a frontend and host build agree on. The relay serves one
+/// current frontend to every host, with no compatibility layer for older
+/// ones: increment this whenever a host command, reply or event changes
+/// incompatibly, and a browser shows a mismatched host as unavailable.
+pub const HostProtocolRevision : Int32 = 1
+
+///|
 /// Immutable identity of the installed desktop package. The native host reads
 /// this from `proton-package.json`; it is not an editable engine setting.
 pub(all) struct AppInfoReply {
@@ -1446,16 +1453,20 @@ pub(all) struct AppInfoReply {
   // A development build's console entry URL, the loopback origin the host
   // serves its own frontend on for the system browser. Absent in a release.
   console_url : String?
+  // `HostProtocolRevision` of the host build. Absent from hosts that predate
+  // it, which no current frontend can drive.
+  protocol : Int32?
 } derive(Debug, Eq)
 
 ///|
-/// `version` is required; `console_url` reads as absent when missing or
-/// null. Unknown fields are ignored.
+/// `version` is required; `console_url` and `protocol` read as absent when
+/// missing or null. Unknown fields are ignored.
 pub impl FromJson for AppInfoReply with fn from_json(json, path) {
   let object = JsonObject::decode(json, path, "app info reply")
   {
     version: object.required_string("version"),
     console_url: object.optional_string("console_url"),
+    protocol: object.optional_int("protocol"),
   }
 }
 
@@ -1465,6 +1476,9 @@ pub impl ToJson for AppInfoReply with fn to_json(self) {
   let object : Map[String, Json] = { "version": Json(self.version) }
   if self.console_url is Some(url) {
     object["console_url"] = Json(url)
+  }
+  if self.protocol is Some(protocol) {
+    object["protocol"] = Json(protocol)
   }
   Json::object(object)
 }

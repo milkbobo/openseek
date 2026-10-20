@@ -393,25 +393,14 @@ export class Release {
 
     await this.verifyDownloads(manifest);
 
-    // The API must have selected this version's Browser bundle for `/console/`
-    // and serve the files that the archive in dist/ contains.
+    // The API serves this version as its one current Browser bundle: the same
+    // document at every page route, with its resources under /assets/.
     const bare = version.replace(/^v/, "");
     const current = await this.fetchJson("/browser/releases/current.json", { auth: false });
     if (current?.version !== bare) throw new Error(`browser current.json version ${current?.version} is not ${bare}`);
-    const consolePath = `/console/releases/${version}/index.html`;
-    const redirect = await this.fetch("/console/", { auth: false, redirect: "manual" });
-    await redirect.body?.cancel();
-    if (redirect.status < 300 || redirect.status >= 400) {
-      throw new Error(`/console/ did not redirect: HTTP ${redirect.status}`);
-    }
-    const location = redirect.headers.get("location");
-    if (location === null) throw new Error(`/console/ redirect is missing Location: HTTP ${redirect.status}`);
-    if (new URL(location, this.apiOrigin()).pathname !== consolePath) {
-      throw new Error(`/console/ did not select ${consolePath}: HTTP ${redirect.status} ${location}`);
-    }
     for (const [file, path] of [
-      ["index.html", consolePath],
-      [`assets/${version}/frontend.js`, `/assets/${version}/frontend.js`],
+      ["index.html", "/cloud"],
+      ["assets/frontend.js", "/assets/frontend.js"],
     ]) {
       const response = await this.fetch(path, { auth: false });
       if (!response.ok) throw new Error(`GET ${path} failed: HTTP ${response.status}`);
@@ -420,7 +409,7 @@ export class Release {
         throw new Error(`served ${file} does not match the Browser bundle`);
       }
     }
-    const consoleUrl = `${this.apiOrigin()}/console/releases/${version}/`;
+    const consoleUrl = `${this.apiOrigin()}/cloud`;
     console.log(`browser console ok: ${consoleUrl}`);
 
     const summary = [

@@ -4,9 +4,8 @@ for (const deviceScaleFactor of [1, 2]) {
   test.describe(`terminal at ${deviceScaleFactor}x`, () => {
     test.use({ deviceScaleFactor });
 
-    test('full terminal rows remain inside their clipping boundary', async ({ page, request }) => {
-      const html = await (await request.get("/index.html")).text();
-      const assetBase = html.match(/name="seekmoon-asset-base" content="([^"]+)"/)[1];
+    test('full terminal rows remain inside their clipping boundary', async ({ page }) => {
+      const assetBase = '/assets/';
       // Isolate the imperative widget while keeping the packaged application
       // CSS (including body typography) and the actual xterm renderer.
       await page.route('**/terminal-layout-fixture', route => route.fulfill({

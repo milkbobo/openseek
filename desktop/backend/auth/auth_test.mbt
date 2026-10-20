@@ -9,16 +9,12 @@ test "url derivations" {
     content="ws://127.0.0.1:3000/v1/tunnel",
   )
   inspect(
-    @auth.device_url("https://relay.example", "d_abc", app_version="0.1.16"),
-    content="https://relay.example/console/releases/v0.1.16/index.html?device=d_abc",
+    @auth.device_url("https://relay.example", "d_abc"),
+    content="https://relay.example/device/d_abc/chat",
   )
   inspect(
-    @auth.device_url(
-      "https://relay.example/",
-      "d_abc",
-      app_version="development",
-    ),
-    content="https://relay.example/console/?device=d_abc",
+    @auth.device_url("https://relay.example/", "d a/b"),
+    content="https://relay.example/device/d%20a%2Fb/chat",
   )
   inspect(
     @auth.origin_from_relay_url("wss://relay.example/v1/tunnel"),

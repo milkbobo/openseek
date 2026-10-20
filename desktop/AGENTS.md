@@ -6,6 +6,11 @@
   matching frontend and host version, and evolve protocol payloads and both
   implementations in the same change. Support for mixed versions is a separate
   product requirement when explicitly requested.
+- The relay serves one current browser frontend to every host. When a host
+  command, reply or event changes incompatibly, increment
+  `HostProtocolRevision` in `protocol/desktop_messages.mbt` (and the E2E
+  harness's `hostProtocol`); browsers then report older hosts as unavailable
+  instead of driving them.
 
 ## Module Boundary
 

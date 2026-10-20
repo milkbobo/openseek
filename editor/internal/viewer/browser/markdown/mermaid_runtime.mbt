@@ -37,7 +37,16 @@ let mermaid_runtime : MermaidRuntime = get_or_create_shared_mermaid_runtime(() =
 })
 
 ///|
-let mermaid_module_path = "mermaid/mermaid.esm.min.mjs"
+/// Resolved against the document base unless the host sets a root-absolute or
+/// absolute URL, for pages whose route is not their resource directory.
+let mermaid_module_url : Ref[String] = Ref("mermaid/mermaid.esm.min.mjs")
+
+///|
+/// Where the realm's Mermaid module is loaded from. Set it before the first
+/// diagram renders; a module that already loaded is kept.
+pub fn set_mermaid_module_url(url : String) -> Unit {
+  mermaid_module_url.val = url
+}
 
 ///|
 fn MermaidRuntime::enqueue(
@@ -80,7 +89,7 @@ fn MermaidRuntime::pump(self : MermaidRuntime) -> Unit {
       self.module_api = None
       start_mermaid_module_load(
         request.loader,
-        mermaid_module_path,
+        mermaid_module_url.val,
         api => {
           if self.module_loader is Some(loader) &&
             same_mermaid_loader(loader, request.loader) {

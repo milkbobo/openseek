@@ -49,9 +49,6 @@ priv struct DeviceRegistration {
 struct AuthStore {
   runtime_dir : @pathx.Path?
   env_override : ConnectorConfig?
-  // Installed package version used to keep the linked Browser bundle on the
-  // same release as this Desktop. Development builds have no release bundle.
-  app_version : String
   // The relay actor's coalescing poke channel: `DiscardOldest(1)` never
   // blocks a producer and buffers at most one pending wakeup.
   wakeups : @async.Queue[Unit]
@@ -78,7 +75,6 @@ struct AuthStore {
 pub async fn AuthStore::load(
   runtime_dir? : @pathx.Path,
   env_override? : ConnectorConfig,
-  app_version~ : String = "development",
 ) -> AuthStore {
   let session = match runtime_dir {
     Some(dir) => load_session_file(dir)
@@ -87,7 +83,6 @@ pub async fn AuthStore::load(
   {
     runtime_dir,
     env_override,
-    app_version,
     wakeups: Queue(kind=DiscardOldest(1)),
     session,
     connected: false,
@@ -103,11 +98,10 @@ pub async fn AuthStore::load(
 ///|
 /// A store with nothing signed in and nothing persisted — the default for
 /// test-constructed API states.
-pub fn AuthStore::empty(app_version~ : String = "development") -> AuthStore {
+pub fn AuthStore::empty() -> AuthStore {
   {
     runtime_dir: None,
     env_override: None,
-    app_version,
     wakeups: Queue(kind=DiscardOldest(1)),
     session: None,
     connected: false,
@@ -250,22 +244,14 @@ pub fn AuthStore::status(
     self.override_device.map(id => @protocol.AuthDevicePayload::{
       id,
       name: config.device_name,
-      url: device_url(
-        origin_from_relay_url(config.relay_url),
-        id,
-        app_version=self.app_version,
-      ),
+      url: device_url(origin_from_relay_url(config.relay_url), id),
     })
   } else {
     self.session.bind(session => {
       session.device.map(device => {
         id: device.id,
         name: device.name,
-        url: device_url(
-          session.server_url,
-          device.id,
-          app_version=self.app_version,
-        ),
+        url: device_url(session.server_url, device.id),
       })
     })
   }

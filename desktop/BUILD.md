@@ -102,7 +102,7 @@ All installed platforms receive the same application-owned tree:
 seekmoon/
   web/
     index.html
-    assets/v<package.version>/
+    assets/
       frontend.js
       app.css
       viewer.css

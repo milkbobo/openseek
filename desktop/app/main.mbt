@@ -83,7 +83,6 @@ async fn main {
   let auth = @auth.AuthStore::load(
     runtime_dir?=if development { None } else { runtime_dir },
     env_override?=relay_settings(matches),
-    app_version~,
   )
   // A development build serves its own frontend on loopback for the system
   // browser (`@remote.LocalConsole`), so the local console can be developed

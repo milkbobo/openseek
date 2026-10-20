@@ -7,6 +7,7 @@ priv enum ShellMessage {
   NavigationLoading
   NavigationMissing
   NavigationInvalid
+  HostIncompatibleNotice
   NavigationRetry
   NewChatLabel
   ArchiveHint
@@ -113,6 +114,16 @@ fn shell_text(locale : @i18n.Locale, message : ShellMessage) -> String {
       "此目標已不存在，或其工作區已移除。"
     (Japanese, NavigationMissing) =>
       "移動先が存在しないか、ワークスペースが解除されています。"
+    (English, HostIncompatibleNotice) =>
+      "This computer runs a SeekMoon version this page can't control. Update SeekMoon on that computer, then reload this page."
+    (Spanish, HostIncompatibleNotice) =>
+      "Este equipo ejecuta una versión de SeekMoon que esta página no puede controlar. Actualiza SeekMoon en ese equipo y vuelve a cargar esta página."
+    (SimplifiedChinese, HostIncompatibleNotice) =>
+      "这台电脑上的 SeekMoon 版本无法由此页面控制。请在那台电脑上更新 SeekMoon，然后重新加载此页面。"
+    (TraditionalChinese, HostIncompatibleNotice) =>
+      "這台電腦上的 SeekMoon 版本無法由此頁面控制。請在那台電腦上更新 SeekMoon，然後重新載入此頁面。"
+    (Japanese, HostIncompatibleNotice) =>
+      "このコンピュータの SeekMoon のバージョンは、このページから操作できません。そのコンピュータで SeekMoon を更新してから、このページを再読み込みしてください。"
     (English, NavigationInvalid) => "This page address is invalid."
     (Spanish, NavigationInvalid) =>
       "La dirección de esta página no es válida."

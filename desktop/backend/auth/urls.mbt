@@ -22,24 +22,15 @@ pub fn tunnel_url(server_url : String) -> String {
 }
 
 ///|
-/// The browser console URL for a device registered at `server_url`. A packaged
-/// Desktop opens the Browser bundle published from the same release, so its UI
-/// and host messages come from one build. Development has no published bundle
-/// and therefore uses the server-selected console instead.
-pub fn device_url(
-  server_url : String,
-  device : String,
-  app_version~ : String,
-) -> String {
+/// The browser console URL for a device registered at `server_url`: its chat
+/// page, served by the relay's one current frontend. A host built for another
+/// protocol revision is reported there as unavailable.
+pub fn device_url(server_url : String, device : String) -> String {
   let origin = match server_url.strip_suffix("/") {
     Some(origin) => origin
     None => server_url
   }
-  if app_version == "development" {
-    "\{origin}/console/?device=\{device}"
-  } else {
-    "\{origin}/console/releases/v\{app_version}/index.html?device=\{device}"
-  }
+  "\{origin}/device/\{@uri.encode_component(device)}/chat"
 }
 
 ///|

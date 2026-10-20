@@ -291,17 +291,12 @@ class Build {
     return join(this.repo, `_build/js/${profile}/build/openseek_desktop/frontend/frontend.js`);
   }
 
-  // A release directory is immutable on the API host. Development hosts use
-  // the same versioned paths but revalidate files after each local rebuild.
+  // Every host serves one frontend: the document at its page routes and its
+  // resources under the fixed /assets/ prefix that index.html names.
   async stageFrontend(output, profile, minify = false) {
-    const config = JSON.parse(await readFile(join(this.desktop, "proton.project.json"), "utf8"));
-    const version = config.package.version;
-    if (!/^[0-9][0-9A-Za-z._-]*$/.test(version)) throw new Error(`invalid asset version: ${version}`);
-    const base = `/assets/v${version}/`;
-    const assets = join(output, base.slice(1));
+    const assets = join(output, "assets");
     await mkdir(assets, { recursive: true });
-    const template = await readFile(join(this.desktop, "index.html"), "utf8");
-    await writeFile(join(output, "index.html"), template.replaceAll("__SEEKMOON_ASSET_BASE__", base));
+    await cp(join(this.desktop, "index.html"), join(output, "index.html"));
     if (minify) {
       // Keep the compiler's IIFE scope; only minify, never bundle/tree-shake.
       await this.commandRun(this.esbuildBinary, [
@@ -312,7 +307,7 @@ class Build {
       await cp(this.frontendBundle(profile), join(assets, "frontend.js"));
     }
     await this.sharedWeb(assets);
-    // Cloud snapshots load the standalone renderer through document.baseURI.
+    // Cloud snapshot export reads the standalone renderer from /assets/viz/.
     await mkdir(join(assets, "viz"), { recursive: true });
     await cp(join(this.repo, "web/index.html"), join(assets, "viz/index.html"));
     await cp(join(this.repo, `_build/js/${profile}/build/moonbitlang/openseek-viz-app/openseek-viz-app.js`), join(assets, "viz/viz_app.js"));
