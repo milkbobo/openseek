@@ -83,8 +83,8 @@ test "account changes retire Cloud file strips and fence old reads after same-ac
   )
   assert_true(signed_out.file_panel.docs.is_empty())
   assert_true(signed_out.file_panel.cloud_documents.is_empty())
-  assert_true(signed_out.dock.tabs.is_empty())
-  assert_false(signed_out.dock.remembered.contains(ctx.owner))
+  assert_true(signed_out.dock_state().tabs.is_empty())
+  assert_false(signed_out.docks.contains(ctx.owner))
   for account in ["other-user", "fixture-user"] {
     let credentials = model.account.unwrap()
     let (_, signed_in) = update(
@@ -107,7 +107,7 @@ test "account changes retire Cloud file strips and fence old reads after same-ac
     )
     let (_, ignored) = update(test_dispatch(), old_reply, reopened)
     assert_false(ignored.file_panel.docs.contains(path))
-    assert_true(ignored.dock.tabs.is_empty())
+    assert_true(ignored.dock_state().tabs.is_empty())
   }
 }
 
@@ -121,7 +121,7 @@ test "deleting an inactive Cloud session clears its documents and dock bookmarks
   )
   let tab = @dock.File(path~)
   let model = {
-    ..model,
+    ..model.with_dock_state_for(owner, { tabs: [tab], active: Some(tab), }),
     cloud: {
       ..model.cloud,
       sessions: [
@@ -134,10 +134,6 @@ test "deleting an inactive Cloud session clears its documents and dock bookmarks
           archived: false,
         },
       ],
-    },
-    dock: {
-      ..model.dock,
-      remembered: Map([(owner, { tabs: [tab], active: Some(tab), })]),
     },
     file_panel: {
       ..model.file_panel,
@@ -176,6 +172,6 @@ test "deleting an inactive Cloud session clears its documents and dock bookmarks
     pending,
   )
   assert_false(deleted.file_panel.cloud_documents.contains(owner))
-  assert_false(deleted.dock.remembered.contains(owner))
+  assert_false(deleted.docks.contains(owner))
   assert_true(deleted.cloud_identity() == model.cloud_identity())
 }

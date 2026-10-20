@@ -23,12 +23,12 @@ fn open_browser_tab(
   request? : String,
 ) -> (@cmd.Cmd, Model) {
   let (preview, id) = @preview.open_page(model.preview, url?)
-  let dock = if owner is Some(owner) {
-    @dock.open_browser_for(model.dock, owner, id)
-  } else {
-    @dock.open_browser(model.dock, id)
-  }
-  let on_screen = owner.map(owner => @interop.Host(owner)) == model.dock.owner
+  let target_owner = owner
+    .map(owner => @interop.Host(owner))
+    .unwrap_or(model.dock_owner())
+  let dock = @dock.open_browser(model.dock_state_for(target_owner), id)
+  let on_screen = owner.map(owner => @interop.Host(owner)) ==
+    Some(model.dock_owner())
   let cmd = if url is Some(url) {
     browser_open(
       dispatch,
@@ -44,9 +44,8 @@ fn open_browser_tab(
   (
     cmd,
     {
-      ..model,
+      ..model.with_dock_state_for(target_owner, dock),
       preview,
-      dock,
       right_panel_open: model.right_panel_open || (on_screen && url is Some(_)),
       right_panel_menu_open: model.right_panel_menu_open && !on_screen,
     },
@@ -177,7 +176,7 @@ fn browser_history_for_active(
   model : Model,
   command : @commands.Command[@protocol.BrowserIdPayload, @protocol.EmptyReply],
 ) -> @cmd.Cmd {
-  guard @dock.active_browser(model.dock) is Some(id) &&
+  guard @dock.active_browser(model.dock_state()) is Some(id) &&
     @preview.page(model.preview, id) is Some(page) &&
     page.url is Some(_) else {
     return @cmd.none

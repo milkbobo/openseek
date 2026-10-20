@@ -41,10 +41,9 @@ fn request_open_path(
   let model = if return_to is Some(owner) && owner != active.owner {
     model
   } else {
-    let dock = @dock.sync(model.dock, @interop.Host(active.owner))
+    let dock = model.dock_state_for(@interop.Host(active.owner))
     {
       ..model,
-      dock,
       file_panel: model.file_panel.prepare_owner(
         @interop.Host(active.owner),
         @dock.file_paths(dock),
@@ -194,13 +193,9 @@ fn show_editor_resource(
   let ctx = file_ctx(model)
   let owner = ctx.owner
   let femit = dispatch.map(msg => FileEditor(msg))
-  // Park/restore the strip for a conversation switch up front, and re-root
-  // the file subsystem when its cached tree belongs to another conversation;
-  // otherwise `sync_file_panel`'s post-dispatch pass would see a session
-  // mismatch and wipe the freshly opened tab below. A re-rooted document
-  // table follows the restored strip, exactly like `@fileeditor.sync`'s own
-  // re-root, including settled Cloud documents retained in memory.
-  let dock = @dock.sync(model.dock, owner)
+  // Re-root the file subsystem from this owner's strip, including settled
+  // Cloud documents retained in memory.
+  let dock = model.dock_state_for(owner)
   let panel = model.file_panel.prepare_owner(
     owner,
     @dock.file_paths(dock),
@@ -215,8 +210,7 @@ fn show_editor_resource(
     @dock.open_file(dock, resource)
   }
   let model = {
-    ..model,
-    dock,
+    ..model.with_dock_state_for(owner, dock),
     file_panel: panel,
     right_panel_open: true,
     right_panel_menu_open: false,
@@ -248,7 +242,7 @@ fn show_browser_path(
     active.owner.channel is Local else {
     return (@cmd.none, model)
   }
-  let dock = @dock.sync(model.dock, @interop.Host(active.owner))
+  let dock = model.dock_state_for(@interop.Host(active.owner))
   let url = @uri.file_url(path)
   let reuse = for tab in dock.tabs {
     if tab is Browser(id~) &&
@@ -274,12 +268,11 @@ fn show_browser_path(
       id,
       url,
       model.theme.is_dark(model.system_dark),
-      dock.owner.bind(owner => owner.host()),
+      Some(active.owner),
     ),
     {
-      ..model,
+      ..model.with_dock_state_for(@interop.Host(active.owner), dock),
       preview,
-      dock,
       browser_pane: { shown: None, rect: None, geo: None, },
       right_panel_open: true,
       right_panel_menu_open: false,
