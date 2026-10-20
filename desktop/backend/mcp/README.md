@@ -179,7 +179,7 @@ The backend adds two tools to hosts that provide this server:
 - `artifacts_attach({ "type": "pull_request", "url": "https://github.com/example/project/pull/42" })`
   appends one artifact and returns the saved list. Repeating an attachment is
   idempotent; existing entries remain. Agents have no detach, clear, or list
-  replacement tool. Removal is available to authenticated frontend clients.
+  replacement tool. Users can remove artifacts in the composer.
 
 The stored and returned list has this shape:
 
@@ -207,12 +207,16 @@ tool errors. Each attach reads and appends under the shared lock, so
 concurrent attachments retain both additions without a read-then-write step.
 
 The list lives beside the session transcript in `artifacts.json`, and moves
-with that session when archived/restored/deleted. Artifacts are explicit
-associations; automatic checkout facts are not written into this list.
+with that session when archived/restored/deleted. The composer refreshes on
+changes and separately resolves GitHub PR status; lookup failures keep the
+artifact visible. It also automatically shows the current checkout PR or
+local branch and diff, independently of MCP. This automatic row is not part
+of `artifacts_list`; removing its explicit artifacts leaves it visible.
+PR and branch rows merge when the resolved head URL identifies the same
+branch. UI removal targets each typed artifact represented by the row.
 The [Desktop session protocol](../../../docs/remote-protocol.md#session-artifacts)
-documents frontend list/remove commands and the `session.artifacts_changed`
-notification emitted after a save. Removal targets an exact type and URL
-against the latest list, preserving unrelated concurrent additions.
+documents frontend list/remove commands, `git.pr_detail` enrichment, and the
+`session.artifacts_changed` notification emitted after a save.
 
 These tools belong to the `artifacts` group. If the configuration filters
 groups with `X-SeekMoon-Tool-Groups`, include `artifacts` (for example

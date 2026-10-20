@@ -65,6 +65,9 @@ pub(all) enum Action {
   PermissionMenuToggled(identity~ : Identity)
   PermissionMenuDismissed(identity~ : Identity)
   PermissionSelected(identity~ : Identity, mode~ : @protocol.CodexPermissionMode)
+  ArtifactsRemoved(identity~ : Identity, artifacts~ : Array[@protocol.SessionArtifact])
+  PrPanelToggled(identity~ : Identity)
+  PrChecksToggled(identity~ : Identity, url~ : String)
   GitDetailsToggled(identity~ : Identity)
   WorktreeModeToggled(identity~ : Identity)
   ApiSetupRequested(identity~ : Identity)
@@ -99,6 +102,7 @@ pub(all) struct CodexRequestInput {
 pub(all) enum ContextComponent {
   ConnectionBanner(device_name~ : String?)
   SubrunDock(lanes~ : Array[@subrun.Lane])
+  SessionPrPanel(rows~ : Array[SessionPrRow], error~ : String?, collapsed~ : Bool, checks_url~ : String?)
   ApiSetupNotice(text~ : String)
   ApprovalRequest(ApprovalNotice)
   CodexRequests(requests~ : Array[CodexRequestInput])
@@ -375,6 +379,18 @@ pub(all) enum RunningSubmit {
 pub fn RunningSubmit::equal(Self, Self) -> Bool
 pub fn RunningSubmit::not_equal(Self, Self) -> Bool
 pub fn RunningSubmit::to_repr(Self) -> @debug.Repr
+
+pub(all) struct SessionPrRow {
+  url : String?
+  artifacts : Array[@protocol.SessionArtifact]
+  pull_request : @protocol.GitPullRequest?
+  current : Bool
+  branch : String?
+  changes : @protocol.GitDiffStat?
+  error : String?
+} derive(Eq)
+pub fn SessionPrRow::equal(Self, Self) -> Bool
+pub fn SessionPrRow::not_equal(Self, Self) -> Bool
 
 pub(all) struct SlashCommand {
   label : String

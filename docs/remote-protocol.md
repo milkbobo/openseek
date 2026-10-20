@@ -404,9 +404,27 @@ HTTPS syntax without remote lookup or checkout changes. Invalid arguments
 leave the list unchanged. Archive/restore moves the sidecar with the session;
 writes share the archive lock and revalidate the live record before committing.
 
-Clients can re-read `session.artifacts_list` after `session.artifacts_changed`.
-The notification carries no metadata. Removing an artifact changes only the
-association: it does not close a PR, delete a branch, or change a checkout.
+Clients refresh the list when opening or reconnecting to a conversation and
+on `session.artifacts_changed`, then request remote metadata through `git.pr_detail`.
+Correlate replies with their requested URL and refresh generation, discard
+superseded replies, and keep saved artifacts and cached details on lookup
+errors. An empty detail reply means no enrichment and clears that URL's
+cached metadata. Merge an attached PR and branch only when the resolved
+`head_url` exactly matches the attached branch URL, rather than matching
+branch names across repositories.
+
+The OpenSeek composer combines these explicit artifacts with automatic checkout
+facts from `git.branch` and `git.pull_request`. The current row comes first and
+shows the checkout PR, or the local branch and local diff when no PR is known.
+It works without MCP, including unpublished branches with no URL. No repository
+means no automatic row. Checkout replies are generation- and branch-fenced.
+Exact PR URLs or repository-qualified head URLs merge artifacts into that row;
+the automatic row is derived, never written to `artifacts.json`.
+
+Removing a merged row removes each of its explicit typed artifacts. Removing a
+current row's artifacts leaves the automatic row visible; an unattached
+current row has no remove button. `git.pr_detail` shares the checkout query's
+metadata shape and parser rather than nesting a second detail type.
 
 #### The durable transcript: snapshots + commits
 
@@ -580,7 +598,8 @@ Notifications:
 | method | params | result |
 |---|---|---|
 | `git.branch` | `{session, cwd?, base_hint?}` | `{branch?, diffstat?}` — the checked-out branch of the conversation's working directory (detached HEAD reads as its short hash), and the branch's whole line delta. `base_hint` is the branch this work merges into: the host measures from `origin/<base_hint>` when that ref exists, otherwise from `origin/HEAD`, and clients that know a pull request's base send it because nothing local can derive one. `diffstat` is `{added, removed, files, base?, partial}`, measured from where the branch left that ref all the way to the working tree — committed and uncommitted alike, untracked files included. `base` names the ref actually measured from and is absent when the repository offered none, leaving the count to cover uncommitted work alone; `partial` marks a count that stopped short of every untracked file, so it reads as a floor rather than a total. Both fields are absent when the directory is not a git repository or git is unavailable, and `diffstat` alone is absent when the diff itself failed |
-| `git.pull_request` | `{session, cwd?}` | `{pull_request?, compare_url?, branch?}` — what GitHub says about the branch that working directory has checked out, read through the user's own `gh` CLI. No `gh`, no authentication, no GitHub remote, and a detached HEAD all answer with nothing rather than an error. `branch` is the branch the host read from `HEAD`, so a checkout that moved mid-request is detectable. `pull_request` is `{number, title, state, draft, url, base, additions, deletions, changed_files, checks?}`, where `base` is the branch it merges into (the exact value for `git.branch`'s `base_hint`) and `checks` is `{passed, failed, pending}` over the head commit's rollup. `compare_url` is offered instead, for a branch with no pull request that the resolved repository already has |
+| `git.pull_request` | `{session, cwd?}` | `{pull_request?, compare_url?, branch?}` — what GitHub says about the branch that working directory has checked out, read through the user's own `gh` CLI. No `gh`, no authentication, no GitHub remote, and a detached HEAD all answer with nothing rather than an error. `branch` is the branch the host read from `HEAD`, so a checkout that moved mid-request is detectable. `pull_request` is `{number, title, state, draft, url, base, additions, deletions, changed_files, checks?, head_url?}`, where `base` is the branch it merges into (the exact value for `git.branch`'s `base_hint`) `head_url` is the optional repository-qualified head branch URL (including forks), and `checks` is `{passed, failed, pending}` over the head commit's rollup. `compare_url` is offered instead, for a branch with no pull request that the resolved repository already has |
+| `git.pr_detail` | `{url}` | `{pull_request?}` — remote display metadata independent of session membership. Uses the same `GitPullRequest` shape as `git.pull_request`, including `head_url`. A branch or unsupported URL returns `{}`; missing `gh`, authentication/remote failures, timeout and invalid metadata use the command error channel |
 
 ### fs.* — host file access
 

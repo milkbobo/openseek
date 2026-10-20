@@ -1655,11 +1655,6 @@ fn covering_overlay(model : Model) -> Bool {
 fn desired_browser_view(model : Model) -> Int32? {
   guard !model.cloud_selected() else { return None }
   let conversation_screen = model.screen is Chat || model.screen is Codex
-  let git_details_open = match model.screen {
-    Chat => model.git_details_open
-    Codex => model.codex.git_details_open()
-    Skills | Schedules | Settings => false
-  }
   guard model.is_desktop &&
     conversation_screen &&
     model.right_panel_open &&
@@ -1667,7 +1662,7 @@ fn desired_browser_view(model : Model) -> Int32? {
     !model.dock_tab_menu_open &&
     !model.conversation_transfer_menu_open &&
     model.select_menu is None &&
-    !git_details_open &&
+    !(model.screen is Codex && model.codex.git_details_open()) &&
     !covering_overlay(model) else {
     return None
   }
@@ -1972,27 +1967,6 @@ fn update(
     None => model.quick_open.close()
   }
   let model = { ..model, quick_open, }
-  // The composer's git popover belongs to the checkout that was on screen,
-  // and is fenced the same way and for the same reason. It cannot rely on its
-  // click-away listener here: a switch by keyboard — Cmd+N, Quick Open — makes
-  // no click at all, and neither does a checkout losing its repository under
-  // it. Left standing the flag would spring the popover open on the
-  // conversation arriving, once its branch probe answered, and meanwhile keep
-  // `desired_browser_view` hiding the native browser with no chip on screen to
-  // click — a blank pane with nothing to explain it.
-  //
-  // The second clause is the invariant rather than a list of paths: no chip,
-  // no popover, however the branch came to be gone.
-  let model = if model.git_details_open &&
-    (
-      model.active_session != previous.active_session ||
-      model.focused != previous.focused ||
-      !(model.active_conversation() is Some(conv) && conv.shows_git_chip())
-    ) {
-    { ..model, git_details_open: false, }
-  } else {
-    model
-  }
   // Panel visibility is root-owned because it controls both HTML layout and
   // host-backed editor/browser lifecycles. Reconcile every transition once
   // here, no matter which semantic action opened or closed the panel.
@@ -2559,6 +2533,9 @@ fn update_msg(
         | @composer.PermissionMenuToggled(..)
         | @composer.PermissionMenuDismissed(..)
         | @composer.PermissionSelected(..)
+        | @composer.ArtifactsRemoved(..)
+        | @composer.PrPanelToggled(..)
+        | @composer.PrChecksToggled(..)
         | @composer.GitDetailsToggled(..)
         | @composer.WorktreeModeToggled(..)
         | @composer.ApiSetupRequested(..)
@@ -2592,8 +2569,43 @@ fn update_msg(
               update_msg(dispatch, OpenSeekEffortPicked(value), model)
             @composer.ApprovalAnswered(allow~, ..) =>
               update_msg(dispatch, ApprovalAnswered(allow~), model)
-            @composer.GitDetailsToggled(..) =>
-              update_msg(dispatch, ToggleGitDetails, model)
+            @composer.ArtifactsRemoved(artifacts~, ..) =>
+              (
+                remove_artifacts(
+                  dispatch,
+                  conv.device,
+                  conv.session_id,
+                  artifacts,
+                ),
+                model,
+              )
+            @composer.PrPanelToggled(..) =>
+              (
+                @cmd.none,
+                model.replace_conversation({
+                  ..conv,
+                  artifact_state: {
+                    ..conv.artifact_state,
+                    collapsed: !conv.artifact_state.collapsed,
+                  },
+                }),
+              )
+            @composer.PrChecksToggled(url~, ..) =>
+              (
+                @cmd.none,
+                model.replace_conversation({
+                  ..conv,
+                  artifact_state: {
+                    ..conv.artifact_state,
+                    checks_url: if conv.artifact_state.checks_url == Some(url) {
+                      None
+                    } else {
+                      Some(url)
+                    },
+                  },
+                }),
+              )
+            @composer.GitDetailsToggled(..) => (@cmd.none, model)
             @composer.WorktreeModeToggled(..) =>
               update_msg(dispatch, ToggleWorktreeMode, model)
             @composer.ApiSetupRequested(..) =>
@@ -3728,7 +3740,6 @@ fn update_msg(
           ..model,
           select_menu,
           project_menu_query: "",
-          git_details_open: false,
           codex: model.codex.with_git_details_closed(),
         },
       )
@@ -5762,31 +5773,6 @@ fn update_msg(
     }
     OpenPathResolved(context, reply) =>
       finish_open_path(dispatch, model, context, reply)
-    ToggleGitDetails => {
-      let opening = !model.git_details_open
-      let model = { ..model, git_details_open: opening, }
-      guard opening else { return (@cmd.none, model) }
-      // Opening it is a request for current information, and everything it
-      // shows goes stale on its own: CI finishes minutes after the run that
-      // started it, and the working tree keeps moving. Nothing else looks
-      // again until the next run, so without this the chip's tint can sit on
-      // "running" long after the checks settled.
-      //
-      // The branch probe is the refresh — it re-counts the lines and, through
-      // its reply, re-runs the pull-request lookup, which is the same path
-      // every run boundary takes, in-flight fencing and all.
-      guard model.active_conversation() is Some(conv) else {
-        return (@cmd.none, model)
-      }
-      probe_branch(
-        dispatch,
-        model,
-        conv.device,
-        conv.session_id,
-        model.conversation_root(conv),
-      )
-    }
-    CloseGitDetails => (@cmd.none, { ..model, git_details_open: false, })
     TranscriptLeft(slot~, scroll~) =>
       (
         @cmd.none,
@@ -7215,6 +7201,13 @@ fn update_device_msg(
       guard channel == model.focused else {
         return (@cmd.batch(commands), model)
       }
+      let (pr_cmd, model) = probe_artifacts(
+        dispatch,
+        model,
+        channel,
+        model.active_session,
+      )
+      commands.push(pr_cmd)
       (
         @cmd.batch(commands),
         {
@@ -8737,6 +8730,90 @@ fn update_device_msg(
         (commit_cmd, next)
       }
     }
+    ArtifactsChanged(session~) =>
+      probe_artifacts(dispatch, model, channel, session)
+    ArtifactsLoaded(session~, generation~, result~) => {
+      guard model.find_conversation(channel, session) is Some(conv) &&
+        conv.artifact_state.generation == generation else {
+        return (@cmd.none, model)
+      }
+      match result {
+        Err(message) =>
+          (
+            @cmd.none,
+            model.replace_conversation({
+              ..conv,
+              artifact_state: { ..conv.artifact_state, error: Some(message), },
+            }),
+          )
+        Ok(snapshot) => {
+          let current = conv.settled_probe().bind(probe => probe.pull_request)
+          let commands : Array[@cmd.Cmd] = []
+          let details : Map[String, SessionPrCache] = Map([])
+          for binding in snapshot.artifacts {
+            if current is Some(pr) && binding.url == pr.url {
+              details[binding.url] = { detail: Some(pr), error: None, }
+            } else {
+              if conv.artifact_state.details.get(binding.url) is Some(detail) {
+                details[binding.url] = detail
+              }
+              commands.push(
+                fetch_pr_detail(
+                  dispatch,
+                  channel,
+                  session,
+                  binding,
+                  generation~,
+                ),
+              )
+            }
+          }
+          let state = {
+            ..conv.artifact_state,
+            artifacts: snapshot.artifacts,
+            details,
+            error: None,
+          }
+          let conv = { ..conv, artifact_state: state, }
+          (@cmd.batch(commands), model.replace_conversation(conv))
+        }
+      }
+    }
+    ArtifactDetailLoaded(session~, generation~, url~, result~) => {
+      guard model.find_conversation(channel, session) is Some(conv) &&
+        conv.artifact_state.generation == generation &&
+        conv.artifact_state.artifacts.any(binding => binding.url == url) else {
+        return (@cmd.none, model)
+      }
+      let details = conv.artifact_state.details.copy()
+      details[url] = match result {
+        Ok(detail) => { detail, error: None, }
+        Err(message) =>
+          {
+            detail: details.get(url).bind(previous => previous.detail),
+            error: Some(message),
+          }
+      }
+      (
+        @cmd.none,
+        model.replace_conversation({
+          ..conv,
+          artifact_state: { ..conv.artifact_state, details, },
+        }),
+      )
+    }
+    ArtifactRemoveFailed(session~, message~) => {
+      guard model.find_conversation(channel, session) is Some(conv) else {
+        return (@cmd.none, model)
+      }
+      (
+        @cmd.none,
+        model.replace_conversation({
+          ..conv,
+          artifact_state: { ..conv.artifact_state, error: Some(message), },
+        }),
+      )
+    }
     BranchLoaded(session~, branch~, diffstat~, generation~, base_hint~) => {
       guard model.find_conversation(channel, session) is Some(conv) else {
         return (@cmd.none, model)
@@ -8826,13 +8903,14 @@ fn update_device_msg(
         conv.diffstat_hint != Some(answer.base) else {
         return (@cmd.none, model)
       }
-      probe_branch(
+      let (branch_cmd, model) = probe_branch(
         dispatch,
         model,
         channel,
         session,
         model.conversation_root(conv),
       )
+      (branch_cmd, model)
     }
     Started(
       run_id~,
@@ -16551,7 +16629,7 @@ fn pull_request_reply(
   branch : String,
   generation~ : Int32,
   queried? : String,
-  pull_request? : PullRequest,
+  pull_request? : @protocol.GitPullRequest,
   compare_url? : String,
 ) -> DeviceMsg {
   PullRequestLoaded(
@@ -16568,7 +16646,7 @@ fn pull_request_reply(
 /// The probe a lookup for `branch` leaves behind while it runs.
 fn probing_for(
   branch : String,
-  pull_request? : PullRequest,
+  pull_request? : @protocol.GitPullRequest,
   compare_url? : String,
 ) -> PullRequestProbe {
   { branch, probing: true, stale: false, pull_request, compare_url, }
@@ -16576,17 +16654,18 @@ fn probing_for(
 
 ///|
 /// One pull request, varied per test by field update.
-fn test_pull_request() -> PullRequest {
+fn test_pull_request() -> @protocol.GitPullRequest {
   {
     number: 710,
     title: "Add a changed-files explorer",
-    state: PullRequestOpen,
+    state: "open",
     draft: true,
     url: "https://github.test/acme/app/pull/710",
     base: "main",
     additions: 2972,
     deletions: 287,
     changed_files: 18,
+    head_url: None,
     checks: Some({ passed: 1, failed: 0, pending: 3, }),
   }
 }
@@ -17041,53 +17120,6 @@ test "GLM and DeepSeek remember independent reasoning choices" {
 }
 
 ///|
-test "the composer's git details popover toggles shut again" {
-  let dispatch = test_dispatch()
-  // The popover has no trigger without a branch, so a conversation that has
-  // one is where this starts — the flag cannot be raised otherwise.
-  let (_, on_branch) = update_dev(
-    dispatch,
-    branch_reply("feature/x"),
-    test_model(),
-  )
-  assert_false(on_branch.git_details_open)
-  let (_, opened) = update(dispatch, ToggleGitDetails, on_branch)
-  assert_true(opened.git_details_open)
-  // Opening re-probes (the command is not inspectable here), which must not
-  // disturb what is already on screen: the answer stays until its reply lands.
-  assert_eq(opened.active().pull_request, on_branch.active().pull_request)
-  assert_eq(opened.active().diffstat, on_branch.active().diffstat)
-  let (_, closed) = update(dispatch, ToggleGitDetails, opened)
-  assert_false(closed.git_details_open)
-  // Switching conversations closes it, and so does the branch going away under
-  // the conversation on screen. Neither produces a click for the dismissal
-  // listener to see, and with no chip rendered nothing is left to click the
-  // popover shut — the flag would go on hiding the native browser with no
-  // visible cause.
-  let (_, switched) = update(
-    dispatch,
-    SessionRotated({ channel: Local, session: "desktop-other", }),
-    opened,
-  )
-  assert_eq(switched.active_session, "desktop-other")
-  assert_false(switched.git_details_open)
-  let (_, lost) = update_dev(
-    dispatch,
-    branch_reply("", generation=opened.active().branch_generation),
-    opened,
-  )
-  assert_false(lost.active().shows_git_chip())
-  assert_false(lost.git_details_open)
-  // Dismissal is idempotent where the toggle is not: the click that closes the
-  // popover also reaches whatever it landed on, and a second dismissal — from
-  // a page that dispatched one on its own — must not bring it back.
-  let (_, dismissed) = update(dispatch, CloseGitDetails, opened)
-  assert_false(dismissed.git_details_open)
-  let (_, still_closed) = update(dispatch, CloseGitDetails, dismissed)
-  assert_false(still_closed.git_details_open)
-}
-
-///|
 test "right-panel menu closes without reopening on a second dismissal" {
   let dispatch = test_dispatch()
   // Right-panel actions update the root's single visibility state directly.
@@ -17135,7 +17167,7 @@ test "right-panel menu closes when the dock owner changes" {
   }
   // Any root message runs the centralized dock synchronization. The owner
   // transition closes the menu directly, with no rendered marker or observer.
-  let (_, synced) = update(dispatch, CloseGitDetails, stale)
+  let (_, synced) = update(dispatch, CloseSelectMenu, stale)
   assert_false(synced.right_panel_menu_open)
   assert_true(synced.dock.owner != Some(stale_owner))
 }
@@ -22802,13 +22834,6 @@ test "full-screen modals hide the native view and closing restores it" {
     setup_closed,
   )
   assert_true(setup_restored.browser_pane.shown == Some(1))
-  // The composer's git popover opens upward over the pane's bottom-left
-  // corner, so a native view left showing would paint straight over it. The
-  // popover needs a branch to have a trigger at all, so give the
-  // conversation one before opening it.
-  let (_, on_branch) = update_dev(dispatch, branch_reply("feature/x"), restored)
-  let (_, detailing) = update(dispatch, ToggleGitDetails, on_branch)
-  assert_true(detailing.browser_pane.shown is None)
   // So do the other two surfaces `view.mbt` appends beside the picker: the
   // archive-discard confirmation and Quick Open.
   let (_, archiving) = update_dev(

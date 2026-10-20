@@ -1343,6 +1343,28 @@ pub fn GitOriginalFileReply::to_repr(Self) -> @debug.Repr
 pub impl ToJson for GitOriginalFileReply
 pub impl @json.FromJson for GitOriginalFileReply
 
+pub(all) struct GitPrDetailPayload {
+  url : String
+} derive(Eq, @debug.Debug)
+pub fn GitPrDetailPayload::equal(Self, Self) -> Bool
+pub fn GitPrDetailPayload::from_json(Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
+pub fn GitPrDetailPayload::not_equal(Self, Self) -> Bool
+pub fn GitPrDetailPayload::to_json(Self) -> Json
+pub fn GitPrDetailPayload::to_repr(Self) -> @debug.Repr
+pub impl ToJson for GitPrDetailPayload
+pub impl @json.FromJson for GitPrDetailPayload
+
+pub(all) struct GitPrDetailReply {
+  pull_request : GitPullRequest?
+} derive(Eq, @debug.Debug)
+pub fn GitPrDetailReply::equal(Self, Self) -> Bool
+pub fn GitPrDetailReply::from_json(Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
+pub fn GitPrDetailReply::not_equal(Self, Self) -> Bool
+pub fn GitPrDetailReply::to_json(Self) -> Json
+pub fn GitPrDetailReply::to_repr(Self) -> @debug.Repr
+pub impl ToJson for GitPrDetailReply
+pub impl @json.FromJson for GitPrDetailReply
+
 pub(all) struct GitPullRequest {
   number : Int
   title : String
@@ -1354,6 +1376,7 @@ pub(all) struct GitPullRequest {
   deletions : Int
   changed_files : Int
   checks : GitChecks?
+  head_url : String?
 } derive(Eq, @debug.Debug)
 pub fn GitPullRequest::equal(Self, Self) -> Bool
 pub fn GitPullRequest::from_json(Json, @json.JsonPath) -> Self raise @json.JsonDecodeError

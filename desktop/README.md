@@ -272,11 +272,28 @@ attachments append to the latest saved list under a shared lock. A conversation
 must already have a durable record to attach artifacts. Agents cannot detach,
 clear, or replace the list. Unpublished local branches cannot be attached by name.
 
+A unified list appears above the OpenSeek composer, with PR number,
+repository, branch, diff totals, status and expandable CI details. Open PRs
+use green rows, drafts remain gray, merged PRs use purple, and closed PRs use
+red. The first row automatically shows the current checkout's PR, or its local
+branch and diff totals when no PR is available, even with MCP disabled and
+no explicit artifacts. Unpublished branches do not need a URL. Checkout
+information appears only in this list. An exact PR URL or repository-qualified
+head branch URL merges an explicit artifact into the current row. Equal branch
+names alone never merge.
+
+The list can be collapsed. Users can remove a row's explicit artifacts by
+their exact type and URL without closing a PR or deleting a branch. The
+automatic current row remains and has no remove button when unattached.
+GitHub details use the host's authenticated `gh` CLI; a failed lookup keeps
+the artifact and any previously loaded details visible. An explicitly
+attached PR and its exact head-branch URL share one row, including when that
+head belongs to a fork.
+
 Artifacts are stored in `artifacts.json` beside the transcript, survive
 restart, and follow the conversation through archive and restore. This
-feature applies to OpenSeek conversations; the Codex MCP configuration is
-unchanged. Authenticated frontend clients can list and remove artifacts
-through the separate
+feature applies to OpenSeek conversations; the Codex composer and its MCP
+configuration are unchanged. Frontend clients use the separate
 [session protocol commands](../docs/remote-protocol.md#session-artifacts).
 
 ## API endpoint

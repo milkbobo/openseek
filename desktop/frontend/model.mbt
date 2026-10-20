@@ -841,6 +841,7 @@ priv struct Conversation {
   // The newest pull-request lookup, counted the same way and for the same
   // reason. It sits out here rather than in the probe because clearing the
   // probe must not rewind it — see `Conversation::forget_pull_request`.
+  artifact_state : SessionArtifactsState
   pull_request_generation : Int32
   // Everything belonging to the turn in flight; see `RunState`.
   turn : RunState
@@ -1644,12 +1645,6 @@ priv struct Model {
   // outstanding replies a number the new one accepts. Kept whole while the
   // frontend runs, it can only ever be spent.
   git_request_generation : Int32
-  // Whether the composer's git chip has its details popover open. Global UI
-  // for the focused conversation like `quick_open`, not conversation state:
-  // only one composer is on screen, and a popover left open across a switch
-  // would describe the wrong checkout — which `update` fences, since a
-  // keyboard switch produces no click for the dismissal listener to see.
-  git_details_open : Bool
   // The right panel's dock: the mixed tab strip's membership, order, active
   // tab, and per-conversation parked strips. Owned by the `dock` package;
   // the projection (open files, active file, panel visibility) feeds
@@ -2124,11 +2119,6 @@ priv enum Msg {
   RevealFile(String)
   // The host chooses the viewer; the frontend retains the navigation context.
   OpenPathResolved(FileOpenContext, @protocol.OpenPathReply)
-  // Open or close the composer git chip's details popover.
-  ToggleGitDetails
-  // Clicks away from a transient menu, one per menu. Each is separate from
-  // its toggle on purpose: a dismissal must never reopen what it closed.
-  CloseGitDetails
   // The transcript component reports where its reader was as it leaves the
   // screen; the root remembers it for the conversation's next visit.
   TranscriptLeft(slot~ : String, scroll~ : @transcript_component.ScrollPosition)
@@ -2521,6 +2511,19 @@ priv enum DeviceMsg {
   // `generation` is the probe that asked; an older one's answer is discarded.
   // `base_hint` is the baseline that probe was given, carried back rather than
   // remembered: it says what the diffstat in the same message measures from.
+  ArtifactsChanged(session~ : String)
+  ArtifactsLoaded(
+    session~ : String,
+    generation~ : Int32,
+    result~ : Result[@protocol.SessionArtifacts, String]
+  )
+  ArtifactDetailLoaded(
+    session~ : String,
+    generation~ : Int32,
+    url~ : String,
+    result~ : Result[@protocol.GitPullRequest?, String]
+  )
+  ArtifactRemoveFailed(session~ : String, message~ : String)
   BranchLoaded(
     session~ : String,
     branch~ : String?,
@@ -2540,7 +2543,7 @@ priv enum DeviceMsg {
     branch~ : String,
     generation~ : Int32,
     queried~ : String?,
-    pull_request~ : PullRequest?,
+    pull_request~ : @protocol.GitPullRequest?,
     compare_url~ : String?
   )
   // The host accepted a prompt: `session` routes the event to its
@@ -2702,6 +2705,7 @@ fn empty_conversation(
     diffstat_hint: None,
     branch_generation: 0,
     pull_request: None,
+    artifact_state: SessionArtifactsState::empty(),
     pull_request_generation: 0,
     turn: RunState::empty(),
     pending_steers: [],
@@ -2872,7 +2876,6 @@ fn initial_model(desktop~ : Bool) -> Model {
     composer_entry_retirements: [],
     quick_open: @quick_open.State::empty(),
     git_request_generation: 0,
-    git_details_open: false,
     dock: @dock.State::empty(),
     file_panel: @fileeditor.State::empty(),
     pending_review_context: None,

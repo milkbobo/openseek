@@ -1021,3 +1021,9 @@ pub let session_artifacts_remove : Command[
   @protocol.SessionArtifactRemovePayload,
   @protocol.SessionArtifacts,
 ] = Command("session.artifacts_remove")
+
+///|
+pub let git_pr_detail : Command[
+  @protocol.GitPrDetailPayload,
+  @protocol.GitPrDetailReply,
+] = Command("git.pr_detail")

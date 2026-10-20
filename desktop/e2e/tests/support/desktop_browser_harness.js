@@ -845,6 +845,10 @@ export class DesktopBrowserHarness {
         this.workspaceSettings[patch.workspace] = snapshot;
         return { ...snapshot };
       }
+      case 'session.artifacts_list':
+        return { artifacts: [] };
+      case 'git.pr_detail':
+        return {};
       case 'git.branch':
         return {};
       case 'github.checkout_status':

@@ -75,11 +75,7 @@ fn Model::composer_input(self : Model) -> @composer.Input {
   if self.openseek_reasoning_chip(conv) is Some(control) {
     status.push(@composer.ReasoningStatus(control))
   }
-  if conv.git_presentation() is Some(presentation) {
-    status.push(
-      @composer.GitStatus({ presentation, open: self.git_details_open, }),
-    )
-  }
+  let pr_rows = conv.session_pr_rows()
   if self.worktree_control(conv) is Some(control) {
     status.push(@composer.WorktreeStatus(control))
   }
@@ -93,6 +89,12 @@ fn Model::composer_input(self : Model) -> @composer.Input {
     // scroller shows only what the record can place. The plan is the mirror
     // image: it is durable, so it stays in the transcript.
     @composer.SubrunDock(lanes=conv.visible_subruns()),
+    @composer.SessionPrPanel(
+      rows=pr_rows,
+      error=conv.artifact_state.error,
+      collapsed=conv.artifact_state.collapsed,
+      checks_url=conv.artifact_state.checks_url,
+    ),
   ]
   // The BYOK reminder: readiness is otherwise folded silently into Send's
   // availability, and the top-bar status is owned by the run state — without

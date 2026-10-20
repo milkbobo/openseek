@@ -1291,6 +1291,7 @@ pub(all) struct GitPullRequest {
   deletions : Int32
   changed_files : Int32
   checks : GitChecks?
+  head_url : String?
 } derive(Debug, Eq)
 
 ///|
@@ -4037,6 +4038,7 @@ pub impl FromJson for GitPullRequest with fn from_json(json, path) {
       object.required_json("changed_files"),
       path=path.add_key("changed_files"),
     ),
+    head_url: object.optional_string("head_url"),
     checks: match object.optional_json("checks") {
       None => None
       Some(value) => Some(@json.from_json(value, path=path.add_key("checks")))
@@ -4058,6 +4060,9 @@ pub impl ToJson for GitPullRequest with fn to_json(self) {
   fields["changed_files"] = Json(self.changed_files)
   if self.checks is Some(value) {
     fields["checks"] = value.to_json()
+  }
+  if self.head_url is Some(value) {
+    fields["head_url"] = Json(value)
   }
   Json(fields)
 }
