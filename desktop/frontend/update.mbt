@@ -2120,18 +2120,24 @@ fn update(
   } else {
     model
   }
-  // The overview's connectors card asks about its conversation whenever the
-  // overview comes on screen for one: shown, or another conversation arriving
-  // under it. What the engine holds changes on its own and asking starts
-  // nothing, so every arrival asks.
+  // The overview's connectors and changes cards ask about their conversation
+  // whenever the overview comes on screen for one: shown, or another
+  // conversation arriving under it. What the engine holds and what another
+  // client attached change on their own and asking starts nothing, so every
+  // arrival asks.
   let (overview_cmd, model) = match model.overview_conversation() {
     Some(conversation) if previous.overview_conversation() != Some(conversation) => {
-      let (cmd, mcp) = @mcp.update(
+      let (mcp_cmd, mcp) = @mcp.update(
         dispatch.map(msg => Mcp(msg)),
         Opened(conversation),
         model.mcp,
       )
-      (cmd, { ..model, mcp, })
+      let (changes_cmd, changes) = @session_changes.update(
+        dispatch.map(msg => Changes(msg)),
+        Opened(conversation),
+        model.changes,
+      )
+      (@cmd.batch([mcp_cmd, changes_cmd]), { ..model, mcp, changes, })
     }
     _ => (@cmd.none, model)
   }
@@ -6442,6 +6448,14 @@ fn update_msg(
       )
       (cmd, { ..model, mcp, })
     }
+    Changes(msg) => {
+      let (cmd, changes) = @session_changes.update(
+        dispatch.map(msg => Changes(msg)),
+        msg,
+        model.changes,
+      )
+      (cmd, { ..model, changes, })
+    }
     Github(msg) => {
       let completed = msg is @github.CheckedOut(epoch, _) &&
         epoch == model.github.checkout_epoch &&
@@ -7332,6 +7346,19 @@ fn update_device_msg(
         )
         commands.push(cmd)
         { ..model, mcp, }
+      } else {
+        model
+      }
+      // Nor are attached-list changes.
+      let model = if model.changes.conversation is Some(conversation) &&
+        conversation.channel == channel {
+        let (cmd, changes) = @session_changes.update(
+          dispatch.map(msg => Changes(msg)),
+          Changed(conversation),
+          model.changes,
+        )
+        commands.push(cmd)
+        { ..model, changes, }
       } else {
         model
       }
@@ -9433,6 +9460,14 @@ fn update_device_msg(
         model.mcp,
       )
       (cmd, { ..model, mcp, })
+    }
+    ArtifactsChanged(session) => {
+      let (cmd, changes) = @session_changes.update(
+        dispatch.map(msg => Changes(msg)),
+        Changed({ channel, session, }),
+        model.changes,
+      )
+      (cmd, { ..model, changes, })
     }
     JobsChanged(session) => {
       let (jobs_cmd, model) = if model.jobs.owner is Some(owner) &&

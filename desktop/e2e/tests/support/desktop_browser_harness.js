@@ -24,6 +24,14 @@ export class DesktopBrowserHarness {
     // What `mcp.status` answers for a conversation: by default no engine is
     // running for it.
     this.mcpStatus = { engine: 'stopped' };
+    // What `git.branch` and `git.pull_request` answer for a conversation's
+    // checkout: by default it is not a repository.
+    this.gitBranch = {};
+    this.gitPullRequest = {};
+    // The pull requests and branches attached to each session, as
+    // `session.artifacts_list` reads them and `session.artifacts_remove`
+    // edits them.
+    this.sessionArtifacts = {};
     this.textSearchMatches = [];
     this.semanticSearchMatches = [];
     this.textSearchMatchCount = undefined;
@@ -853,7 +861,18 @@ export class DesktopBrowserHarness {
         return { ...snapshot };
       }
       case 'git.branch':
-        return {};
+        return this.gitBranch;
+      case 'git.pull_request':
+        return this.gitPullRequest;
+      case 'session.artifacts_list':
+        return { artifacts: [...(this.sessionArtifacts[request.params?.session] ?? [])] };
+      case 'session.artifacts_remove': {
+        const { session, artifact } = request.params ?? {};
+        const remaining = (this.sessionArtifacts[session] ?? []).filter(item =>
+          item.type !== artifact?.type || item.url !== artifact?.url);
+        this.sessionArtifacts[session] = remaining;
+        return { artifacts: [...remaining] };
+      }
       case 'github.checkout_status':
         return { branch: 'codex/browser-fixture', has_open_pull_request: false };
       case 'git.changes':

@@ -72,6 +72,14 @@ pub fn icon_folder_opened() -> @html.Html
 
 pub fn icon_git_branch() -> @html.Html
 
+pub fn icon_git_merge() -> @html.Html
+
+pub fn icon_git_pull_request() -> @html.Html
+
+pub fn icon_git_pull_request_closed() -> @html.Html
+
+pub fn icon_git_pull_request_draft() -> @html.Html
+
 pub fn icon_github() -> @html.Html
 
 pub fn icon_globe() -> @html.Html

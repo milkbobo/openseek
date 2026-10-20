@@ -185,6 +185,41 @@ fn Conversation::git_presentation(
 }
 
 ///|
+/// The checkout row of the overview's changes card: the branch's pull request
+/// once one is known for the branch now checked out, otherwise the branch and
+/// its local diff. A workspace that is not a repository has none.
+fn Conversation::overview_checkout(
+  self : Conversation,
+) -> @session_changes.Checkout? {
+  guard self.shows_git_chip() && self.branch is Some(branch) else {
+    return None
+  }
+  let pull_request = self
+    .settled_probe()
+    .bind(probe => probe.pull_request)
+    .map(pull_request => @session_changes.PullRequest::{
+      number: pull_request.number,
+      title: pull_request.title,
+      state: match pull_request.state {
+        PullRequestOpen if pull_request.draft => Draft
+        PullRequestOpen => Open
+        PullRequestMerged => Merged
+        PullRequestClosed => Closed
+      },
+      url: pull_request.url,
+    })
+  Some({
+    branch,
+    pull_request,
+    diff: self.diffstat.map(stat => {
+      added: stat.added,
+      removed: stat.removed,
+      files: stat.files,
+    }),
+  })
+}
+
+///|
 /// Whether the composer has a git chip for this conversation at all — it needs
 /// a branch, and `Some("")` is how the host says the workspace is not a
 /// repository. `update` fences the popover on this too: an open popover with

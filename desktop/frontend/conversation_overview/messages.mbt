@@ -6,6 +6,7 @@ priv enum UiMessage {
   ShowOverview
   HideOverview
   EnvironmentTitle
+  ChangesTitle
   ConnectorsTitle
   ThisComputer
   WorktreeTag
@@ -35,6 +36,11 @@ fn text(locale : @i18n.Locale, message : UiMessage) -> String {
     (SimplifiedChinese, EnvironmentTitle) => "环境"
     (TraditionalChinese, EnvironmentTitle) => "環境"
     (Japanese, EnvironmentTitle) => "環境"
+    (English, ChangesTitle) => "Changes"
+    (Spanish, ChangesTitle) => "Cambios"
+    (SimplifiedChinese, ChangesTitle) => "更改"
+    (TraditionalChinese, ChangesTitle) => "變更"
+    (Japanese, ChangesTitle) => "変更"
     (English, ConnectorsTitle) => "Connectors"
     (Spanish, ConnectorsTitle) => "Conectores"
     (SimplifiedChinese, ConnectorsTitle) => "连接器"

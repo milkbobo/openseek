@@ -1,0 +1,15 @@
+import {
+  "openseek_desktop/frontend/i18n",
+  "openseek_desktop/frontend/icons",
+  "openseek_desktop/frontend/interop",
+  "openseek_desktop/commands",
+  "openseek_desktop/protocol",
+  "moonbit-community/rabbita/cmd",
+  "moonbit-community/rabbita/html",
+}
+
+supported_targets = "js"
+
+import {
+  "moonbitlang/core/json",
+} for "test"

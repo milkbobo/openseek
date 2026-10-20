@@ -189,3 +189,118 @@ main:has(> .conv-overview) {
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
 }
+
+/* Changes card: the checkout first, then what the agent attached. The icon
+   carries the pull request's state; a row with a page links to it, and an
+   attached row's remove button sits outside the link. */
+.conv-changes-row,
+.conv-changes-error {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.conv-changes-link {
+  --icon-size: var(--icon-md);
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 22px;
+  margin-inline: -4px;
+  padding-inline: 4px;
+  border-radius: var(--radius-xs);
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+a.conv-changes-link:hover {
+  background: var(--color-hover-subtle);
+}
+
+.conv-changes-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-text-muted);
+}
+.conv-changes-icon.open {
+  color: var(--color-success);
+}
+.conv-changes-icon.draft {
+  color: var(--color-text-faint);
+}
+.conv-changes-icon.merged {
+  color: light-dark(#8250df, #a371f7);
+}
+.conv-changes-icon.closed {
+  color: var(--color-danger);
+}
+
+.conv-changes-text {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.conv-changes-error .conv-changes-text {
+  flex-direction: column;
+  gap: 0;
+}
+
+.conv-changes-number {
+  flex: none;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.conv-changes-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conv-changes-name.branch {
+  font-family: var(--font-family-mono);
+}
+
+.conv-changes-diff {
+  display: flex;
+  flex: none;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.conv-changes-diff .added {
+  color: var(--color-success);
+}
+.conv-changes-diff .removed {
+  color: var(--color-danger);
+}
+
+/* The remove button stays out of the way until the row is hovered or
+   focused, like the transcript's row actions. */
+.conv-changes-remove {
+  opacity: 0;
+}
+.conv-changes-row:hover .conv-changes-remove,
+.conv-changes-remove:focus-visible {
+  opacity: 1;
+}
+.conv-changes-row:hover .conv-changes-remove:disabled {
+  opacity: 0.5;
+}
+
+.conv-changes-error > .run-dot {
+  flex: none;
+  margin-inline: 5px;
+}
+
+/* An attached branch's repository gives way before its name does. */
+.conv-changes-text > .conv-overview-row-sub {
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

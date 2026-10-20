@@ -256,6 +256,7 @@ fn device_msg(
     WorkspaceSettingsChanged(payload) =>
       workspace_settings_changed_msg(channel, payload)
     WorktreeChanged(payload) => worktree_changed_msg(channel, payload)
+    SessionArtifactsChanged(payload) => Some(ArtifactsChanged(payload.session))
     SettingsChanged(payload) =>
       Some(
         HostSettingsLoaded(

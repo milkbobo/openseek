@@ -25,6 +25,15 @@ pub(all) struct Connectors {
 }
 
 ///|
+/// The pull requests and branches the conversation works on: a one-line
+/// summary for the folded card and the rows for the unfolded one, drawn by
+/// the package that owns the attached list.
+pub(all) struct Changes {
+  summary : String
+  rows : Array[@html.Html]
+}
+
+///|
 /// The titlebar control that shows and hides the overview. One control owns
 /// both states, whether the overview is a rail or a panel over the
 /// conversation.
@@ -60,6 +69,7 @@ pub fn view(
   locale~ : @i18n.Locale = English,
   state : State,
   environment~ : Environment,
+  changes~ : Changes?,
   connectors~ : Connectors,
   emit : @cmd.Emit[Msg],
 ) -> @html.Html {
@@ -75,6 +85,23 @@ pub fn view(
         aside=[],
         environment_rows(locale, environment),
       ),
+      // With no checkout to describe and nothing attached, there is no card.
+      if changes is Some(changes) {
+        card(
+          locale,
+          Changes,
+          state,
+          emit,
+          aside=if state.is_open(Changes) {
+            []
+          } else {
+            [@html.span(class="conv-overview-summary", changes.summary)]
+          },
+          changes.rows,
+        )
+      } else {
+        @html.nothing
+      },
       card(
         locale,
         Connectors,
@@ -109,6 +136,7 @@ fn card(
   let open = state.is_open(section)
   let title = match section {
     Environment => text(locale, EnvironmentTitle)
+    Changes => text(locale, ChangesTitle)
     Connectors => text(locale, ConnectorsTitle)
   }
   @html.div(class="conv-overview-card", [

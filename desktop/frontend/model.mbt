@@ -1552,6 +1552,9 @@ priv struct Model {
   // The overview's connectors card data: what a conversation's engine last
   // said it holds of its MCP servers.
   mcp : @mcp.State
+  // The overview's changes card data: the pull requests and branches the
+  // agent attached to a conversation.
+  changes : @session_changes.State
   // Whether the conversation overview is on screen. A window preference, like
   // the detailed transcript: it stays across conversation switches and
   // launches. The stylesheet decides whether it is a rail or a panel.
@@ -2204,6 +2207,7 @@ priv enum Msg {
   Github(@github.Msg)
   Jobs(@jobs.Msg)
   Mcp(@mcp.Msg)
+  Changes(@session_changes.Msg)
   // The browser toolbar, acting on whatever Browser tab is active — the
   // messages carry no id so a stale click cannot outlive a tab switch.
   BrowserAddressEdited(String)
@@ -2607,6 +2611,9 @@ priv enum DeviceMsg {
   JobsChanged(String)
   // The engine of this session reported what it holds of its MCP servers.
   McpChanged(String)
+  // The host saved a new list of this session's attached pull requests and
+  // branches.
+  ArtifactsChanged(String)
   Engine(String?, @transcript.EngineEvent, session~ : String?)
   // The exact local start request returned its run result. `accepted` is the
   // prompt's ownership receipt and can recover a Started notification lost on
@@ -2860,6 +2867,7 @@ fn initial_model(desktop~ : Bool) -> Model {
     right_panel_expanded: false,
     jobs: @jobs.State::empty(),
     mcp: @mcp.State::initial(),
+    changes: @session_changes.State::initial(),
     overview_open: false,
     overview: @conversation_overview.State::initial(),
     github: @github.State::empty(),

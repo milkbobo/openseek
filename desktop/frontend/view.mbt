@@ -1739,8 +1739,8 @@ fn Model::overview_environment(
 }
 
 ///|
-/// The overview beside `conv`: where it runs and what its engine is connected
-/// to.
+/// The overview beside `conv`: where it runs, which pull requests and branches
+/// it works on, and what its engine is connected to.
 fn overview_view(
   dispatch : @cmd.Emit[Msg],
   model : Model,
@@ -1750,10 +1750,26 @@ fn overview_view(
     channel: conv.device,
     session: conv.session_id,
   }
+  let checkout = conv.overview_checkout()
   @conversation_overview.view(
     locale=model.locale,
     model.overview,
     environment=model.overview_environment(conv),
+    changes=@session_changes.summary(
+      locale=model.locale,
+      key,
+      checkout,
+      model.changes,
+    ).map(summary => {
+      summary,
+      rows: @session_changes.rows(
+        locale=model.locale,
+        key,
+        checkout,
+        model.changes,
+        dispatch.map(msg => Changes(msg)),
+      ),
+    }),
     connectors={
       summary: @mcp.summary(locale=model.locale, key, model.mcp),
       rows: @mcp.rows(locale=model.locale, key, model.mcp),
